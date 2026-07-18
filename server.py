@@ -51,6 +51,13 @@ def _resolve_public_base() -> str:
     except Exception:
         return f"http://127.0.0.1:{PORT}"
 
+
+def _request_public_base() -> str:
+    host_url = (request.host_url or "").strip().rstrip("/")
+    if host_url and not re.search(r"://(?:127\.0\.0\.1|localhost)(?::|/|$)", host_url, re.I):
+        return host_url
+    return PUBLIC_BASE
+
 PUBLIC_BASE = _resolve_public_base()
 
 if not PRODUCTS_FILE.exists():
@@ -197,7 +204,7 @@ def health():
         "service": "carmenkarla-local-python-server",
         "ts": int(time.time() * 1000),
         "storageMode": "persistent" if _STORAGE_ROOT_ENV else "local",
-        "publicBase": PUBLIC_BASE,
+        "publicBase": _request_public_base(),
     })
 
 
@@ -231,7 +238,7 @@ def upload_image():
     dest = UPLOAD_DIR / filename
     file.save(dest)
 
-    url = f"{PUBLIC_BASE}/uploads/{filename}"
+    url = f"{_request_public_base()}/uploads/{filename}"
     return jsonify({"ok": True, "filename": filename, "url": url})
 
 
