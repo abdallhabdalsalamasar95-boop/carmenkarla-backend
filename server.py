@@ -11,6 +11,14 @@ from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 
+try:
+    import firebase_admin
+    from firebase_admin import credentials, firestore
+except Exception:  # pragma: no cover - optional dependency at runtime
+    firebase_admin = None
+    credentials = None
+    firestore = None
+
 ROOT = Path(__file__).resolve().parent
 
 load_dotenv(ROOT / ".env")
@@ -34,6 +42,12 @@ CORS_ORIGIN = (os.getenv("CORS_ORIGIN", "") or "").strip()
 # Explicit public base URL used for image links (so phone can access them via LAN IP).
 # If not set, auto-detected from SERVER_HOST or machine's LAN IP.
 _SERVER_BASE_URL_ENV = (os.getenv("SERVER_BASE_URL", "") or "").strip().rstrip("/")
+_FIREBASE_SERVICE_ACCOUNT_FILE = (os.getenv("FIREBASE_SERVICE_ACCOUNT_FILE", "") or "").strip()
+_FIREBASE_SERVICE_ACCOUNT_JSON = (os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "") or "").strip()
+_FIREBASE_PROJECT_ID = (os.getenv("FIREBASE_PROJECT_ID", "") or "").strip()
+
+_FIRESTORE_DB = None
+_FIREBASE_INIT_ERROR = ""
 
 
 def _resolve_public_base() -> str:
@@ -57,6 +71,61 @@ def _request_public_base() -> str:
     if host_url and not re.search(r"://(?:127\.0\.0\.1|localhost)(?::|/|$)", host_url, re.I):
         return host_url
     return PUBLIC_BASE
+
+
+def _init_firestore() -> None:
+    global _FIRESTORE_DB, _FIREBASE_INIT_ERROR
+
+    if _FIRESTORE_DB is not None:
+        return
+
+    if firebase_admin is None or firestore is None:
+        _FIREBASE_INIT_ERROR = "firebase-admin package is not installed"
+        return
+
+    try:
+        app_obj = firebase_admin.get_app() if firebase_admin._apps else None
+    except Exception:
+        app_obj = None
+
+    try:
+        if app_obj is None:
+            if _FIREBASE_SERVICE_ACCOUNT_FILE:
+                service_path = Path(_FIREBASE_SERVICE_ACCOUNT_FILE)
+                if not service_path.is_absolute():
+                    service_path = (ROOT / service_path).resolve()
+                if not service_path.exists():
+                    _FIREBASE_INIT_ERROR = f"Service account file not found: {service_path}"
+                    return
+                cred = credentials.Certificate(str(service_path))
+                app_obj = firebase_admin.initialize_app(cred)
+            elif _FIREBASE_SERVICE_ACCOUNT_JSON:
+                service_json = json.loads(_FIREBASE_SERVICE_ACCOUNT_JSON)
+                cred = credentials.Certificate(service_json)
+                app_obj = firebase_admin.initialize_app(cred)
+            elif _FIREBASE_PROJECT_ID:
+                app_obj = firebase_admin.initialize_app(options={"projectId": _FIREBASE_PROJECT_ID})
+            else:
+                _FIREBASE_INIT_ERROR = (
+                    "Missing Firebase credentials. Configure FIREBASE_SERVICE_ACCOUNT_FILE "
+                    "or FIREBASE_SERVICE_ACCOUNT_JSON"
+                )
+                return
+
+        _FIRESTORE_DB = firestore.client(app_obj)
+        _FIREBASE_INIT_ERROR = ""
+    except Exception as ex:
+        _FIRESTORE_DB = None
+        _FIREBASE_INIT_ERROR = str(ex)
+
+
+def _firestore_db() -> tuple[Optional[Any], str]:
+    if _FIRESTORE_DB is not None:
+        return _FIRESTORE_DB, ""
+    _init_firestore()
+    if _FIRESTORE_DB is not None:
+        return _FIRESTORE_DB, ""
+    return None, (_FIREBASE_INIT_ERROR or "Failed to initialize Firestore")
 
 PUBLIC_BASE = _resolve_public_base()
 
@@ -307,6 +376,92 @@ def delete_product(pid: str):
     return jsonify({"ok": True, "deleted": deleted})
 
 
+@app.post("/notifications/send")
+def send_customer_notifications():
+    ok, err = require_admin()
+    if not ok:
+        return err
+
+    payload = request.get_json(silent=True) or {}
+    title = str(payload.get("title") or "").strip()
+    body = str(payload.get("body") or "").strip()
+    audience = str(payload.get("audience") or "all").strip().lower()
+    target = str(payload.get("target") or "").strip()
+    target_id = str(payload.get("targetId") or "").strip()
+
+    if not title:
+        return jsonify({"ok": False, "error": "title is required"}), 400
+    if not body:
+        return jsonify({"ok": False, "error": "body is required"}), 400
+
+    user_ids: List[str] = []
+    if isinstance(payload.get("userIds"), list):
+        user_ids = [str(x).strip() for x in payload.get("userIds", []) if str(x).strip()]
+    elif payload.get("userId"):
+        uid = str(payload.get("userId")).strip()
+        if uid:
+            user_ids = [uid]
+
+    if audience == "user" and not user_ids:
+        return jsonify({"ok": False, "error": "userId/userIds required when audience=user"}), 400
+
+    db, db_error = _firestore_db()
+    if not db:
+        return jsonify({
+            "ok": False,
+            "error": "Notifications backend not configured",
+            "details": db_error,
+        }), 503
+
+    if audience == "all":
+        limit = as_int(payload.get("limit", 500), 500)
+        limit = max(1, min(limit, 2000))
+        docs = db.collection("users").limit(limit).stream()
+        user_ids = [d.id for d in docs if str(d.id).strip()]
+
+    deduped: List[str] = []
+    seen = set()
+    for uid in user_ids:
+        if uid in seen:
+            continue
+        seen.add(uid)
+        deduped.append(uid)
+
+    if not deduped:
+        return jsonify({"ok": False, "error": "No target users found"}), 404
+
+    now_ms = int(time.time() * 1000)
+    sent = 0
+    chunk_size = 400
+
+    for i in range(0, len(deduped), chunk_size):
+        batch = db.batch()
+        chunk = deduped[i:i + chunk_size]
+        for uid in chunk:
+            doc_id = f"n_admin_{now_ms}_{uuid.uuid4().hex[:10]}"
+            ref = db.collection("users").document(uid).collection("notifications").document(doc_id)
+            batch.set(ref, {
+                "title": title,
+                "body": body,
+                "target": target,
+                "targetId": target_id,
+                "read": False,
+                "createdAtMs": now_ms,
+                "createdAt": firestore.SERVER_TIMESTAMP,
+                "updatedAt": firestore.SERVER_TIMESTAMP,
+                "source": "admin_panel",
+            }, merge=True)
+        batch.commit()
+        sent += len(chunk)
+
+    return jsonify({
+        "ok": True,
+        "sent": sent,
+        "audience": audience,
+        "title": title,
+    })
+
+
 if __name__ == "__main__":
     print(f"Local Python server listening on http://{HOST}:{PORT}")
     print("Health: GET /health")
@@ -315,4 +470,5 @@ if __name__ == "__main__":
     print("Admin update product: PUT /products/<id>")
     print("Admin delete product: DELETE /products/<id>")
     print("Admin upload image: POST /products/upload (form-data: image)")
+    print("Admin send notifications: POST /notifications/send")
     app.run(host=HOST, port=PORT)

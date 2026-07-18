@@ -194,6 +194,7 @@
         </div>
         <div class="hero-actions">
           <button class="btn btn-primary" onclick="setView('products')">فتح إدارة المنتجات</button>
+          <button class="btn btn-soft" onclick="setView('notifications')">إرسال إشعار</button>
           <button class="btn btn-soft" onclick="setView('overview')">النظرة العامة</button>
           <button class="btn btn-soft" onclick="setView('settings')">الاتصال</button>
         </div>
@@ -225,11 +226,11 @@
         <p>بقيت داخل الهاتف حاليًا لاعتبارات الأمان، مع تجهيز مكانها في الويب.</p>
         <div class="hub-meta"><span class="badge soon">الهاتف فقط</span><span class="pill">أمان</span></div>
       </div>
-      <div class="hub-card" onclick="notifyUnavailable('العروض المميزة')">
-        <div class="icon">🎯</div>
-        <h3>العروض المميزة</h3>
-        <p>سنربطها على الويب لاحقًا عندما نضيف لها backend في السيرفر.</p>
-        <div class="hub-meta"><span class="badge soon">قريبًا</span><span class="pill">عروض</span></div>
+      <div class="hub-card" onclick="setView('notifications')">
+        <div class="icon">🔔</div>
+        <h3>إشعارات الزباين</h3>
+        <p>إرسال إشعار فوري لكل الزباين أو لمستخدم محدد عبر Firestore.</p>
+        <div class="hub-meta"><span class="badge ok">متاح الآن</span><span class="pill">إشعارات</span></div>
       </div>
     </section>
 
@@ -238,10 +239,12 @@
         <div class="tabs">
           <button class="tab active" data-tab="overview" onclick="setView('overview')">نظرة عامة</button>
           <button class="tab" data-tab="products" onclick="setView('products')">إدارة المنتجات</button>
+          <button class="tab" data-tab="notifications" onclick="setView('notifications')">إشعارات الزباين</button>
           <button class="tab" data-tab="settings" onclick="setView('settings')">الاتصال</button>
         </div>
         <div class="quick-row">
           <button class="btn btn-primary" onclick="openAddModal()">+ منتج جديد</button>
+          <button class="btn btn-soft" onclick="setView('notifications')">إرسال إشعار</button>
           <button class="btn btn-soft" onclick="loadProducts()">تحديث البيانات</button>
         </div>
       </div>
@@ -300,6 +303,59 @@
             </thead>
             <tbody id="tableBody"><tr><td colspan="8" class="empty"><span class="spinner"></span></td></tr></tbody>
           </table>
+        </div>
+      </div>
+
+      <div class="panel" id="panel-notifications">
+        <div class="overview-grid">
+          <div class="card">
+            <div class="panel-head"><div><h3>إرسال إشعار للزباين</h3><p>يُحفظ داخل `users/{uid}/notifications` ويظهر داخل التطبيق في صندوق الإشعارات.</p></div></div>
+            <div class="form-grid">
+              <div class="field">
+                <label>نوع الإرسال</label>
+                <select id="nAudience" onchange="onNotificationAudienceChange()">
+                  <option value="all">جميع الزباين</option>
+                  <option value="user">مستخدم محدد</option>
+                </select>
+              </div>
+              <div class="field" id="nLimitField">
+                <label>حد أقصى لعدد المستخدمين (للإرسال العام)</label>
+                <input id="nLimit" type="number" min="1" max="2000" value="500" />
+              </div>
+              <div class="field form-full" id="nUserField" style="display:none">
+                <label>UID المستخدم</label>
+                <input id="nUserId" type="text" placeholder="uid_..." />
+              </div>
+              <div class="field form-full">
+                <label>عنوان الإشعار *</label>
+                <input id="nTitle" type="text" placeholder="عرض جديد اليوم ✨" />
+              </div>
+              <div class="field form-full">
+                <label>محتوى الإشعار *</label>
+                <textarea id="nBody" placeholder="تفاصيل مختصرة ومشجعة للزبونة..."></textarea>
+              </div>
+              <div class="field">
+                <label>target (اختياري)</label>
+                <input id="nTarget" type="text" placeholder="offers / product / home" />
+              </div>
+              <div class="field">
+                <label>targetId (اختياري)</label>
+                <input id="nTargetId" type="text" placeholder="productId أو offerId" />
+              </div>
+            </div>
+            <div class="hero-actions">
+              <button class="btn btn-primary" id="sendNotifBtn" onclick="sendCustomerNotification()">إرسال الإشعار</button>
+              <button class="btn btn-soft" onclick="resetNotificationForm()">تفريغ الحقول</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="panel-head"><div><h3>مهم قبل الإرسال</h3><p>لتفادي الإزعاج، أرسل رسائل مركزة وواضحة.</p></div></div>
+            <div class="list">
+              <div class="row"><div><h4>اكتبي عنوان واضح</h4><p>مثال: خصم اليوم، أو منتج وصل الآن.</p></div><span class="badge ok">أفضل ممارسة</span></div>
+              <div class="row"><div><h4>اختبري على UID واحد أولاً</h4><p>ثم أرسلي عام لجميع الزباين.</p></div><span class="badge soon">موصى به</span></div>
+              <div class="row"><div><h4>لا تكرري الإرسال بسرعة</h4><p>حتى لا يتحول التنبيه لإزعاج للمستخدمين.</p></div><span class="badge soon">تجربة العميل</span></div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -477,19 +533,71 @@
     function renderPresetGroup(containerId, inputId, presets, mode) {
       const box = document.getElementById(containerId);
       box.innerHTML = presets.map(item => `<button type="button" class="preset" data-group="${containerId}" data-mode="${mode}" data-value="${escHtml(item)}">${escHtml(item)}</button>`).join('');
-+      box.querySelectorAll('.preset').forEach(btn => {
-+        btn.addEventListener('click', () => {
-+          const normalize = mode === 'size' ? normalizeSize : normalizePlain;
-+          const input = document.getElementById(inputId);
-+          const items = parseList(input.value, normalize);
-+          const value = normalize(btn.dataset.value || '');
-+          const idx = items.indexOf(value);
-+          if (idx >= 0) items.splice(idx, 1);
-+          else items.push(value);
-+          input.value = joinList(items);
-+          syncPresetStates();
-+        });
-+      });
+      box.querySelectorAll('.preset').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const normalize = mode === 'size' ? normalizeSize : normalizePlain;
+          const input = document.getElementById(inputId);
+          const items = parseList(input.value, normalize);
+          const value = normalize(btn.dataset.value || '');
+          const idx = items.indexOf(value);
+          if (idx >= 0) items.splice(idx, 1);
+          else items.push(value);
+          input.value = joinList(items);
+          syncPresetStates();
+        });
+      });
+    }
+
+    function onNotificationAudienceChange() {
+      const audience = document.getElementById('nAudience').value;
+      document.getElementById('nUserField').style.display = audience === 'user' ? 'grid' : 'none';
+      document.getElementById('nLimitField').style.display = audience === 'all' ? 'grid' : 'none';
+    }
+
+    function resetNotificationForm() {
+      document.getElementById('nAudience').value = 'all';
+      document.getElementById('nLimit').value = '500';
+      document.getElementById('nUserId').value = '';
+      document.getElementById('nTitle').value = '';
+      document.getElementById('nBody').value = '';
+      document.getElementById('nTarget').value = '';
+      document.getElementById('nTargetId').value = '';
+      onNotificationAudienceChange();
+    }
+
+    async function sendCustomerNotification() {
+      const title = document.getElementById('nTitle').value.trim();
+      const body = document.getElementById('nBody').value.trim();
+      const audience = document.getElementById('nAudience').value;
+      const userId = document.getElementById('nUserId').value.trim();
+      const limit = parseInt(document.getElementById('nLimit').value || '500', 10) || 500;
+      const target = document.getElementById('nTarget').value.trim();
+      const targetId = document.getElementById('nTargetId').value.trim();
+
+      if (!title) return toast('عنوان الإشعار مطلوب', 'error');
+      if (!body) return toast('محتوى الإشعار مطلوب', 'error');
+      if (audience === 'user' && !userId) return toast('UID المستخدم مطلوب للإرسال الفردي', 'error');
+
+      const btn = document.getElementById('sendNotifBtn');
+      const old = btn.textContent;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>';
+
+      const payload = { title, body, audience, target, targetId };
+      if (audience === 'all') payload.limit = Math.max(1, Math.min(limit, 2000));
+      if (audience === 'user') payload.userId = userId;
+
+      try {
+        const data = await api('POST', '/notifications/send', payload);
+        if (!data.ok) throw new Error(data.error || data.details || 'فشل إرسال الإشعار');
+        toast(`تم إرسال الإشعار بنجاح (${data.sent || 0})`, 'success');
+        resetNotificationForm();
+      } catch (err) {
+        toast(String(err?.message || 'فشل الاتصال بالسيرفر'), 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = old;
+      }
     }
 
     function syncPresetStates() {
@@ -876,6 +984,7 @@
       renderPresetGroup('lengthsPreset', 'fLengths', LENGTH_PRESETS, 'plain');
       ['fTags', 'fSizes', 'fLengths'].forEach(id => document.getElementById(id).addEventListener('input', syncPresetStates));
       syncPresetStates();
+      onNotificationAudienceChange();
       checkHealth();
       loadProducts();
     }

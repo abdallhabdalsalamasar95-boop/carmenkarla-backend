@@ -52,6 +52,27 @@
 - `PUT /products/<id>`
 - `DELETE /products/<id>`
 - `POST /products/upload` (form-data: `image`)
+- `POST /notifications/send` (JSON)
+
+#### إرسال إشعار للزبائن
+
+Body (عام لكل المستخدمين):
+
+- `title` (مطلوب)
+- `body` (مطلوب)
+- `audience` = `all`
+- `limit` (اختياري، افتراضي 500، حد أقصى 2000)
+- `target` (اختياري)
+- `targetId` (اختياري)
+
+Body (لمستخدم محدد):
+
+- `title` (مطلوب)
+- `body` (مطلوب)
+- `audience` = `user`
+- `userId` أو `userIds`
+- `target` (اختياري)
+- `targetId` (اختياري)
 
 ## 5) التخزين
 
@@ -71,6 +92,9 @@
 - `SERVER_BASE_URL` = `https://carmenkarla-backend.onrender.com`
 - `STORAGE_ROOT` = `/var/data/carmenkarla`
 - `CORS_ORIGIN` = اتركه فارغًا أو حدده حسب حاجتك
+- `FIREBASE_SERVICE_ACCOUNT_FILE` = مسار ملف Service Account JSON (المفضل)
+  - أو بديله: `FIREBASE_SERVICE_ACCOUNT_JSON` = محتوى JSON كسطر واحد
+- `FIREBASE_PROJECT_ID` = اختياري
 
 ## 6) الربط مع التطبيق
 
