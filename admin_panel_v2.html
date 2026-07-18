@@ -414,7 +414,11 @@
     const SIZE_PRESETS = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL', '50', '52', '54', '56', '58', '60'];
     const LENGTH_PRESETS = ['قصير', 'عادي', 'طويل', '150', '152', '154', '156', '158', '160'];
 
-    let BASE_URL = localStorage.getItem('ck_base') || 'http://localhost:8080';
+    const FALLBACK_BASE_URL = window.location.protocol.startsWith('http') ? window.location.origin : 'http://localhost:8080';
+    let BASE_URL = localStorage.getItem('ck_base') || FALLBACK_BASE_URL;
+    if (window.location.protocol.startsWith('http') && /:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(BASE_URL)) {
+      BASE_URL = window.location.origin;
+    }
     let API_TOKEN = localStorage.getItem('ck_token') || 'ck_9f6e3b42d14a4c4f8ea8a4fb6f6f0e11';
     let allProducts = [];
     let deleteTargetId = null;
