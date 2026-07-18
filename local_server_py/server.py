@@ -34,6 +34,7 @@ if not STORAGE_ROOT.is_absolute():
 DATA_DIR = STORAGE_ROOT / "data"
 UPLOAD_DIR = STORAGE_ROOT / "uploads"
 PRODUCTS_FILE = DATA_DIR / "products.json"
+NOTIFICATIONS_FILE = DATA_DIR / "notifications.json"
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -135,6 +136,9 @@ PUBLIC_BASE = _resolve_public_base()
 if not PRODUCTS_FILE.exists():
     PRODUCTS_FILE.write_text("[]", encoding="utf-8")
 
+if not NOTIFICATIONS_FILE.exists():
+    NOTIFICATIONS_FILE.write_text("[]", encoding="utf-8")
+
 app = Flask(__name__)
 
 if CORS_ORIGIN:
@@ -158,6 +162,50 @@ def write_products(products: List[Dict[str, Any]]) -> None:
     PRODUCTS_FILE.write_text(
         json.dumps(products, ensure_ascii=False, indent=2), encoding="utf-8"
     )
+
+
+def read_notifications() -> List[Dict[str, Any]]:
+    try:
+        raw = NOTIFICATIONS_FILE.read_text(encoding="utf-8")
+        data = json.loads(raw)
+        if isinstance(data, list):
+            return [x for x in data if isinstance(x, dict)]
+        return []
+    except Exception:
+        return []
+
+
+def write_notifications(items: List[Dict[str, Any]]) -> None:
+    NOTIFICATIONS_FILE.write_text(
+        json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+
+def normalize_notification_item(payload: Dict[str, Any], current: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    cur = current or {}
+    now_ms = int(time.time() * 1000)
+
+    nid = str(payload.get("id") or cur.get("id") or f"n_srv_{now_ms}_{uuid.uuid4().hex[:8]}").strip()
+    title = str(payload.get("title") or cur.get("title") or "").strip()
+    body = str(payload.get("body") or cur.get("body") or "").strip()
+    target = str(payload.get("target") or cur.get("target") or "").strip()
+    target_id = str(payload.get("targetId") or cur.get("targetId") or "").strip()
+    audience = str(payload.get("audience") or cur.get("audience") or "all").strip().lower()
+    uid = str(payload.get("uid") or cur.get("uid") or "").strip()
+
+    if audience not in {"all", "user"}:
+        audience = "all"
+
+    return {
+        "id": nid,
+        "title": title,
+        "body": body,
+        "target": target,
+        "targetId": target_id,
+        "audience": audience,
+        "uid": uid,
+        "createdAtMs": as_int(payload.get("createdAtMs", cur.get("createdAtMs", now_ms)), now_ms),
+    }
 
 
 def as_number(v: Any, fallback: float = 0.0) -> float:
@@ -409,60 +457,143 @@ def send_customer_notifications():
         return jsonify({"ok": False, "error": "userId/userIds required when audience=user"}), 400
 
     db, db_error = _firestore_db()
-    if not db:
+
+    # Preferred path: Firestore (if available).
+    if db:
+        if audience == "all":
+            limit = as_int(payload.get("limit", 500), 500)
+            limit = max(1, min(limit, 2000))
+            docs = db.collection("users").limit(limit).stream()
+            user_ids = [d.id for d in docs if str(d.id).strip()]
+
+        deduped: List[str] = []
+        seen = set()
+        for uid in user_ids:
+            if uid in seen:
+                continue
+            seen.add(uid)
+            deduped.append(uid)
+
+        if not deduped:
+            return jsonify({"ok": False, "error": "No target users found"}), 404
+
+        now_ms = int(time.time() * 1000)
+        sent = 0
+        chunk_size = 400
+
+        for i in range(0, len(deduped), chunk_size):
+            batch = db.batch()
+            chunk = deduped[i:i + chunk_size]
+            for uid in chunk:
+                doc_id = f"n_admin_{now_ms}_{uuid.uuid4().hex[:10]}"
+                ref = db.collection("users").document(uid).collection("notifications").document(doc_id)
+                batch.set(ref, {
+                    "title": title,
+                    "body": body,
+                    "target": target,
+                    "targetId": target_id,
+                    "read": False,
+                    "createdAtMs": now_ms,
+                    "createdAt": firestore.SERVER_TIMESTAMP,
+                    "updatedAt": firestore.SERVER_TIMESTAMP,
+                    "source": "admin_panel",
+                }, merge=True)
+            batch.commit()
+            sent += len(chunk)
+
         return jsonify({
-            "ok": False,
-            "error": "Notifications backend not configured",
-            "details": db_error,
-        }), 503
+            "ok": True,
+            "sent": sent,
+            "audience": audience,
+            "title": title,
+            "backend": "firestore",
+        })
 
-    if audience == "all":
-        limit = as_int(payload.get("limit", 500), 500)
-        limit = max(1, min(limit, 2000))
-        docs = db.collection("users").limit(limit).stream()
-        user_ids = [d.id for d in docs if str(d.id).strip()]
-
-    deduped: List[str] = []
-    seen = set()
-    for uid in user_ids:
-        if uid in seen:
-            continue
-        seen.add(uid)
-        deduped.append(uid)
-
-    if not deduped:
-        return jsonify({"ok": False, "error": "No target users found"}), 404
-
+    # Fallback path: local JSON storage (works without Firebase).
+    entries = read_notifications()
     now_ms = int(time.time() * 1000)
     sent = 0
-    chunk_size = 400
 
-    for i in range(0, len(deduped), chunk_size):
-        batch = db.batch()
-        chunk = deduped[i:i + chunk_size]
-        for uid in chunk:
-            doc_id = f"n_admin_{now_ms}_{uuid.uuid4().hex[:10]}"
-            ref = db.collection("users").document(uid).collection("notifications").document(doc_id)
-            batch.set(ref, {
+    if audience == "all":
+        item = normalize_notification_item({
+            "title": title,
+            "body": body,
+            "target": target,
+            "targetId": target_id,
+            "audience": "all",
+            "uid": "",
+            "createdAtMs": now_ms,
+        })
+        entries.append(item)
+        sent = 1
+    else:
+        deduped: List[str] = []
+        seen = set()
+        for uid in user_ids:
+            if uid in seen:
+                continue
+            seen.add(uid)
+            deduped.append(uid)
+
+        if not deduped:
+            return jsonify({"ok": False, "error": "No target users found"}), 404
+
+        for uid in deduped:
+            entries.append(normalize_notification_item({
                 "title": title,
                 "body": body,
                 "target": target,
                 "targetId": target_id,
-                "read": False,
+                "audience": "user",
+                "uid": uid,
                 "createdAtMs": now_ms,
-                "createdAt": firestore.SERVER_TIMESTAMP,
-                "updatedAt": firestore.SERVER_TIMESTAMP,
-                "source": "admin_panel",
-            }, merge=True)
-        batch.commit()
-        sent += len(chunk)
+            }))
+            sent += 1
+
+    entries.sort(key=lambda x: as_int(x.get("createdAtMs", 0)), reverse=True)
+    entries = entries[:1000]
+    write_notifications(entries)
 
     return jsonify({
         "ok": True,
         "sent": sent,
         "audience": audience,
         "title": title,
+        "backend": "local-file",
+        "fallbackReason": db_error,
     })
+
+
+@app.get("/notifications/feed")
+def notifications_feed():
+    since_ms = as_int(request.args.get("sinceMs", 0), 0)
+    limit = as_int(request.args.get("limit", 50), 50)
+    limit = max(1, min(limit, 300))
+    uid = str(request.args.get("uid", "") or "").strip()
+
+    items = read_notifications()
+
+    def allowed(item: Dict[str, Any]) -> bool:
+        created = as_int(item.get("createdAtMs", 0), 0)
+        if created <= since_ms:
+            return False
+
+        audience = str(item.get("audience") or "all").strip().lower()
+        target_uid = str(item.get("uid") or "").strip()
+
+        if audience == "all":
+            return True
+
+        if audience == "user":
+            return bool(uid) and uid == target_uid
+
+        return False
+
+    filtered = [normalize_notification_item(x) for x in items if isinstance(x, dict) and allowed(x)]
+    filtered.sort(key=lambda x: as_int(x.get("createdAtMs", 0)), reverse=True)
+    filtered = filtered[:limit]
+
+    return jsonify({"ok": True, "count": len(filtered), "items": filtered})
 
 
 if __name__ == "__main__":
@@ -474,4 +605,5 @@ if __name__ == "__main__":
     print("Admin delete product: DELETE /products/<id>")
     print("Admin upload image: POST /products/upload (form-data: image)")
     print("Admin send notifications: POST /notifications/send")
+    print("Public notifications feed: GET /notifications/feed")
     app.run(host=HOST, port=PORT)
