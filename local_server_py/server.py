@@ -186,7 +186,7 @@ def require_admin() -> tuple[bool, Any]:
 
 @app.get("/admin")
 def admin_panel():
-    return send_from_directory(ROOT, "admin.html")
+    return send_from_directory(ROOT, "admin_web.html")
 
 
 @app.get("/uploads/<path:filename>")
