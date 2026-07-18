@@ -55,8 +55,22 @@
 
 ## 5) التخزين
 
-- المنتجات: `local_server_py/data/products.json`
-- الصور: `local_server_py/uploads/`
+- الوضع المحلي الافتراضي:
+  - المنتجات: `local_server_py/data/products.json`
+  - الصور: `local_server_py/uploads/`
+- للوضع الاحترافي على Render مدفوع:
+  - أضف Persistent Disk
+  - اجعل `STORAGE_ROOT=/var/data/carmenkarla`
+  - سيحفظ السيرفر البيانات في:
+    - `/var/data/carmenkarla/data/products.json`
+    - `/var/data/carmenkarla/uploads/`
+
+### متغيرات البيئة المهمة على Render
+
+- `API_TOKEN` = نفس التوكن الموجود في التطبيق
+- `SERVER_BASE_URL` = `https://carmenkarla-backend.onrender.com`
+- `STORAGE_ROOT` = `/var/data/carmenkarla`
+- `CORS_ORIGIN` = اتركه فارغًا أو حدده حسب حاجتك
 
 ## 6) الربط مع التطبيق
 

@@ -12,14 +12,20 @@ from flask_cors import CORS
 from werkzeug.utils import secure_filename
 
 ROOT = Path(__file__).resolve().parent
-DATA_DIR = ROOT / "data"
-UPLOAD_DIR = ROOT / "uploads"
+
+load_dotenv(ROOT / ".env")
+
+_STORAGE_ROOT_ENV = (os.getenv("STORAGE_ROOT", "") or "").strip()
+STORAGE_ROOT = Path(_STORAGE_ROOT_ENV) if _STORAGE_ROOT_ENV else ROOT
+if not STORAGE_ROOT.is_absolute():
+    STORAGE_ROOT = (ROOT / STORAGE_ROOT).resolve()
+
+DATA_DIR = STORAGE_ROOT / "data"
+UPLOAD_DIR = STORAGE_ROOT / "uploads"
 PRODUCTS_FILE = DATA_DIR / "products.json"
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-
-load_dotenv(ROOT / ".env")
 
 HOST = os.getenv("HOST", "0.0.0.0").strip() or "0.0.0.0"
 PORT = int((os.getenv("PORT", "8080") or "8080").strip())
@@ -186,7 +192,13 @@ def uploads(filename: str):
 
 @app.get("/health")
 def health():
-    return jsonify({"ok": True, "service": "carmenkarla-local-python-server", "ts": int(time.time() * 1000)})
+    return jsonify({
+        "ok": True,
+        "service": "carmenkarla-local-python-server",
+        "ts": int(time.time() * 1000),
+        "storageMode": "persistent" if _STORAGE_ROOT_ENV else "local",
+        "publicBase": PUBLIC_BASE,
+    })
 
 
 @app.get("/products")
