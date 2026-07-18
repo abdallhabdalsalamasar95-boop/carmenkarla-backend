@@ -11,13 +11,16 @@ from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 
+_FIREBASE_IMPORT_ERROR = ""
+
 try:
     import firebase_admin
     from firebase_admin import credentials, firestore
-except Exception:  # pragma: no cover - optional dependency at runtime
+except Exception as _ex:  # pragma: no cover - optional dependency at runtime
     firebase_admin = None
     credentials = None
     firestore = None
+    _FIREBASE_IMPORT_ERROR = str(_ex)
 
 ROOT = Path(__file__).resolve().parent
 
@@ -76,7 +79,10 @@ def _init_firestore() -> None:
         return
 
     if firebase_admin is None or firestore is None:
-        _FIREBASE_INIT_ERROR = "firebase-admin package is not installed"
+        _FIREBASE_INIT_ERROR = (
+            "firebase dependencies import failed"
+            + (f": {_FIREBASE_IMPORT_ERROR}" if _FIREBASE_IMPORT_ERROR else "")
+        )
         return
 
     try:
