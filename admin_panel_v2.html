@@ -7,128 +7,191 @@
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --bg: #0c1017;
-      --bg2: #121826;
-      --card: #171e2b;
-      --card2: #1d2534;
+      --bg: #0a0d13;
+      --bg2: #10151e;
+      --bg3: #141b26;
+      --card: rgba(18, 23, 33, 0.88);
+      --card2: rgba(24, 31, 43, 0.92);
       --line: rgba(255,255,255,.08);
-      --text: #f3efe8;
-      --muted: #9da7bc;
-      --gold: #d5b07a;
-      --gold2: #efd29f;
-      --ok: #5fd590;
-      --warn: #ffbf66;
-      --err: #f17272;
-      --blue: #6ea8ff;
-      --radius: 18px;
-      --shadow: 0 18px 45px rgba(0,0,0,.35);
+      --line-strong: rgba(255,255,255,.13);
+      --text: #f5f7fb;
+      --muted: #93a0b5;
+      --gold: #d4b07b;
+      --gold2: #f0d7ad;
+      --ok: #58d08c;
+      --warn: #f3b75f;
+      --err: #ef6f6c;
+      --blue: #74a8ff;
+      --radius: 20px;
+      --radius-sm: 14px;
+      --shadow: 0 18px 60px rgba(0,0,0,.36);
     }
     body {
-      font-family: "Segoe UI", Tahoma, sans-serif;
-      background: radial-gradient(circle at top right, rgba(213,176,122,.14), transparent 28%), linear-gradient(180deg, #0a0d13, #101722);
+      font-family: Inter, "Segoe UI", Tahoma, sans-serif;
+      background:
+        radial-gradient(circle at top right, rgba(212,176,123,.14), transparent 22%),
+        radial-gradient(circle at top left, rgba(116,168,255,.08), transparent 26%),
+        linear-gradient(180deg, #07090d, #0d131b 38%, #0b1118 100%);
       color: var(--text);
       min-height: 100vh;
     }
-    .shell { max-width: 1400px; margin: 0 auto; padding: 24px 16px 48px; }
-    .topbar, .card, .panel, .modal { background: var(--card); border: 1px solid var(--line); box-shadow: var(--shadow); }
+    .shell { max-width: 1540px; margin: 0 auto; padding: 22px 18px 42px; }
+    .topbar, .card, .panel, .modal {
+      background: var(--card);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(16px);
+    }
     .topbar {
-      border-radius: 22px; padding: 18px 20px; display: flex; justify-content: space-between; align-items: center; gap: 16px;
-      position: sticky; top: 12px; z-index: 20; backdrop-filter: blur(10px);
+      border-radius: 26px;
+      padding: 18px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      position: sticky;
+      top: 12px;
+      z-index: 20;
     }
     .brand { display: flex; align-items: center; gap: 14px; }
-    .mark { width: 52px; height: 52px; border-radius: 16px; display: grid; place-items: center; font-size: 24px; background: rgba(213,176,122,.12); border: 1px solid rgba(213,176,122,.22); }
-    .brand h1 { font-size: 1.15rem; font-weight: 900; }
-    .brand p { color: var(--muted); margin-top: 4px; font-size: .87rem; }
+    .mark {
+      width: 52px;
+      height: 52px;
+      border-radius: 18px;
+      display: grid;
+      place-items: center;
+      font-size: 22px;
+      background: linear-gradient(145deg, rgba(212,176,123,.18), rgba(240,215,173,.08));
+      border: 1px solid rgba(212,176,123,.22);
+    }
+    .brand h1 { font-size: 1.1rem; font-weight: 900; letter-spacing: .2px; }
+    .brand p { color: var(--muted); margin-top: 4px; font-size: .83rem; }
     .top-actions, .hero-actions, .toolbar, .quick-row, .chips, .thumbs, .tabs { display: flex; gap: 10px; flex-wrap: wrap; }
     .pill {
-      display: inline-flex; align-items: center; gap: 8px; border-radius: 999px; padding: 8px 12px;
-      background: rgba(255,255,255,.04); border: 1px solid var(--line); color: var(--muted); font-size: .82rem; font-weight: 800;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border-radius: 999px;
+      padding: 8px 12px;
+      background: rgba(255,255,255,.04);
+      border: 1px solid var(--line);
+      color: var(--muted);
+      font-size: .78rem;
+      font-weight: 800;
     }
     .dot { width: 10px; height: 10px; border-radius: 50%; background: #5a6478; }
     .dot.ok { background: var(--ok); }
     .dot.err { background: var(--err); }
     .btn {
-      border: none; cursor: pointer; border-radius: 14px; padding: 11px 16px; font-size: .9rem; font-weight: 800; transition: .18s ease;
+      border: none;
+      cursor: pointer;
+      border-radius: 14px;
+      padding: 11px 16px;
+      font-size: .88rem;
+      font-weight: 800;
+      transition: .18s ease;
     }
     .btn:hover { transform: translateY(-1px); }
     .btn:disabled { opacity: .6; cursor: not-allowed; transform: none; }
-    .btn-primary { background: linear-gradient(135deg, var(--gold), var(--gold2)); color: #17120c; }
-    .btn-soft { background: rgba(255,255,255,.05); color: var(--text); border: 1px solid var(--line); }
+    .btn-primary { background: linear-gradient(135deg, var(--gold), var(--gold2)); color: #17120c; box-shadow: 0 10px 30px rgba(212,176,123,.22); }
+    .btn-soft { background: rgba(255,255,255,.035); color: var(--text); border: 1px solid var(--line); }
     .btn-danger { background: linear-gradient(135deg, #d75d5d, #f07878); color: #fff; }
-    .hero {
-      margin-top: 18px; border-radius: 24px; border: 1px solid rgba(213,176,122,.16); padding: 24px;
-      background: linear-gradient(135deg, rgba(213,176,122,.12), rgba(255,255,255,.02));
-      display: grid; grid-template-columns: 1.35fr .95fr; gap: 16px;
+    .dashboard-strip {
+      margin-top: 18px;
+      display: grid;
+      grid-template-columns: repeat(8, minmax(0, 1fr));
+      gap: 12px;
     }
-    .hero h2 { font-size: clamp(1.35rem, 2vw, 2rem); line-height: 1.4; margin-bottom: 10px; }
-    .hero p { color: var(--muted); line-height: 1.8; }
     .stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-    .stat { background: var(--card2); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
-    .stat .label { color: var(--muted); font-size: .82rem; font-weight: 700; }
-    .stat .num { margin-top: 10px; color: var(--gold2); font-weight: 950; font-size: 2rem; }
-    .hub { margin-top: 18px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
-    .hub-card { padding: 18px; border-radius: var(--radius); background: var(--card); border: 1px solid var(--line); cursor: pointer; }
-    .hub-card:hover { border-color: rgba(213,176,122,.25); }
-    .hub-card.active { background: linear-gradient(135deg, rgba(213,176,122,.12), rgba(255,255,255,.02)); }
-    .hub-card .icon { font-size: 1.5rem; margin-bottom: 10px; }
-    .hub-card h3 { font-size: .98rem; font-weight: 900; }
-    .hub-card p { color: var(--muted); margin-top: 6px; line-height: 1.65; font-size: .84rem; }
-    .hub-meta { margin-top: 12px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .stat {
+      background: linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,.015));
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 16px;
+      min-height: 112px;
+    }
+    .stat .label { color: var(--muted); font-size: .77rem; font-weight: 700; line-height: 1.5; }
+    .stat .num { margin-top: 12px; color: var(--text); font-weight: 950; font-size: 1.85rem; letter-spacing: -.5px; }
     .badge { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 6px 10px; font-size: .74rem; font-weight: 900; }
     .badge.ok { color: var(--ok); background: rgba(95,213,144,.12); }
     .badge.soon { color: var(--warn); background: rgba(255,191,102,.12); }
     .badge.off { color: var(--err); background: rgba(241,114,114,.12); }
-    .workspace { margin-top: 18px; }
-    .switcher { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
-    .tab { border: 1px solid var(--line); background: rgba(255,255,255,.04); color: var(--muted); border-radius: 999px; padding: 10px 14px; font-weight: 800; cursor: pointer; }
-    .tab.active { background: linear-gradient(135deg, var(--gold), var(--gold2)); color: #17120c; border-color: transparent; }
-    .panel { display: none; border-radius: 20px; padding: 20px; }
+    .workspace { margin-top: 18px; display: grid; gap: 16px; }
+    .switcher {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      padding: 14px;
+      border-radius: 22px;
+      background: rgba(255,255,255,.03);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+    }
+    .tabs { gap: 8px; }
+    .tab {
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--muted);
+      border-radius: 999px;
+      padding: 10px 14px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    .tab.active {
+      background: rgba(255,255,255,.055);
+      color: var(--text);
+      border-color: var(--line-strong);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.03);
+    }
+    .panel { display: none; border-radius: 24px; padding: 22px; }
     .panel.active { display: block; }
     .panel-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
-    .panel-head h3 { font-size: 1.08rem; font-weight: 900; }
+    .panel-head h3 { font-size: 1.04rem; font-weight: 900; }
     .panel-head p { color: var(--muted); font-size: .86rem; margin-top: 4px; }
     .overview-grid { display: grid; grid-template-columns: 1.15fr .95fr; gap: 16px; }
     .stack { display: grid; gap: 16px; }
-    .card { border-radius: var(--radius); padding: 18px; }
+    .card { border-radius: var(--radius); padding: 18px; background: var(--card2); }
     .list { display: grid; gap: 10px; }
-    .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 14px; background: rgba(255,255,255,.03); border: 1px solid var(--line); }
+    .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 13px 14px; border-radius: 16px; background: rgba(255,255,255,.025); border: 1px solid rgba(255,255,255,.06); }
     .row h4 { font-size: .92rem; font-weight: 800; }
     .row p { margin-top: 4px; font-size: .8rem; color: var(--muted); }
     .search, input, textarea, select {
       width: 100%; background: rgba(255,255,255,.04); color: var(--text); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; font-family: inherit; font-size: .9rem; outline: none;
     }
-    .search:focus, input:focus, textarea:focus, select:focus { border-color: rgba(213,176,122,.35); }
-    textarea { min-height: 88px; resize: vertical; }
+    .search:focus, input:focus, textarea:focus, select:focus { border-color: rgba(213,176,122,.35); box-shadow: 0 0 0 4px rgba(212,176,123,.08); }
+    textarea { min-height: 96px; resize: vertical; }
     .products-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
-    .product-card { background: var(--card2); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; display: grid; gap: 12px; }
+    .product-card { background: rgba(255,255,255,.02); border: 1px solid rgba(255,255,255,.06); border-radius: var(--radius); padding: 15px; display: grid; gap: 12px; }
     .product-top { display: flex; gap: 12px; align-items: flex-start; }
     .thumb, .thumb-ph, .gallery-thumb, .pending-thumb { width: 70px; height: 70px; border-radius: 16px; object-fit: cover; border: 1px solid var(--line); background: var(--bg2); }
     .thumb-ph, .pending-thumb { display: grid; place-items: center; color: var(--muted); }
     .product-meta h4 { font-size: .95rem; font-weight: 900; line-height: 1.5; }
     .product-meta p { color: var(--muted); margin-top: 5px; font-size: .82rem; }
-    .price { color: var(--gold2); font-weight: 900; margin-top: 8px; }
-    .table-wrap { overflow: auto; border: 1px solid var(--line); border-radius: var(--radius); }
+    .price { color: var(--text); font-weight: 900; margin-top: 8px; }
+    .table-wrap { overflow: auto; border: 1px solid var(--line); border-radius: var(--radius); background: rgba(255,255,255,.015); }
     table { width: 100%; border-collapse: collapse; min-width: 980px; }
     th, td { padding: 14px 12px; text-align: right; }
-    th { background: rgba(255,255,255,.03); color: var(--muted); font-size: .8rem; font-weight: 900; }
+    th { background: rgba(255,255,255,.03); color: var(--muted); font-size: .78rem; font-weight: 900; text-transform: none; }
     td { border-top: 1px solid rgba(255,255,255,.06); font-size: .87rem; }
     .empty { text-align: center; padding: 36px 20px; color: var(--muted); }
     .empty .icon { font-size: 2.4rem; margin-bottom: 10px; }
     .modal-overlay { position: fixed; inset: 0; background: rgba(3,6,12,.72); display: none; align-items: center; justify-content: center; padding: 16px; z-index: 100; }
     .modal-overlay.open { display: flex; }
-    .modal { width: min(980px, 100%); max-height: 92vh; overflow: auto; border-radius: 24px; padding: 22px; }
+    .modal { width: min(1080px, 100%); max-height: 92vh; overflow: auto; border-radius: 28px; padding: 22px; }
     .modal-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 18px; }
     .modal-header h3 { font-size: 1.1rem; font-weight: 950; }
     .modal-header p { color: var(--muted); margin-top: 4px; font-size: .84rem; }
     .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
     .form-full { grid-column: 1 / -1; }
-    .form-block { background: var(--card2); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
+    .form-block { background: rgba(255,255,255,.02); border: 1px solid rgba(255,255,255,.06); border-radius: var(--radius); padding: 16px; }
     .form-block h4 { font-size: .92rem; font-weight: 900; margin-bottom: 12px; }
     .field { display: grid; gap: 6px; }
     .field label { color: var(--muted); font-size: .8rem; font-weight: 700; }
     .preset { border: 1px solid var(--line); background: rgba(255,255,255,.04); color: var(--muted); border-radius: 999px; padding: 8px 12px; font-size: .8rem; font-weight: 800; cursor: pointer; }
-    .preset.active { background: linear-gradient(135deg, var(--gold), var(--gold2)); color: #17120c; border-color: transparent; }
-    .drop-zone { border: 2px dashed rgba(255,255,255,.14); border-radius: 18px; padding: 22px; background: rgba(255,255,255,.02); text-align: center; cursor: pointer; }
+    .preset.active { background: rgba(255,255,255,.08); color: var(--text); border-color: rgba(255,255,255,.12); }
+    .drop-zone { border: 1px dashed rgba(255,255,255,.16); border-radius: 18px; padding: 24px; background: rgba(255,255,255,.018); text-align: center; cursor: pointer; }
     .drop-zone:hover, .drop-zone.drag { border-color: rgba(213,176,122,.45); background: rgba(213,176,122,.05); }
     .drop-zone strong { display: block; margin-bottom: 8px; }
     .drop-zone p { color: var(--muted); font-size: .84rem; }
@@ -149,14 +212,16 @@
     .toast.error { background: rgba(241,114,114,.16); color: var(--err); border: 1px solid rgba(241,114,114,.3); }
     .toast.info { background: rgba(110,168,255,.16); color: var(--blue); border: 1px solid rgba(110,168,255,.3); }
     .spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid rgba(255,255,255,.18); border-top-color: var(--gold); border-radius: 50%; animation: spin .7s linear infinite; }
+    .minimal-note { color: var(--muted); font-size: .78rem; }
     @keyframes spin { to { transform: rotate(360deg); } }
     @media (max-width: 1180px) {
-      .hero, .overview-grid { grid-template-columns: 1fr; }
-      .hub, .products-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .dashboard-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .overview-grid { grid-template-columns: 1fr; }
+      .products-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
     @media (max-width: 760px) {
       .topbar, .switcher, .panel-head, .toolbar, .row, .product-top { flex-direction: column; align-items: stretch; }
-      .hub, .products-grid, .form-grid, .stats { grid-template-columns: 1fr; }
+      .products-grid, .form-grid, .dashboard-strip { grid-template-columns: 1fr; }
       .btn { width: 100%; }
     }
   </style>
@@ -168,81 +233,25 @@
         <div class="mark">🛍</div>
         <div>
           <h1>CarmenKarla Admin</h1>
-          <p>لوحة ويب مستقلة — قريبة من لوحة الهاتف لكن بواجهة أوضح وأرتب.</p>
+          <p>إدارة المنتجات والطلبات والإشعارات من لوحة واحدة.</p>
         </div>
       </div>
       <div class="top-actions">
         <span class="pill"><span class="dot" id="statusDot"></span><span id="statusText">جاري الاتصال...</span></span>
-        <span class="pill">منفصلة عن التطبيق</span>
         <button class="btn btn-soft" onclick="checkHealth()">فحص الاتصال</button>
         <button class="btn btn-primary" onclick="openAddModal()">+ إضافة منتج</button>
       </div>
     </header>
 
-    <section class="hero">
-      <div>
-        <h2>لوحة تحكم الإدارة على الويب جاهزة للتجربة ومبنية لتشبه منطق لوحة الهاتف.</h2>
-        <p>
-          النسخة الحالية تدعم إدارة المنتجات + الطلبات + الإشعارات + إحصائيات الأجهزة بشكل مباشر من الويب،
-          بينما إدارة PIN فقط ما زالت داخل الهاتف حاليًا لاعتبارات الأمان.
-        </p>
-        <div class="hero-actions">
-          <span class="pill">إدارة منتجات مباشرة</span>
-          <span class="pill">رفع صور</span>
-          <span class="pill">إخفاء / إظهار</span>
-          <span class="pill">واجهة ويب منفصلة</span>
-        </div>
-        <div class="hero-actions">
-          <button class="btn btn-primary" onclick="setView('products')">فتح إدارة المنتجات</button>
-          <button class="btn btn-soft" onclick="setView('notifications')">إرسال إشعار</button>
-          <button class="btn btn-soft" onclick="setView('devices')">الأجهزة المثبّت عليها التطبيق</button>
-          <button class="btn btn-soft" onclick="setView('overview')">النظرة العامة</button>
-          <button class="btn btn-soft" onclick="setView('settings')">الاتصال</button>
-        </div>
-      </div>
-      <div class="stats">
-        <div class="stat"><div class="label">إجمالي المنتجات</div><div class="num" id="statTotal">–</div></div>
-        <div class="stat"><div class="label">المنتجات الظاهرة</div><div class="num" id="statVisible">–</div></div>
-        <div class="stat"><div class="label">المنتجات المخفية</div><div class="num" id="statHidden">–</div></div>
-        <div class="stat"><div class="label">التصنيفات</div><div class="num" id="statCats">–</div></div>
-        <div class="stat"><div class="label">إجمالي الطلبات</div><div class="num" id="statOrdersTotal">–</div></div>
-        <div class="stat"><div class="label">طلبات قيد المتابعة</div><div class="num" id="statOrdersOpen">–</div></div>
-        <div class="stat"><div class="label">العملاء المسجلين</div><div class="num" id="statRegisteredUsers">–</div></div>
-        <div class="stat"><div class="label">العملاء النشطين (24 ساعة)</div><div class="num" id="statActiveUsers1d">–</div></div>
-      </div>
-    </section>
-
-    <section class="hub">
-      <div class="hub-card active" onclick="setView('products')">
-        <div class="icon">📦</div>
-        <h3>إدارة المنتجات</h3>
-        <p>إضافة وتعديل وحذف وإخفاء ورفع صور، وهذه الوحدة تعمل الآن بالكامل.</p>
-        <div class="hub-meta"><span class="badge ok">متاح الآن</span><span class="pill">ويب</span></div>
-      </div>
-      <div class="hub-card" onclick="setView('orders')">
-        <div class="icon">🧾</div>
-        <h3>طلبات العملاء</h3>
-        <p>عرض الطلبات الواردة من التطبيق مع تحديث الحالة مباشرة.</p>
-        <div class="hub-meta"><span class="badge ok">متاح الآن</span><span class="pill">طلبات</span></div>
-      </div>
-      <div class="hub-card" onclick="notifyUnavailable('إدارة PIN')">
-        <div class="icon">🔐</div>
-        <h3>إدارة PIN</h3>
-        <p>بقيت داخل الهاتف حاليًا لاعتبارات الأمان، مع تجهيز مكانها في الويب.</p>
-        <div class="hub-meta"><span class="badge soon">الهاتف فقط</span><span class="pill">أمان</span></div>
-      </div>
-      <div class="hub-card" onclick="setView('notifications')">
-        <div class="icon">🔔</div>
-        <h3>إشعارات الزباين</h3>
-        <p>إرسال إشعار فوري لكل الزباين أو لمستخدم محدد عبر Firestore.</p>
-        <div class="hub-meta"><span class="badge ok">متاح الآن</span><span class="pill">إشعارات</span></div>
-      </div>
-      <div class="hub-card" onclick="setView('devices')">
-        <div class="icon">📱</div>
-        <h3>الأجهزة المثبّت عليها التطبيق</h3>
-        <p>عدد الأجهزة + نوع النظام + أحدث الأجهزة النشطة.</p>
-        <div class="hub-meta"><span class="badge ok">متاح الآن</span><span class="pill">إحصائيات</span></div>
-      </div>
+    <section class="dashboard-strip">
+      <div class="stat"><div class="label">إجمالي المنتجات</div><div class="num" id="statTotal">–</div></div>
+      <div class="stat"><div class="label">المنتجات الظاهرة</div><div class="num" id="statVisible">–</div></div>
+      <div class="stat"><div class="label">المنتجات المخفية</div><div class="num" id="statHidden">–</div></div>
+      <div class="stat"><div class="label">التصنيفات</div><div class="num" id="statCats">–</div></div>
+      <div class="stat"><div class="label">إجمالي الطلبات</div><div class="num" id="statOrdersTotal">–</div></div>
+      <div class="stat"><div class="label">طلبات مفتوحة</div><div class="num" id="statOrdersOpen">–</div></div>
+      <div class="stat"><div class="label">العملاء المسجلين</div><div class="num" id="statRegisteredUsers">–</div></div>
+      <div class="stat"><div class="label">العملاء النشطين 24 ساعة</div><div class="num" id="statActiveUsers1d">–</div></div>
     </section>
 
     <section class="workspace">
@@ -266,33 +275,25 @@
         <div class="overview-grid">
           <div class="stack">
             <div class="card">
-              <div class="panel-head"><div><h3>آخر المنتجات</h3><p>أحدث العناصر المضافة أو المعدلة في الكتالوج.</p></div></div>
+              <div class="panel-head"><div><h3>آخر المنتجات</h3><p>آخر العناصر المضافة أو المعدلة.</p></div></div>
               <div class="list" id="recentProducts"></div>
             </div>
             <div class="card">
-              <div class="panel-head"><div><h3>تنبيهات المخزون</h3><p>المنتجات التي اقتربت من النفاد أو نفدت.</p></div></div>
+              <div class="panel-head"><div><h3>تنبيهات المخزون</h3><p>حالة المنتجات التي تحتاج متابعة.</p></div></div>
               <div class="list" id="inventoryAlerts"></div>
-            </div>
-            <div class="card">
-              <div class="panel-head"><div><h3>اقتراحات اختبار</h3><p>جرّب هذه الخطوات قبل النشر للزبائن.</p></div></div>
-              <div class="list">
-                <div class="row"><div><h4>1) أضف منتجًا جديدًا</h4><p>اختبر الاسم والسعر والوصف والصور والتصنيف.</p></div><span class="badge ok">أساسي</span></div>
-                <div class="row"><div><h4>2) أخفِ منتجًا ثم أظهره</h4><p>تأكد أن الحالة تنعكس في التطبيق.</p></div><span class="badge ok">واجهة + API</span></div>
-                <div class="row"><div><h4>3) عدّل منتجًا قائمًا</h4><p>جرّب تحديث السعر أو الصورة أو المقاسات.</p></div><span class="badge ok">قريب من الهاتف</span></div>
-              </div>
             </div>
           </div>
           <div class="stack">
             <div class="card">
-              <div class="panel-head"><div><h3>خريطة الوحدات</h3><p>بنفس ترتيب التفكير الموجود في لوحة الهاتف.</p></div></div>
+              <div class="panel-head"><div><h3>الوحدات النشطة</h3><p>الأقسام المتاحة داخل اللوحة.</p></div></div>
               <div class="list">
-                <div class="row"><div><h4>إدارة المنتجات</h4><p>النسخة الويب شغالة الآن.</p></div><span class="badge ok">فعّالة</span></div>
-                <div class="row"><div><h4>الطلبات + الإشعارات + الأجهزة</h4><p>مفعلة الآن عبر API الويب مع تحديثات مباشرة.</p></div><span class="badge ok">متاح الآن</span></div>
-                <div class="row"><div><h4>إدارة PIN</h4><p>تبقى داخل الهاتف حاليًا بسبب حساسية الأمان.</p></div><span class="badge soon">الهاتف فقط</span></div>
+                <div class="row"><div><h4>إدارة المنتجات</h4><p>إضافة وتعديل وحذف ورفع صور.</p></div><span class="badge ok">فعّالة</span></div>
+                <div class="row"><div><h4>طلبات العملاء</h4><p>متابعة الحالات والتحديثات.</p></div><span class="badge ok">فعّالة</span></div>
+                <div class="row"><div><h4>الإشعارات والأجهزة</h4><p>إرسال الإشعارات ومراقبة الاستخدام.</p></div><span class="badge ok">فعّالة</span></div>
               </div>
             </div>
             <div class="card">
-              <div class="panel-head"><div><h3>حالة الاتصال</h3><p>قراءة مباشرة من السيرفر.</p></div></div>
+              <div class="panel-head"><div><h3>حالة الخدمة</h3><p>قراءة مباشرة من السيرفر.</p></div></div>
               <div class="list">
                 <div class="row"><div><h4>Base URL</h4><p id="healthBase">—</p></div><span class="badge ok">نشط</span></div>
                 <div class="row"><div><h4>وضع التخزين</h4><p id="healthStorage">—</p></div><span class="badge soon">مراقبة</span></div>
@@ -369,9 +370,8 @@
       </div>
 
       <div class="panel" id="panel-notifications">
-        <div class="overview-grid">
-          <div class="card">
-            <div class="panel-head"><div><h3>إرسال إشعار للزباين</h3><p>يُحفظ داخل `users/{uid}/notifications` ويظهر داخل التطبيق في صندوق الإشعارات.</p></div></div>
+        <div class="card">
+          <div class="panel-head"><div><h3>إرسال إشعار</h3><p>إرسال مباشر إلى جميع الزباين أو مستخدم محدد.</p></div></div>
             <div class="form-grid">
               <div class="field">
                 <label>نوع الإرسال</label>
@@ -409,15 +409,6 @@
               <button class="btn btn-primary" id="sendNotifBtn" onclick="sendCustomerNotification()">إرسال الإشعار</button>
               <button class="btn btn-soft" onclick="resetNotificationForm()">تفريغ الحقول</button>
             </div>
-          </div>
-          <div class="card">
-            <div class="panel-head"><div><h3>مهم قبل الإرسال</h3><p>لتفادي الإزعاج، أرسل رسائل مركزة وواضحة.</p></div></div>
-            <div class="list">
-              <div class="row"><div><h4>اكتبي عنوان واضح</h4><p>مثال: خصم اليوم، أو منتج وصل الآن.</p></div><span class="badge ok">أفضل ممارسة</span></div>
-              <div class="row"><div><h4>اختبري على UID واحد أولاً</h4><p>ثم أرسلي عام لجميع الزباين.</p></div><span class="badge soon">موصى به</span></div>
-              <div class="row"><div><h4>لا تكرري الإرسال بسرعة</h4><p>حتى لا يتحول التنبيه لإزعاج للمستخدمين.</p></div><span class="badge soon">تجربة العميل</span></div>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -466,9 +457,8 @@
       </div>
 
       <div class="panel" id="panel-settings">
-        <div class="overview-grid">
-          <div class="card">
-            <div class="panel-head"><div><h3>إعدادات الاتصال</h3><p>مفيدة أثناء التجربة أو عند نقل البيئة.</p></div></div>
+        <div class="card">
+          <div class="panel-head"><div><h3>إعدادات الاتصال</h3><p>تحديث رابط الخدمة والتوكن.</p></div></div>
             <div class="form-grid">
               <div class="field form-full"><label>رابط السيرفر (Base URL)</label><input id="cfgBase" type="text" placeholder="https://carmenkarla-backend.onrender.com" /></div>
               <div class="field form-full"><label>API Token</label><input id="cfgToken" type="password" placeholder="ck_..." /></div>
@@ -477,15 +467,6 @@
               <button class="btn btn-primary" onclick="saveSettings()">حفظ وتحقق</button>
               <button class="btn btn-soft" onclick="checkHealth()">تحديث الحالة</button>
             </div>
-          </div>
-          <div class="card">
-            <div class="panel-head"><div><h3>ملاحظات مهمة</h3><p>عن وضع التجربة الحالي.</p></div></div>
-            <div class="list">
-              <div class="row"><div><h4>اللوحة مستقلة عن التطبيق</h4><p>يمكن إدارة المنتجات من المتصفح مباشرة.</p></div><span class="badge ok">جاهزة</span></div>
-              <div class="row"><div><h4>إدارة ويب كاملة للعمليات الأساسية</h4><p>المنتجات + الطلبات + الإشعارات + الأجهزة تعمل الآن من الويب.</p></div><span class="badge ok">مفعّلة</span></div>
-              <div class="row"><div><h4>PIN فقط خارج الويب حاليًا</h4><p>يظل داخل الهاتف حتى إعداد سياسة أمان خاصة به.</p></div><span class="badge soon">مقيّد أمنيًا</span></div>
-            </div>
-          </div>
         </div>
       </div>
     </section>
@@ -494,7 +475,7 @@
   <div class="modal-overlay" id="productModal">
     <div class="modal">
       <div class="modal-header">
-        <div><h3 id="modalTitle">منتج جديد</h3><p>نفس حقول الهاتف تقريبًا، لكن بترتيب أوضح على الويب.</p></div>
+        <div><h3 id="modalTitle">منتج جديد</h3><p>إدخال مختصر ومنظم لحفظ المنتج.</p></div>
         <button class="btn btn-soft" onclick="closeModal()">إغلاق</button>
       </div>
       <input type="hidden" id="editId" />
