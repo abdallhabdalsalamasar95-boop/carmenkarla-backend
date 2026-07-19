@@ -295,8 +295,11 @@ def read_products() -> List[Dict[str, Any]]:
             if auto_restore and not items:
                 restored = _restore_products_from_latest_backup()
                 if restored:
-                    return restored
-            return items
+                    items = restored
+            normalized, changed = ensure_products_have_codes(items)
+            if changed:
+                write_products(normalized)
+            return normalized
         return []
     except Exception:
         return []
@@ -695,15 +698,54 @@ def _quantity_map_total(src: Dict[str, int]) -> int:
     return sum(max(0, as_int(v, 0)) for v in src.values())
 
 
+def generate_product_code(*, created_at: int, existing_codes: Optional[set[str]] = None) -> str:
+    existing = existing_codes or set()
+    base = f"CKP-{max(0, created_at) % 1000000:06d}"
+    if base not in existing:
+        return base
+    for idx in range(1, 1000):
+        candidate = f"{base}-{idx:03d}"
+        if candidate not in existing:
+            return candidate
+    return f"CKP-{uuid.uuid4().hex[:10].upper()}"
+
+
+def ensure_products_have_codes(products: List[Dict[str, Any]]) -> tuple[List[Dict[str, Any]], bool]:
+    existing_codes = {
+        str(p.get("productCode") or "").strip().upper()
+        for p in products
+        if isinstance(p, dict) and str(p.get("productCode") or "").strip()
+    }
+    changed = False
+    out: List[Dict[str, Any]] = []
+    for p in products:
+        if not isinstance(p, dict):
+            continue
+        row = dict(p)
+        code = str(row.get("productCode") or "").strip().upper()
+        if not code:
+            created_at = as_int(row.get("createdAt", int(time.time() * 1000)), int(time.time() * 1000))
+            code = generate_product_code(created_at=created_at, existing_codes=existing_codes)
+            row["productCode"] = code
+            existing_codes.add(code)
+            changed = True
+        out.append(row)
+    return out, changed
+
+
 def normalize_product(payload: Dict[str, Any], current: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     cur = current or {}
     now = int(time.time() * 1000)
 
     pid = str(payload.get("id") or cur.get("id") or uuid.uuid4()).strip()
+    created_at = as_int(payload.get("createdAt", cur.get("createdAt", now)), now)
     name = str(payload.get("name") or cur.get("name") or "").strip()
     description = str(payload.get("description") or cur.get("description") or "").strip()
     category = str(payload.get("category") or cur.get("category") or "غير مصنف").strip()
     tags = str(payload.get("tags") or cur.get("tags") or "").strip()
+    product_code = str(payload.get("productCode") or cur.get("productCode") or "").strip().upper()
+    if not product_code:
+        product_code = generate_product_code(created_at=created_at)
 
     image_url = str(payload.get("imageUrl") or cur.get("imageUrl") or "").strip()
     image_urls = normalize_image_urls(payload.get("imageUrls", cur.get("imageUrls", [])))
@@ -735,6 +777,7 @@ def normalize_product(payload: Dict[str, Any], current: Optional[Dict[str, Any]]
 
     product = {
         "id": pid,
+        "productCode": product_code,
         "name": name,
         "price": as_number(payload.get("price", cur.get("price", 0))),
         "oldPrice": as_number(payload.get("oldPrice", cur.get("oldPrice", 0))),
@@ -760,7 +803,7 @@ def normalize_product(payload: Dict[str, Any], current: Optional[Dict[str, Any]]
         "lowStockColors": low_stock_colors,
         "sabilEnabled": as_hidden_int(payload.get("sabilEnabled", cur.get("sabilEnabled", 0))),
         "sabilReferenceCode": str(payload.get("sabilReferenceCode") if payload.get("sabilReferenceCode") is not None else cur.get("sabilReferenceCode", "")).strip(),
-        "createdAt": as_int(payload.get("createdAt", cur.get("createdAt", now)), now),
+        "createdAt": created_at,
         "updatedAt": as_int(payload.get("updatedAt", now), now),
     }
 

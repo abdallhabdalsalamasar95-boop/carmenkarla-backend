@@ -434,7 +434,7 @@
           <div class="quick-row"><button class="btn btn-primary" onclick="openAddModal()">+ إضافة منتج</button><button class="btn btn-soft" onclick="loadProducts()">إعادة تحميل</button></div>
         </div>
         <div class="toolbar">
-          <div style="flex:1; min-width:260px"><input class="search" id="searchBox" type="text" placeholder="ابحث بالاسم أو التصنيف أو الوصف..." oninput="renderProducts()" /></div>
+          <div style="flex:1; min-width:260px"><input class="search" id="searchBox" type="text" placeholder="ابحث بالاسم أو الكود أو التصنيف..." oninput="renderProducts()" /></div>
           <div class="quick-row"><label class="pill"><input type="checkbox" id="showHidden" onchange="renderProducts()" /> إظهار المخفية</label></div>
         </div>
         <div class="products-grid" id="productCards"></div>
@@ -642,6 +642,7 @@
           <h4>المعلومات الأساسية</h4>
           <div class="form-grid">
             <div class="field form-full"><label>اسم المنتج *</label><input id="fName" type="text" placeholder="اسم المنتج" /></div>
+            <div class="field"><label>كود المنتج</label><input id="fProductCode" type="text" placeholder="مثال: CKP-123456" /></div>
             <div class="field"><label>التصنيف</label><select id="fCategory"></select></div>
             <div class="field"><label>الوسوم (Tags)</label><input id="fTags" type="text" placeholder="ذهبي,جديد,عرض" /><div class="chips" id="tagsPreset"></div></div>
           </div>
@@ -1465,7 +1466,7 @@
         const hidden = Number(p.isHidden || 0) === 1;
         if (!showHidden && hidden) return false;
         if (!q) return true;
-        return [p.name, p.category, p.description, p.tags].some(v => String(v || '').toLowerCase().includes(q));
+        return [p.name, p.productCode, p.category, p.description, p.tags].some(v => String(v || '').toLowerCase().includes(q));
       });
     }
 
@@ -1497,7 +1498,7 @@
       box.innerHTML = list.map(p => {
         const hidden = Number(p.isHidden || 0) === 1;
         const inv = inventoryState(p);
-        const sub = [escHtml(p.category || 'غير مصنف'), `${Number(p.price || 0)} ل.د`, inv.available > 0 ? `${inv.available} قطعة` : null].filter(Boolean).join(' • ');
+        const sub = [escHtml(p.productCode || ''), escHtml(p.category || 'غير مصنف'), `${Number(p.price || 0)} ل.د`, inv.available > 0 ? `${inv.available} قطعة` : null].filter(Boolean).join(' • ');
         return `<div class="row"><div><h4>${escHtml(p.name || 'بدون اسم')}</h4><p>${sub}</p></div>${inv.outOfStock ? '<span class="badge off">نفد</span>' : inv.lowStock ? '<span class="badge soon">قارب النفاد</span>' : `<span class="badge ${hidden ? 'off' : 'ok'}">${hidden ? 'مخفي' : 'ظاهر'}</span>`}</div>`;
       }).join('');
     }
@@ -1538,7 +1539,7 @@
         const id = encodeURIComponent(String(p.id || ''));
         const inv = inventoryState(p);
         const colors = productColors(p);
-        return `<div class="product-card"><div class="product-top">${img ? `<img class="thumb" src="${escHtml(img)}" alt="">` : '<div class="thumb-ph">👗</div>'}<div class="product-meta" style="flex:1"><h4>${escHtml(p.name || 'بدون اسم')}</h4><p>${escHtml(p.category || 'غير مصنف')}</p><div class="price">${Number(p.price || 0)} ل.د</div><p>${colors.length ? `الألوان: ${escHtml(colors.slice(0, 4).join('، '))}` : 'بدون ألوان محددة'}</p><p>${inv.available > 0 ? `المتوفر: ${inv.available}` : inv.outOfStock ? 'نفد المخزون' : 'المخزون غير محدد'}</p></div></div><div class="quick-row">${stockBadge(inv)}<span class="badge ${hidden ? 'off' : 'ok'}">${hidden ? 'مخفي' : 'ظاهر'}</span>${p.tags ? `<span class="pill">${escHtml(p.tags)}</span>` : ''}</div><div class="quick-row"><button class="btn btn-soft" onclick="openEditModalById('${id}')">تعديل</button><button class="btn btn-soft" onclick="toggleHiddenById('${id}')">${hidden ? 'إظهار' : 'إخفاء'}</button><button class="btn btn-danger" onclick="openDeleteModalById('${id}')">حذف</button></div></div>`;
+        return `<div class="product-card"><div class="product-top">${img ? `<img class="thumb" src="${escHtml(img)}" alt="">` : '<div class="thumb-ph">👗</div>'}<div class="product-meta" style="flex:1"><h4>${escHtml(p.name || 'بدون اسم')}</h4><p>${escHtml(p.productCode || 'بدون كود')}</p><p>${escHtml(p.category || 'غير مصنف')}</p><div class="price">${Number(p.price || 0)} ل.د</div><p>${colors.length ? `الألوان: ${escHtml(colors.slice(0, 4).join('، '))}` : 'بدون ألوان محددة'}</p><p>${inv.available > 0 ? `المتوفر: ${inv.available}` : inv.outOfStock ? 'نفد المخزون' : 'المخزون غير محدد'}</p></div></div><div class="quick-row">${stockBadge(inv)}<span class="badge ${hidden ? 'off' : 'ok'}">${hidden ? 'مخفي' : 'ظاهر'}</span>${p.tags ? `<span class="pill">${escHtml(p.tags)}</span>` : ''}</div><div class="quick-row"><button class="btn btn-soft" onclick="openEditModalById('${id}')">تعديل</button><button class="btn btn-soft" onclick="toggleHiddenById('${id}')">${hidden ? 'إظهار' : 'إخفاء'}</button><button class="btn btn-danger" onclick="openDeleteModalById('${id}')">حذف</button></div></div>`;
       }).join('');
       tableBody.innerHTML = list.map(p => {
         const hidden = Number(p.isHidden || 0) === 1;
@@ -1548,7 +1549,7 @@
         const lengths = String(p.lengths || '').trim();
         const inv = inventoryState(p);
         const colors = productColors(p);
-        return `<tr><td>${img ? `<img class="thumb" style="width:52px;height:52px" src="${escHtml(img)}" alt="">` : '<div class="thumb-ph" style="width:52px;height:52px">👗</div>'}</td><td><div style="font-weight:900">${escHtml(p.name || 'بدون اسم')}</div>${p.tags ? `<div style="margin-top:4px;color:var(--muted);font-size:.76rem">${escHtml(p.tags)}</div>` : ''}</td><td><div style="font-weight:900;color:var(--gold2)">${Number(p.price || 0)} ل.د</div>${p.oldPrice ? `<div style="margin-top:4px;color:var(--muted);text-decoration:line-through">${escHtml(p.oldPrice)}</div>` : ''}</td><td>${escHtml(p.category || '—')}</td><td>${escHtml([sizes, lengths].filter(Boolean).join(' / ') || '—')}</td><td>${escHtml(colors.join('، ') || '—')}</td><td><div>${stockBadge(inv)}</div><div style="margin-top:4px;color:var(--muted);font-size:.76rem">${inv.available > 0 ? `${inv.available} قطعة` : '0 قطعة'}</div></td><td>${p.rating ? `⭐ ${escHtml(p.rating)}` : '—'}</td><td><span class="badge ${hidden ? 'off' : 'ok'}">${hidden ? 'مخفي' : 'ظاهر'}</span></td><td><div class="quick-row"><button class="btn btn-soft" onclick="openEditModalById('${id}')">تعديل</button><button class="btn btn-soft" onclick="toggleHiddenById('${id}')">${hidden ? 'إظهار' : 'إخفاء'}</button><button class="btn btn-danger" onclick="openDeleteModalById('${id}')">حذف</button></div></td></tr>`;
+        return `<tr><td>${img ? `<img class="thumb" style="width:52px;height:52px" src="${escHtml(img)}" alt="">` : '<div class="thumb-ph" style="width:52px;height:52px">👗</div>'}</td><td><div style="font-weight:900">${escHtml(p.name || 'بدون اسم')}</div><div style="margin-top:4px;color:var(--muted);font-size:.76rem">${escHtml(p.productCode || 'بدون كود')}</div>${p.tags ? `<div style="margin-top:4px;color:var(--muted);font-size:.76rem">${escHtml(p.tags)}</div>` : ''}</td><td><div style="font-weight:900;color:var(--gold2)">${Number(p.price || 0)} ل.د</div>${p.oldPrice ? `<div style="margin-top:4px;color:var(--muted);text-decoration:line-through">${escHtml(p.oldPrice)}</div>` : ''}</td><td>${escHtml(p.category || '—')}</td><td>${escHtml([sizes, lengths].filter(Boolean).join(' / ') || '—')}</td><td>${escHtml(colors.join('، ') || '—')}</td><td><div>${stockBadge(inv)}</div><div style="margin-top:4px;color:var(--muted);font-size:.76rem">${inv.available > 0 ? `${inv.available} قطعة` : '0 قطعة'}</div></td><td>${p.rating ? `⭐ ${escHtml(p.rating)}` : '—'}</td><td><span class="badge ${hidden ? 'off' : 'ok'}">${hidden ? 'مخفي' : 'ظاهر'}</span></td><td><div class="quick-row"><button class="btn btn-soft" onclick="openEditModalById('${id}')">تعديل</button><button class="btn btn-soft" onclick="toggleHiddenById('${id}')">${hidden ? 'إظهار' : 'إخفاء'}</button><button class="btn btn-danger" onclick="openDeleteModalById('${id}')">حذف</button></div></td></tr>`;
       }).join('');
     }
 
@@ -1570,6 +1571,7 @@
       document.getElementById('modalTitle').textContent = 'تعديل المنتج';
       document.getElementById('editId').value = p.id || '';
       document.getElementById('fName').value = p.name || '';
+      document.getElementById('fProductCode').value = p.productCode || '';
       document.getElementById('fPrice').value = p.price || '';
       document.getElementById('fOldPrice').value = p.oldPrice || '';
       document.getElementById('fCategory').value = CATEGORY_OPTIONS.includes(p.category) ? p.category : CATEGORY_OPTIONS[0];
@@ -1597,7 +1599,7 @@
     }
 
     function resetForm() {
-      ['editId', 'fName', 'fPrice', 'fOldPrice', 'fTags', 'fSizes', 'fLengths', 'fColors', 'fStockQuantity', 'fLowStockThreshold', 'fSizeQuantities', 'fColorQuantities', 'fRating', 'fReviews', 'fDesc', 'fImageUrl'].forEach(id => {
+      ['editId', 'fName', 'fProductCode', 'fPrice', 'fOldPrice', 'fTags', 'fSizes', 'fLengths', 'fColors', 'fStockQuantity', 'fLowStockThreshold', 'fSizeQuantities', 'fColorQuantities', 'fRating', 'fReviews', 'fDesc', 'fImageUrl'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.value = '';
       });
@@ -1735,6 +1737,7 @@
 
       const payload = {
         name,
+        productCode: document.getElementById('fProductCode').value.trim(),
         price: parseFloat(document.getElementById('fPrice').value) || 0,
         oldPrice: parseFloat(document.getElementById('fOldPrice').value) || 0,
         category: document.getElementById('fCategory').value || CATEGORY_OPTIONS[0],
