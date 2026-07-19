@@ -1442,11 +1442,20 @@ def upload_image():
     if not file or not file.filename:
         return jsonify({"ok": False, "error": "Invalid image file"}), 400
 
-    safe = secure_filename(file.filename)
+    original_name = str(file.filename or "").strip()
+    safe = secure_filename(original_name)
     safe = re.sub(r"\s+", "_", safe)
+
     ext = Path(safe).suffix.lower().strip()
+    if not ext:
+        ext = Path(original_name).suffix.lower().strip()
     if ext not in ALLOWED_IMAGE_EXTENSIONS:
         return jsonify({"ok": False, "error": f"Unsupported image type: {ext or 'unknown'}"}), 400
+
+    stem = Path(safe).stem.strip() if safe else ""
+    if not stem:
+        stem = f"img_{int(time.time() * 1000)}"
+    safe = f"{stem}{ext}"
 
     mime = str(getattr(file, "mimetype", "") or "").strip().lower()
     # Some browsers/devices may send generic MIME types (e.g. application/octet-stream)
