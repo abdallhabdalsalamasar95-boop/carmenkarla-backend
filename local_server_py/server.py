@@ -710,6 +710,14 @@ def generate_product_code(*, created_at: int, existing_codes: Optional[set[str]]
     return f"CKP-{uuid.uuid4().hex[:10].upper()}"
 
 
+def normalize_product_code_text(value: Any) -> str:
+    raw = str(value or "").strip().upper()
+    raw = re.sub(r"\s+", "-", raw)
+    raw = re.sub(r"[^A-Z0-9\-_]", "", raw)
+    raw = re.sub(r"-{2,}", "-", raw)
+    return raw.strip("-")
+
+
 def ensure_products_have_codes(products: List[Dict[str, Any]]) -> tuple[List[Dict[str, Any]], bool]:
     existing_codes = {
         str(p.get("productCode") or "").strip().upper()
@@ -743,7 +751,7 @@ def normalize_product(payload: Dict[str, Any], current: Optional[Dict[str, Any]]
     description = str(payload.get("description") or cur.get("description") or "").strip()
     category = str(payload.get("category") or cur.get("category") or "غير مصنف").strip()
     tags = str(payload.get("tags") or cur.get("tags") or "").strip()
-    product_code = str(payload.get("productCode") or cur.get("productCode") or "").strip().upper()
+    product_code = normalize_product_code_text(payload.get("productCode") or cur.get("productCode") or "")
     if not product_code:
         product_code = generate_product_code(created_at=created_at)
 
@@ -1263,6 +1271,9 @@ def add_product():
     if any(str(p.get("id", "")) == item["id"] for p in products):
         return jsonify({"ok": False, "error": "Product id already exists"}), 409
 
+    if item.get("productCode") and any(str(p.get("productCode", "")).strip().upper() == str(item.get("productCode", "")).strip().upper() for p in products):
+        return jsonify({"ok": False, "error": "Product code already exists"}), 409
+
     products.append(item)
     write_products(products)
     return jsonify({"ok": True, "item": item}), 201
@@ -1289,6 +1300,9 @@ def update_product(pid: str):
     item = normalize_product(merged, products[idx])
     if not item["name"]:
         return jsonify({"ok": False, "error": "name is required"}), 400
+
+    if item.get("productCode") and any(i != idx and str(p.get("productCode", "")).strip().upper() == str(item.get("productCode", "")).strip().upper() for i, p in enumerate(products)):
+        return jsonify({"ok": False, "error": "Product code already exists"}), 409
 
     products[idx] = item
     write_products(products)
