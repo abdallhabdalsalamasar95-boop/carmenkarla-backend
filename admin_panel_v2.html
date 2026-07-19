@@ -717,7 +717,7 @@
             <strong>📷 اختيار أو سحب الصور هنا</strong>
             <p>يمكنك اختيار أكثر من صورة، وسيتم رفعها تلقائيًا عند الحفظ أو يدويًا من الزر بالأسفل.</p>
           </div>
-          <input type="file" id="fileInput" accept="image/*" multiple style="display:none" onchange="handleFileSelect(event)" />
+          <input type="file" id="fileInput" accept="image/*,.heic,.heif,.avif,.jfif" multiple style="display:none" onchange="handleFileSelect(event)" />
           <div class="thumbs" id="pendingPreviews"></div>
           <div class="hero-actions">
             <button class="btn btn-soft" id="uploadBtn" onclick="uploadImages()">رفع الصور المحددة</button>
@@ -1745,11 +1745,11 @@
             if (res.status === 401) {
               throw new Error('غير مصرح: تأكدي من API Token في تبويب الاتصال');
             }
-            throw new Error(`فشل رفع الصورة (${res.status}): ${msg}`);
+            throw new Error(`فشل رفع الصورة "${file.name}" (${res.status}): ${msg}`);
           }
 
           if (!data || !data.ok || !data.url) {
-            throw new Error(data?.error || 'فشل رفع الصورة: الرد من السيرفر غير مكتمل');
+            throw new Error(data?.error || `فشل رفع الصورة "${file.name}": الرد من السيرفر غير مكتمل`);
           }
 
           if (!imageGallery.includes(data.url)) imageGallery.push(data.url);

@@ -84,7 +84,18 @@ try:
 except Exception:
     _MAX_IMAGE_UPLOAD_MB = 10
 
-ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"}
+ALLOWED_IMAGE_EXTENSIONS = {
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".webp",
+    ".gif",
+    ".bmp",
+    ".jfif",
+    ".heic",
+    ".heif",
+    ".avif",
+}
 
 _FIRESTORE_DB = None
 _FIREBASE_INIT_ERROR = ""
@@ -1438,7 +1449,9 @@ def upload_image():
         return jsonify({"ok": False, "error": f"Unsupported image type: {ext or 'unknown'}"}), 400
 
     mime = str(getattr(file, "mimetype", "") or "").strip().lower()
-    if mime and not mime.startswith("image/"):
+    # Some browsers/devices may send generic MIME types (e.g. application/octet-stream)
+    # for valid image files. If extension is allowed, accept unless MIME is clearly non-image.
+    if mime and not mime.startswith("image/") and mime not in {"application/octet-stream", "binary/octet-stream"}:
         return jsonify({"ok": False, "error": f"Invalid image MIME type: {mime}"}), 400
 
     max_bytes = _MAX_IMAGE_UPLOAD_MB * 1024 * 1024
