@@ -27,17 +27,44 @@ ROOT = Path(__file__).resolve().parent
 load_dotenv(ROOT / ".env")
 
 _STORAGE_ROOT_ENV = (os.getenv("STORAGE_ROOT", "") or "").strip()
-STORAGE_ROOT = Path(_STORAGE_ROOT_ENV) if _STORAGE_ROOT_ENV else ROOT
+
+
+def _resolve_storage_root() -> Path:
+    # 1) explicit env always wins
+    if _STORAGE_ROOT_ENV:
+        p = Path(_STORAGE_ROOT_ENV)
+        if not p.is_absolute():
+            p = (ROOT / p).resolve()
+        return p
+
+    # 2) auto-detect persistent volume on hosted Linux (e.g. Render mounted disk)
+    persistent_candidates = [Path("/var/data"), Path("/data")]
+    for c in persistent_candidates:
+        try:
+            if c.exists() and c.is_dir():
+                return c
+        except Exception:
+            pass
+
+    # 3) fallback to repo-local storage (development)
+    return ROOT
+
+
+STORAGE_ROOT = _resolve_storage_root()
 if not STORAGE_ROOT.is_absolute():
     STORAGE_ROOT = (ROOT / STORAGE_ROOT).resolve()
 
 DATA_DIR = STORAGE_ROOT / "data"
 UPLOAD_DIR = STORAGE_ROOT / "uploads"
 PRODUCTS_FILE = DATA_DIR / "products.json"
+PRODUCTS_BACKUP_DIR = DATA_DIR / "backups"
 NOTIFICATIONS_FILE = DATA_DIR / "notifications.json"
+DEVICES_FILE = DATA_DIR / "devices.json"
+ORDERS_FILE = DATA_DIR / "orders.json"
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+PRODUCTS_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
 
 HOST = os.getenv("HOST", "0.0.0.0").strip() or "0.0.0.0"
 PORT = int((os.getenv("PORT", "8080") or "8080").strip())
@@ -50,6 +77,42 @@ _FIREBASE_PROJECT_ID = (os.getenv("FIREBASE_PROJECT_ID", "") or "").strip()
 
 _FIRESTORE_DB = None
 _FIREBASE_INIT_ERROR = ""
+
+
+def _write_json_file_atomic(target: Path, value: Any) -> None:
+    tmp = target.with_suffix(target.suffix + ".tmp")
+    tmp.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, target)
+
+
+def _latest_products_backup_path() -> Optional[Path]:
+    try:
+        backups = sorted(
+            PRODUCTS_BACKUP_DIR.glob("products_*.json"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        return backups[0] if backups else None
+    except Exception:
+        return None
+
+
+def _restore_products_from_latest_backup() -> List[Dict[str, Any]]:
+    backup = _latest_products_backup_path()
+    if backup is None:
+        return []
+    try:
+        raw = backup.read_text(encoding="utf-8")
+        data = json.loads(raw)
+        if not isinstance(data, list):
+            return []
+        items = [x for x in data if isinstance(x, dict)]
+        if not items:
+            return []
+        _write_json_file_atomic(PRODUCTS_FILE, items)
+        return items
+    except Exception:
+        return []
 
 
 def _resolve_public_base() -> str:
@@ -135,9 +198,26 @@ PUBLIC_BASE = _resolve_public_base()
 
 if not PRODUCTS_FILE.exists():
     PRODUCTS_FILE.write_text("[]", encoding="utf-8")
+else:
+    _restore_enabled = str(os.getenv("AUTO_RESTORE_EMPTY_PRODUCTS", "1") or "1").strip().lower() in {"1", "true", "yes", "on"}
+    if _restore_enabled:
+        try:
+            _raw = PRODUCTS_FILE.read_text(encoding="utf-8")
+            _data = json.loads(_raw)
+            _items = [x for x in _data if isinstance(x, dict)] if isinstance(_data, list) else []
+        except Exception:
+            _items = []
+        if not _items:
+            _restore_products_from_latest_backup()
 
 if not NOTIFICATIONS_FILE.exists():
     NOTIFICATIONS_FILE.write_text("[]", encoding="utf-8")
+
+if not DEVICES_FILE.exists():
+    DEVICES_FILE.write_text("[]", encoding="utf-8")
+
+if not ORDERS_FILE.exists():
+    ORDERS_FILE.write_text("[]", encoding="utf-8")
 
 app = Flask(__name__)
 
@@ -152,16 +232,34 @@ def read_products() -> List[Dict[str, Any]]:
         raw = PRODUCTS_FILE.read_text(encoding="utf-8")
         data = json.loads(raw)
         if isinstance(data, list):
-            return [x for x in data if isinstance(x, dict)]
+            items = [x for x in data if isinstance(x, dict)]
+            auto_restore = str(os.getenv("AUTO_RESTORE_EMPTY_PRODUCTS", "1") or "1").strip().lower() in {"1", "true", "yes", "on"}
+            if auto_restore and not items:
+                restored = _restore_products_from_latest_backup()
+                if restored:
+                    return restored
+            return items
         return []
     except Exception:
         return []
 
 
 def write_products(products: List[Dict[str, Any]]) -> None:
-    PRODUCTS_FILE.write_text(
-        json.dumps(products, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    try:
+        if PRODUCTS_FILE.exists():
+            stamp = int(time.time() * 1000)
+            backup = PRODUCTS_BACKUP_DIR / f"products_{stamp}.json"
+            backup.write_text(PRODUCTS_FILE.read_text(encoding="utf-8"), encoding="utf-8")
+            backups = sorted(PRODUCTS_BACKUP_DIR.glob("products_*.json"), key=lambda p: p.stat().st_mtime)
+            if len(backups) > 20:
+                for old in backups[:-20]:
+                    try:
+                        old.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+    _write_json_file_atomic(PRODUCTS_FILE, products)
 
 
 def read_notifications() -> List[Dict[str, Any]]:
@@ -176,9 +274,127 @@ def read_notifications() -> List[Dict[str, Any]]:
 
 
 def write_notifications(items: List[Dict[str, Any]]) -> None:
-    NOTIFICATIONS_FILE.write_text(
-        json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    _write_json_file_atomic(NOTIFICATIONS_FILE, items)
+
+
+def read_devices() -> List[Dict[str, Any]]:
+    try:
+        raw = DEVICES_FILE.read_text(encoding="utf-8")
+        data = json.loads(raw)
+        if isinstance(data, list):
+            return [x for x in data if isinstance(x, dict)]
+        return []
+    except Exception:
+        return []
+
+
+def write_devices(items: List[Dict[str, Any]]) -> None:
+    _write_json_file_atomic(DEVICES_FILE, items)
+
+
+def read_orders() -> List[Dict[str, Any]]:
+    try:
+        raw = ORDERS_FILE.read_text(encoding="utf-8")
+        data = json.loads(raw)
+        if isinstance(data, list):
+            return [x for x in data if isinstance(x, dict)]
+        return []
+    except Exception:
+        return []
+
+
+def write_orders(items: List[Dict[str, Any]]) -> None:
+    _write_json_file_atomic(ORDERS_FILE, items)
+
+
+def normalize_order_item(payload: Dict[str, Any], current: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    cur = current or {}
+    now_ms = int(time.time() * 1000)
+
+    order_id = str(payload.get("orderId") or cur.get("orderId") or f"o_{now_ms}_{uuid.uuid4().hex[:8]}").strip()
+    status = str(payload.get("status") or cur.get("status") or "pending").strip().lower()
+    if status not in {"pending", "processing", "shipped", "delivered", "canceled"}:
+        status = "pending"
+
+    payload_map = payload.get("payload") if isinstance(payload.get("payload"), dict) else cur.get("payload")
+    if not isinstance(payload_map, dict):
+        payload_map = {}
+
+    customer = payload_map.get("customer") if isinstance(payload_map.get("customer"), dict) else {}
+    pricing = payload_map.get("pricing") if isinstance(payload_map.get("pricing"), dict) else {}
+
+    return {
+        "orderId": order_id,
+        "status": status,
+        "uid": str(payload.get("uid") or cur.get("uid") or "").strip(),
+        "createdAtMs": as_int(payload.get("createdAtMs", cur.get("createdAtMs", now_ms)), now_ms),
+        "updatedAtMs": as_int(payload.get("updatedAtMs", now_ms), now_ms),
+        "payload": payload_map,
+        "customerName": str(customer.get("name") or cur.get("customerName") or "").strip(),
+        "customerPhone": str(customer.get("phone") or cur.get("customerPhone") or "").strip(),
+        "customerAddress": str(customer.get("address") or cur.get("customerAddress") or "").strip(),
+        "city": str(customer.get("city") or cur.get("city") or "").strip(),
+        "grandTotal": as_number(pricing.get("grandTotal", payload_map.get("total", cur.get("grandTotal", 0))), 0),
+        "itemsCount": len(payload_map.get("items", [])) if isinstance(payload_map.get("items"), list) else as_int(cur.get("itemsCount", 0), 0),
+        "source": str(payload.get("source") or cur.get("source") or "app").strip(),
+    }
+
+
+def normalize_device_item(payload: Dict[str, Any], current: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    cur = current or {}
+    now_ms = int(time.time() * 1000)
+
+    installation_id = str(
+        payload.get("installationId")
+        or payload.get("deviceId")
+        or cur.get("installationId")
+        or f"d_{uuid.uuid4().hex[:14]}"
+    ).strip()
+
+    platform = str(payload.get("platform") or cur.get("platform") or "unknown").strip().lower()
+    device_type = str(payload.get("deviceType") or cur.get("deviceType") or "mobile").strip().lower()
+
+    first_seen = as_int(payload.get("firstSeenMs", cur.get("firstSeenMs", now_ms)), now_ms)
+    last_seen = as_int(payload.get("lastSeenMs", cur.get("lastSeenMs", now_ms)), now_ms)
+    seen_count = max(1, as_int(payload.get("seenCount", cur.get("seenCount", 1)), 1))
+
+    return {
+        "installationId": installation_id,
+        "platform": platform,
+        "deviceType": device_type,
+        "isPhysicalDevice": bool(payload.get("isPhysicalDevice", cur.get("isPhysicalDevice", True))),
+        "manufacturer": str(payload.get("manufacturer") or cur.get("manufacturer") or "").strip(),
+        "brand": str(payload.get("brand") or cur.get("brand") or "").strip(),
+        "device": str(payload.get("device") or cur.get("device") or "").strip(),
+        "product": str(payload.get("product") or cur.get("product") or "").strip(),
+        "model": str(payload.get("model") or cur.get("model") or "").strip(),
+        "sdkInt": as_int(payload.get("sdkInt", cur.get("sdkInt", 0)), 0),
+        "systemName": str(payload.get("systemName") or cur.get("systemName") or "").strip(),
+        "machine": str(payload.get("machine") or cur.get("machine") or "").strip(),
+        "osVersion": str(payload.get("osVersion") or cur.get("osVersion") or "").strip(),
+        "appVersion": str(payload.get("appVersion") or cur.get("appVersion") or "").strip(),
+        "appBuild": str(payload.get("appBuild") or cur.get("appBuild") or "").strip(),
+        "appName": str(payload.get("appName") or cur.get("appName") or "").strip(),
+        "locale": str(payload.get("locale") or cur.get("locale") or "").strip(),
+        "timezoneOffsetMinutes": as_int(payload.get("timezoneOffsetMinutes", cur.get("timezoneOffsetMinutes", 0)), 0),
+        "lastEvent": str(payload.get("event") or cur.get("lastEvent") or "heartbeat").strip(),
+        "uid": str(payload.get("uid") or cur.get("uid") or "").strip(),
+        "firstSeenMs": first_seen,
+        "lastSeenMs": last_seen,
+        "seenCount": seen_count,
+        "lastIp": str(payload.get("lastIp") or cur.get("lastIp") or "").strip(),
+        "userAgent": str(payload.get("userAgent") or cur.get("userAgent") or "").strip(),
+    }
+
+
+def _client_ip() -> str:
+    xff = str(request.headers.get("X-Forwarded-For", "") or "").strip()
+    if xff:
+        return xff.split(",")[0].strip()
+    cf = str(request.headers.get("CF-Connecting-IP", "") or "").strip()
+    if cf:
+        return cf
+    return str(request.remote_addr or "").strip()
 
 
 def normalize_notification_item(payload: Dict[str, Any], current: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -307,6 +523,15 @@ def require_admin() -> tuple[bool, Any]:
     return True, None
 
 
+def _is_valid_api_token_from_request() -> bool:
+    if not API_TOKEN:
+        return False
+    auth = str(request.headers.get("Authorization", "") or "").strip()
+    if not auth.startswith("Bearer "):
+        return False
+    return auth[7:].strip() == API_TOKEN
+
+
 @app.get("/admin")
 def admin_panel():
     return send_from_directory(ROOT.parent, "admin_panel_v2.html")
@@ -319,12 +544,242 @@ def uploads(filename: str):
 
 @app.get("/health")
 def health():
+    storage_mode = "persistent" if (str(STORAGE_ROOT).startswith("/var/data") or str(STORAGE_ROOT).startswith("/data") or _STORAGE_ROOT_ENV) else "local"
+    production_ready = storage_mode == "persistent"
     return jsonify({
         "ok": True,
         "service": "carmenkarla-local-python-server",
         "ts": int(time.time() * 1000),
-        "storageMode": "persistent" if _STORAGE_ROOT_ENV else "local",
+        "storageMode": storage_mode,
+        "storageRoot": str(STORAGE_ROOT),
+        "catalogBackend": "local-file",
+        "productionReady": production_ready,
         "publicBase": _request_public_base(),
+    })
+
+
+@app.post("/devices/register")
+def register_device_installation():
+    payload = request.get_json(silent=True) or {}
+    installation_id = str(payload.get("installationId") or payload.get("deviceId") or "").strip()
+    if not installation_id:
+        return jsonify({"ok": False, "error": "installationId is required"}), 400
+
+    entries = read_devices()
+    now_ms = int(time.time() * 1000)
+
+    idx = next(
+        (i for i, d in enumerate(entries) if str(d.get("installationId", "")).strip() == installation_id),
+        -1,
+    )
+
+    item_payload = dict(payload)
+    item_payload["installationId"] = installation_id
+    item_payload["lastSeenMs"] = now_ms
+    item_payload["lastIp"] = _client_ip()
+    item_payload["userAgent"] = str(request.headers.get("User-Agent", "") or "").strip()
+
+    created = idx < 0
+    if created:
+        item_payload["firstSeenMs"] = now_ms
+        item_payload["seenCount"] = 1
+        item = normalize_device_item(item_payload)
+        entries.append(item)
+    else:
+        current = entries[idx]
+        item_payload["firstSeenMs"] = as_int(current.get("firstSeenMs", now_ms), now_ms)
+        item_payload["seenCount"] = as_int(current.get("seenCount", 1), 1) + 1
+        item = normalize_device_item(item_payload, current)
+        entries[idx] = item
+
+    entries.sort(key=lambda x: as_int(x.get("lastSeenMs", 0), 0), reverse=True)
+    entries = entries[:20000]
+    write_devices(entries)
+
+    return jsonify({
+        "ok": True,
+        "created": created,
+        "installationId": item.get("installationId", ""),
+        "lastSeenMs": item.get("lastSeenMs", now_ms),
+    })
+
+
+@app.get("/devices/stats")
+def devices_stats():
+    ok, err = require_admin()
+    if not ok:
+        return err
+
+    days = as_int(request.args.get("days", 30), 30)
+    days = max(1, min(days, 365))
+    limit = as_int(request.args.get("limit", 200), 200)
+    limit = max(1, min(limit, 1000))
+
+    now_ms = int(time.time() * 1000)
+    cutoff_ms = now_ms - (days * 24 * 60 * 60 * 1000)
+    cutoff_1d = now_ms - (1 * 24 * 60 * 60 * 1000)
+    cutoff_7d = now_ms - (7 * 24 * 60 * 60 * 1000)
+    cutoff_30d = now_ms - (30 * 24 * 60 * 60 * 1000)
+
+    entries = read_devices()
+
+    platform_counts: Dict[str, int] = {}
+    type_counts: Dict[str, int] = {}
+    model_counts: Dict[str, int] = {}
+
+    active_count = 0
+    active_1d = 0
+    active_7d = 0
+    active_30d = 0
+    for d in entries:
+        platform = str(d.get("platform") or "unknown").strip().lower() or "unknown"
+        dtype = str(d.get("deviceType") or "mobile").strip().lower() or "mobile"
+        brand = str(d.get("brand") or "").strip()
+        model = str(d.get("model") or "").strip()
+        model_key = (f"{brand} {model}".strip() or model or "Unknown")
+
+        platform_counts[platform] = platform_counts.get(platform, 0) + 1
+        type_counts[dtype] = type_counts.get(dtype, 0) + 1
+        model_counts[model_key] = model_counts.get(model_key, 0) + 1
+
+        last_seen = as_int(d.get("lastSeenMs", 0), 0)
+        if last_seen >= cutoff_ms:
+            active_count += 1
+        if last_seen >= cutoff_1d:
+            active_1d += 1
+        if last_seen >= cutoff_7d:
+            active_7d += 1
+        if last_seen >= cutoff_30d:
+            active_30d += 1
+
+    def as_sorted_counts(src: Dict[str, int]) -> List[Dict[str, Any]]:
+        return [
+            {"name": k, "count": v}
+            for k, v in sorted(src.items(), key=lambda kv: kv[1], reverse=True)
+        ]
+
+    sorted_entries = sorted(
+        entries,
+        key=lambda x: as_int(x.get("lastSeenMs", 0), 0),
+        reverse=True,
+    )
+
+    recent_items = [
+        {
+            "installationId": str(d.get("installationId") or ""),
+            "platform": str(d.get("platform") or "unknown"),
+            "deviceType": str(d.get("deviceType") or "mobile"),
+            "brand": str(d.get("brand") or ""),
+            "model": str(d.get("model") or ""),
+            "osVersion": str(d.get("osVersion") or ""),
+            "locale": str(d.get("locale") or ""),
+            "uid": str(d.get("uid") or ""),
+            "appVersion": str(d.get("appVersion") or ""),
+            "appBuild": str(d.get("appBuild") or ""),
+            "lastIp": str(d.get("lastIp") or ""),
+            "lastEvent": str(d.get("lastEvent") or ""),
+            "firstSeenMs": as_int(d.get("firstSeenMs", 0), 0),
+            "lastSeenMs": as_int(d.get("lastSeenMs", 0), 0),
+            "seenCount": as_int(d.get("seenCount", 1), 1),
+        }
+        for d in sorted_entries[:limit]
+    ]
+
+    return jsonify({
+        "ok": True,
+        "totalInstalled": len(entries),
+        "activeDevices": active_count,
+        "activeWindowDays": days,
+        "active1d": active_1d,
+        "active7d": active_7d,
+        "active30d": active_30d,
+        "platforms": as_sorted_counts(platform_counts),
+        "deviceTypes": as_sorted_counts(type_counts),
+        "topModels": as_sorted_counts(model_counts)[:10],
+        "recentItems": recent_items,
+    })
+
+
+@app.get("/dashboard/summary")
+def dashboard_summary():
+    ok, err = require_admin()
+    if not ok:
+        return err
+
+    now_ms = int(time.time() * 1000)
+    cutoff_1d = now_ms - (1 * 24 * 60 * 60 * 1000)
+    cutoff_7d = now_ms - (7 * 24 * 60 * 60 * 1000)
+    cutoff_30d = now_ms - (30 * 24 * 60 * 60 * 1000)
+
+    products = read_products()
+    total_products = len(products)
+    visible_products = len([p for p in products if as_hidden_int(p.get("isHidden", 0)) == 0])
+    hidden_products = total_products - visible_products
+    categories = len({str(p.get("category") or "").strip() for p in products if str(p.get("category") or "").strip()})
+
+    orders = [normalize_order_item(x) for x in read_orders() if isinstance(x, dict)]
+    status_counts = {
+        "pending": 0,
+        "processing": 0,
+        "shipped": 0,
+        "delivered": 0,
+        "canceled": 0,
+    }
+    unique_order_customers = set()
+    for o in orders:
+        st = str(o.get("status") or "pending").strip().lower()
+        if st in status_counts:
+            status_counts[st] += 1
+        phone = str(o.get("customerPhone") or "").strip()
+        if phone:
+            unique_order_customers.add(phone)
+
+    devices = read_devices()
+    total_installed = len(devices)
+    registered_users = {str(d.get("uid") or "").strip() for d in devices if str(d.get("uid") or "").strip()}
+    active_users_1d = {
+        str(d.get("uid") or "").strip()
+        for d in devices
+        if str(d.get("uid") or "").strip() and as_int(d.get("lastSeenMs", 0), 0) >= cutoff_1d
+    }
+    active_users_7d = {
+        str(d.get("uid") or "").strip()
+        for d in devices
+        if str(d.get("uid") or "").strip() and as_int(d.get("lastSeenMs", 0), 0) >= cutoff_7d
+    }
+    active_users_30d = {
+        str(d.get("uid") or "").strip()
+        for d in devices
+        if str(d.get("uid") or "").strip() and as_int(d.get("lastSeenMs", 0), 0) >= cutoff_30d
+    }
+
+    return jsonify({
+        "ok": True,
+        "ts": now_ms,
+        "products": {
+            "total": total_products,
+            "visible": visible_products,
+            "hidden": hidden_products,
+            "categories": categories,
+        },
+        "orders": {
+            "total": len(orders),
+            "pending": status_counts["pending"],
+            "processing": status_counts["processing"],
+            "shipped": status_counts["shipped"],
+            "delivered": status_counts["delivered"],
+            "canceled": status_counts["canceled"],
+            "uniqueCustomers": len(unique_order_customers),
+        },
+        "users": {
+            "registered": len(registered_users),
+            "active1d": len(active_users_1d),
+            "active7d": len(active_users_7d),
+            "active30d": len(active_users_30d),
+        },
+        "devices": {
+            "installed": total_installed,
+        },
     })
 
 
@@ -337,6 +792,90 @@ def list_products():
 
     products.sort(key=lambda p: as_int(p.get("createdAt", 0)), reverse=True)
     return jsonify({"ok": True, "count": len(products), "items": products})
+
+
+@app.post("/orders")
+def create_order_from_app():
+    payload = request.get_json(silent=True) or {}
+    order_id = str(payload.get("orderId") or "").strip()
+    order_payload = payload.get("payload")
+    if not order_id:
+        return jsonify({"ok": False, "error": "orderId is required"}), 400
+    if not isinstance(order_payload, dict):
+        return jsonify({"ok": False, "error": "payload is required"}), 400
+
+    if API_TOKEN and not _is_valid_api_token_from_request():
+        return jsonify({"ok": False, "error": "Unauthorized"}), 401
+
+    entries = read_orders()
+    idx = next((i for i, o in enumerate(entries) if str(o.get("orderId", "")).strip() == order_id), -1)
+
+    item_payload = dict(payload)
+    item_payload["orderId"] = order_id
+    item_payload["source"] = "app"
+    item_payload["updatedAtMs"] = int(time.time() * 1000)
+
+    created = idx < 0
+    if created:
+        item = normalize_order_item(item_payload)
+        entries.append(item)
+    else:
+        item = normalize_order_item(item_payload, entries[idx])
+        entries[idx] = item
+
+    entries.sort(key=lambda x: as_int(x.get("createdAtMs", 0), 0), reverse=True)
+    entries = entries[:5000]
+    write_orders(entries)
+
+    return jsonify({"ok": True, "created": created, "orderId": order_id, "status": item.get("status", "pending")})
+
+
+@app.get("/orders")
+def list_orders():
+    ok, err = require_admin()
+    if not ok:
+        return err
+
+    limit = as_int(request.args.get("limit", 200), 200)
+    limit = max(1, min(limit, 1000))
+    status = str(request.args.get("status", "") or "").strip().lower()
+
+    items = [normalize_order_item(x) for x in read_orders() if isinstance(x, dict)]
+    if status:
+        items = [x for x in items if str(x.get("status", "")).strip().lower() == status]
+
+    items.sort(key=lambda x: as_int(x.get("createdAtMs", 0), 0), reverse=True)
+    items = items[:limit]
+    return jsonify({"ok": True, "count": len(items), "items": items})
+
+
+@app.put("/orders/<order_id>/status")
+def update_order_status(order_id: str):
+    ok, err = require_admin()
+    if not ok:
+        return err
+
+    payload = request.get_json(silent=True) or {}
+    status = str(payload.get("status") or "").strip().lower()
+    allowed = {"pending", "processing", "shipped", "delivered", "canceled"}
+    if status not in allowed:
+        return jsonify({"ok": False, "error": f"status must be one of {sorted(allowed)}"}), 400
+
+    order_id = str(order_id or "").strip()
+    entries = read_orders()
+    idx = next((i for i, o in enumerate(entries) if str(o.get("orderId", "")).strip() == order_id), -1)
+    if idx < 0:
+        return jsonify({"ok": False, "error": "Order not found"}), 404
+
+    current = entries[idx]
+    merged = dict(current)
+    merged["status"] = status
+    merged["updatedAtMs"] = int(time.time() * 1000)
+    item = normalize_order_item(merged, current)
+    entries[idx] = item
+    write_orders(entries)
+
+    return jsonify({"ok": True, "item": item})
 
 
 @app.post("/products/upload")
@@ -606,4 +1145,9 @@ if __name__ == "__main__":
     print("Admin upload image: POST /products/upload (form-data: image)")
     print("Admin send notifications: POST /notifications/send")
     print("Public notifications feed: GET /notifications/feed")
+    print("Public device register: POST /devices/register")
+    print("Admin devices stats: GET /devices/stats")
+    print("App create order: POST /orders")
+    print("Admin list orders: GET /orders")
+    print("Admin update order status: PUT /orders/<id>/status")
     app.run(host=HOST, port=PORT)

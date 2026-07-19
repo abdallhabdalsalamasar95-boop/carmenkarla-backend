@@ -86,6 +86,23 @@ Body (لمستخدم محدد):
     - `/var/data/carmenkarla/data/products.json`
     - `/var/data/carmenkarla/uploads/`
 
+### منع اختفاء المنتجات (إعداد احترافي موصى به)
+
+يمكنك الآن اختيار محرك كتالوج المنتجات عبر متغيرات البيئة:
+
+- `PRODUCTS_STORAGE_MODE=auto` (افتراضي)
+  - يستخدم Firestore تلقائيًا إذا كانت بيانات Firebase متاحة، وإلا يستخدم ملف محلي.
+- `PRODUCTS_STORAGE_MODE=local`
+  - يجبر التخزين على `products.json` فقط.
+- `PRODUCTS_STORAGE_MODE=firestore`
+  - يجبر التخزين على Firestore (أفضل خيار للإنتاج).
+
+ومتغير المجموعة:
+
+- `PRODUCTS_FIRESTORE_COLLECTION=products_catalog`
+
+> ملاحظة: حتى عند استخدام Firestore، السيرفر يحتفظ بنسخة محلية ونسخ احتياطية دورية داخل `data/backups/`.
+
 ### متغيرات البيئة المهمة على Render
 
 - `API_TOKEN` = نفس التوكن الموجود في التطبيق
@@ -95,6 +112,18 @@ Body (لمستخدم محدد):
 - `FIREBASE_SERVICE_ACCOUNT_FILE` = مسار ملف Service Account JSON (المفضل)
   - أو بديله: `FIREBASE_SERVICE_ACCOUNT_JSON` = محتوى JSON كسطر واحد
 - `FIREBASE_PROJECT_ID` = اختياري
+- `PRODUCTS_STORAGE_MODE` = `firestore` (موصى به للإنتاج)
+- `PRODUCTS_FIRESTORE_COLLECTION` = `products_catalog`
+
+### فحص الجاهزية من لوحة التحكم
+
+في صفحة الحالة داخل لوحة الويب ستجد:
+
+- `وضع التخزين`
+- `محرك الكتالوج`
+- `جاهزية الإنتاج`
+
+إذا ظهرت `غير آمن بالكامل` فهذا يعني أنك ما زلت على تخزين مؤقت وقد يختفي المنتج بعد إعادة تشغيل الخدمة.
 
 ## 6) الربط مع التطبيق
 

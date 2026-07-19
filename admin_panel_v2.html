@@ -195,6 +195,7 @@
         <div class="hero-actions">
           <button class="btn btn-primary" onclick="setView('products')">فتح إدارة المنتجات</button>
           <button class="btn btn-soft" onclick="setView('notifications')">إرسال إشعار</button>
+          <button class="btn btn-soft" onclick="setView('devices')">الأجهزة المثبّت عليها التطبيق</button>
           <button class="btn btn-soft" onclick="setView('overview')">النظرة العامة</button>
           <button class="btn btn-soft" onclick="setView('settings')">الاتصال</button>
         </div>
@@ -204,6 +205,10 @@
         <div class="stat"><div class="label">المنتجات الظاهرة</div><div class="num" id="statVisible">–</div></div>
         <div class="stat"><div class="label">المنتجات المخفية</div><div class="num" id="statHidden">–</div></div>
         <div class="stat"><div class="label">التصنيفات</div><div class="num" id="statCats">–</div></div>
+        <div class="stat"><div class="label">إجمالي الطلبات</div><div class="num" id="statOrdersTotal">–</div></div>
+        <div class="stat"><div class="label">طلبات قيد المتابعة</div><div class="num" id="statOrdersOpen">–</div></div>
+        <div class="stat"><div class="label">العملاء المسجلين</div><div class="num" id="statRegisteredUsers">–</div></div>
+        <div class="stat"><div class="label">العملاء النشطين (24 ساعة)</div><div class="num" id="statActiveUsers1d">–</div></div>
       </div>
     </section>
 
@@ -214,11 +219,11 @@
         <p>إضافة وتعديل وحذف وإخفاء ورفع صور، وهذه الوحدة تعمل الآن بالكامل.</p>
         <div class="hub-meta"><span class="badge ok">متاح الآن</span><span class="pill">ويب</span></div>
       </div>
-      <div class="hub-card" onclick="notifyUnavailable('طلبات العملاء')">
+      <div class="hub-card" onclick="setView('orders')">
         <div class="icon">🧾</div>
         <h3>طلبات العملاء</h3>
-        <p>موجودة في منطق لوحة الهاتف، لكن الويب يحتاج API مستقلة لها.</p>
-        <div class="hub-meta"><span class="badge soon">لاحقًا</span><span class="pill">الهاتف الآن</span></div>
+        <p>عرض الطلبات الواردة من التطبيق مع تحديث الحالة مباشرة.</p>
+        <div class="hub-meta"><span class="badge ok">متاح الآن</span><span class="pill">طلبات</span></div>
       </div>
       <div class="hub-card" onclick="notifyUnavailable('إدارة PIN')">
         <div class="icon">🔐</div>
@@ -232,6 +237,12 @@
         <p>إرسال إشعار فوري لكل الزباين أو لمستخدم محدد عبر Firestore.</p>
         <div class="hub-meta"><span class="badge ok">متاح الآن</span><span class="pill">إشعارات</span></div>
       </div>
+      <div class="hub-card" onclick="setView('devices')">
+        <div class="icon">📱</div>
+        <h3>الأجهزة المثبّت عليها التطبيق</h3>
+        <p>عدد الأجهزة + نوع النظام + أحدث الأجهزة النشطة.</p>
+        <div class="hub-meta"><span class="badge ok">متاح الآن</span><span class="pill">إحصائيات</span></div>
+      </div>
     </section>
 
     <section class="workspace">
@@ -239,7 +250,9 @@
         <div class="tabs">
           <button class="tab active" data-tab="overview" onclick="setView('overview')">نظرة عامة</button>
           <button class="tab" data-tab="products" onclick="setView('products')">إدارة المنتجات</button>
+          <button class="tab" data-tab="orders" onclick="setView('orders')">طلبات العملاء</button>
           <button class="tab" data-tab="notifications" onclick="setView('notifications')">إشعارات الزباين</button>
+          <button class="tab" data-tab="devices" onclick="setView('devices')">الأجهزة</button>
           <button class="tab" data-tab="settings" onclick="setView('settings')">الاتصال</button>
         </div>
         <div class="quick-row">
@@ -278,6 +291,8 @@
               <div class="list">
                 <div class="row"><div><h4>Base URL</h4><p id="healthBase">—</p></div><span class="badge ok">نشط</span></div>
                 <div class="row"><div><h4>وضع التخزين</h4><p id="healthStorage">—</p></div><span class="badge soon">مراقبة</span></div>
+                <div class="row"><div><h4>محرك الكتالوج</h4><p id="healthCatalogBackend">—</p></div><span class="badge" id="healthCatalogBadge">مراقبة</span></div>
+                <div class="row"><div><h4>جاهزية الإنتاج</h4><p id="healthProd">—</p></div><span class="badge" id="healthProdBadge">مراقبة</span></div>
               </div>
             </div>
           </div>
@@ -302,6 +317,48 @@
               </tr>
             </thead>
             <tbody id="tableBody"><tr><td colspan="8" class="empty"><span class="spinner"></span></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel" id="panel-orders">
+        <div class="panel-head">
+          <div><h3>طلبات العملاء</h3><p>إدارة حالة الطلبات الواردة من التطبيق.</p></div>
+          <div class="quick-row">
+            <select id="ordersStatusFilter" onchange="loadOrders()" style="min-width:180px">
+              <option value="">كل الحالات</option>
+              <option value="pending">pending</option>
+              <option value="processing">processing</option>
+              <option value="shipped">shipped</option>
+              <option value="delivered">delivered</option>
+              <option value="canceled">canceled</option>
+            </select>
+            <button class="btn btn-soft" onclick="loadOrders(true)">تحديث</button>
+          </div>
+        </div>
+        <div class="stats" style="margin-bottom:16px">
+          <div class="stat"><div class="label">إجمالي الطلبات</div><div class="num" id="ordTotal">0</div></div>
+          <div class="stat"><div class="label">قيد الانتظار</div><div class="num" id="ordPending">0</div></div>
+          <div class="stat"><div class="label">قيد التجهيز</div><div class="num" id="ordProcessing">0</div></div>
+          <div class="stat"><div class="label">تم الشحن</div><div class="num" id="ordShipped">0</div></div>
+          <div class="stat"><div class="label">مكتملة</div><div class="num" id="ordDelivered">0</div></div>
+          <div class="stat"><div class="label">ملغية</div><div class="num" id="ordCanceled">0</div></div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>رقم الطلب</th>
+                <th>العميل</th>
+                <th>الهاتف</th>
+                <th>الإجمالي</th>
+                <th>العناصر</th>
+                <th>الحالة</th>
+                <th>تاريخ الطلب</th>
+                <th>إجراء</th>
+              </tr>
+            </thead>
+            <tbody id="ordersTableBody"><tr><td colspan="8" class="empty">لا توجد طلبات بعد.</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -356,6 +413,50 @@
               <div class="row"><div><h4>لا تكرري الإرسال بسرعة</h4><p>حتى لا يتحول التنبيه لإزعاج للمستخدمين.</p></div><span class="badge soon">تجربة العميل</span></div>
             </div>
           </div>
+        </div>
+      </div>
+
+      <div class="panel" id="panel-devices">
+        <div class="panel-head">
+          <div><h3>إحصائيات الأجهزة</h3><p>عدد الأجهزة المثبّت عليها التطبيق + نوع الجهاز + النظام.</p></div>
+          <div class="quick-row"><button class="btn btn-soft" onclick="loadDeviceStats(true)">تحديث الإحصائيات</button></div>
+        </div>
+        <div class="stats" style="margin-bottom:16px">
+          <div class="stat"><div class="label">إجمالي الأجهزة المثبتة</div><div class="num" id="devTotal">–</div></div>
+          <div class="stat"><div class="label">الأجهزة النشطة (1 يوم)</div><div class="num" id="devActive1d">–</div></div>
+          <div class="stat"><div class="label">الأجهزة النشطة (7 أيام)</div><div class="num" id="devActive7d">–</div></div>
+          <div class="stat"><div class="label">الأجهزة النشطة (30 يوم)</div><div class="num" id="devActive30d">–</div></div>
+          <div class="stat"><div class="label">Android</div><div class="num" id="devAndroid">–</div></div>
+          <div class="stat"><div class="label">iOS</div><div class="num" id="devIos">–</div></div>
+        </div>
+        <div class="overview-grid">
+          <div class="card">
+            <div class="panel-head"><div><h3>أكثر أنواع الأجهزة</h3><p>حسب بيانات آخر اتصال من التطبيق.</p></div></div>
+            <div class="list" id="topModelsList"></div>
+          </div>
+          <div class="card">
+            <div class="panel-head"><div><h3>توزيع المنصات</h3><p>Android / iOS / غيرها</p></div></div>
+            <div class="list" id="platformsList"></div>
+          </div>
+        </div>
+        <div class="table-wrap" style="margin-top:16px">
+          <table>
+            <thead>
+              <tr>
+                <th>النظام</th>
+                <th>الجهاز</th>
+                <th>المستخدم</th>
+                <th>اللغة</th>
+                <th>نسخة التطبيق</th>
+                <th>آخر ظهور</th>
+                <th>آخر حدث</th>
+                <th>IP</th>
+                <th>مرات الظهور</th>
+                <th>المعرّف</th>
+              </tr>
+            </thead>
+            <tbody id="devicesTableBody"><tr><td colspan="10" class="empty">لا توجد بيانات أجهزة بعد.</td></tr></tbody>
+          </table>
         </div>
       </div>
 
@@ -470,7 +571,9 @@
     const SIZE_PRESETS = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL', '50', '52', '54', '56', '58', '60'];
     const LENGTH_PRESETS = ['قصير', 'عادي', 'طويل', '150', '152', '154', '156', '158', '160'];
 
-    const FALLBACK_BASE_URL = window.location.protocol.startsWith('http') ? window.location.origin : 'http://localhost:8080';
+    const FALLBACK_BASE_URL = window.location.protocol.startsWith('http')
+      ? window.location.origin
+      : 'https://carmenkarla-backend.onrender.com';
     let BASE_URL = localStorage.getItem('ck_base') || FALLBACK_BASE_URL;
     if (window.location.protocol.startsWith('http') && /:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(BASE_URL)) {
       BASE_URL = window.location.origin;
@@ -481,6 +584,9 @@
     let selectedFiles = [];
     let previewUrls = [];
     let imageGallery = [];
+    let devicesStats = null;
+    let allOrders = [];
+    let dashboardSummary = null;
 
     function headers() {
       return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_TOKEN}` };
@@ -622,6 +728,12 @@
       if (panel) panel.classList.add('active');
       const tab = document.querySelector(`[data-tab="${view}"]`);
       if (tab) tab.classList.add('active');
+      if (view === 'orders') {
+        loadOrders();
+      }
+      if (view === 'devices') {
+        loadDeviceStats();
+      }
     }
 
     function notifyUnavailable(name) {
@@ -638,6 +750,8 @@
     async function checkHealth() {
       const dot = document.getElementById('statusDot');
       const statusText = document.getElementById('statusText');
+      const backendBadge = document.getElementById('healthCatalogBadge');
+      const prodBadge = document.getElementById('healthProdBadge');
       dot.classList.remove('ok', 'err');
       statusText.textContent = 'جاري الاتصال...';
       try {
@@ -647,11 +761,28 @@
         statusText.textContent = 'متصل ✓';
         document.getElementById('healthBase').textContent = data.publicBase || BASE_URL;
         document.getElementById('healthStorage').textContent = data.storageMode === 'persistent' ? 'Persistent / دائم' : 'Local / تجريبي';
+        const backend = String(data.catalogBackend || 'local-file');
+        document.getElementById('healthCatalogBackend').textContent = backend === 'firestore' ? 'Firestore (مستقر)' : 'Local File';
+        backendBadge.className = `badge ${backend === 'firestore' ? 'ok' : 'soon'}`;
+        backendBadge.textContent = backend === 'firestore' ? 'احترافي' : 'تجريبي';
+
+        const prodReady = Boolean(data.productionReady);
+        document.getElementById('healthProd').textContent = prodReady
+          ? 'جاهز للنشر للزبائن'
+          : 'غير آمن بالكامل: فعل Persistent Disk أو Firestore';
+        prodBadge.className = `badge ${prodReady ? 'ok' : 'off'}`;
+        prodBadge.textContent = prodReady ? 'جاهز' : 'مخاطرة';
       } catch (_) {
         dot.classList.add('err');
         statusText.textContent = 'غير متصل ✗';
         document.getElementById('healthBase').textContent = '—';
         document.getElementById('healthStorage').textContent = '—';
+        document.getElementById('healthCatalogBackend').textContent = '—';
+        document.getElementById('healthProd').textContent = '—';
+        backendBadge.className = 'badge soon';
+        backendBadge.textContent = 'مراقبة';
+        prodBadge.className = 'badge soon';
+        prodBadge.textContent = 'مراقبة';
       }
     }
 
@@ -693,6 +824,234 @@
       renderProducts();
     }
 
+    function renderDashboardSummary() {
+      const s = dashboardSummary || {};
+      const products = s.products || {};
+      const orders = s.orders || {};
+      const users = s.users || {};
+
+      document.getElementById('statTotal').textContent = Number(products.total || 0);
+      document.getElementById('statVisible').textContent = Number(products.visible || 0);
+      document.getElementById('statHidden').textContent = Number(products.hidden || 0);
+      document.getElementById('statCats').textContent = Number(products.categories || 0);
+
+      document.getElementById('statOrdersTotal').textContent = Number(orders.total || 0);
+      const openOrders = Number(orders.pending || 0) + Number(orders.processing || 0) + Number(orders.shipped || 0);
+      document.getElementById('statOrdersOpen').textContent = openOrders;
+
+      document.getElementById('statRegisteredUsers').textContent = Number(users.registered || 0);
+      document.getElementById('statActiveUsers1d').textContent = Number(users.active1d || 0);
+    }
+
+    async function loadDashboardSummary(forceToast = false) {
+      try {
+        const data = await api('GET', '/dashboard/summary');
+        if (!data.ok) throw new Error(data.error || 'فشل تحميل ملخص اللوحة');
+        dashboardSummary = data;
+        renderDashboardSummary();
+        if (forceToast) toast('تم تحديث ملخص اللوحة', 'success');
+      } catch (err) {
+        if (forceToast) toast(String(err?.message || 'فشل تحميل الملخص'), 'error');
+      }
+    }
+
+    function statusBadgeClass(status) {
+      const s = String(status || '').toLowerCase();
+      if (s === 'delivered') return 'ok';
+      if (s === 'canceled') return 'off';
+      if (s === 'shipped') return 'ok';
+      return 'soon';
+    }
+
+    function renderOrders() {
+      const body = document.getElementById('ordersTableBody');
+      if (!body) return;
+
+      const statusCounter = {
+        pending: 0,
+        processing: 0,
+        shipped: 0,
+        delivered: 0,
+        canceled: 0,
+      };
+      for (const o of allOrders) {
+        const s = String(o?.status || 'pending').toLowerCase();
+        if (Object.prototype.hasOwnProperty.call(statusCounter, s)) {
+          statusCounter[s] += 1;
+        }
+      }
+      document.getElementById('ordTotal').textContent = Number(allOrders.length || 0);
+      document.getElementById('ordPending').textContent = statusCounter.pending;
+      document.getElementById('ordProcessing').textContent = statusCounter.processing;
+      document.getElementById('ordShipped').textContent = statusCounter.shipped;
+      document.getElementById('ordDelivered').textContent = statusCounter.delivered;
+      document.getElementById('ordCanceled').textContent = statusCounter.canceled;
+
+      if (!allOrders.length) {
+        body.innerHTML = '<tr><td colspan="8" class="empty">لا توجد طلبات بعد.</td></tr>';
+        return;
+      }
+
+      body.innerHTML = allOrders.map(o => {
+        const id = String(o.orderId || '');
+        const status = String(o.status || 'pending').toLowerCase();
+        const total = Number(o.grandTotal || 0);
+        const createdAt = fmtTime(o.createdAtMs);
+        const options = ['pending', 'processing', 'shipped', 'delivered', 'canceled']
+          .map(s => `<option value="${s}" ${s === status ? 'selected' : ''}>${s}</option>`)
+          .join('');
+
+        return `
+          <tr>
+            <td><strong>${escHtml(id)}</strong></td>
+            <td>${escHtml(o.customerName || '—')}</td>
+            <td>${escHtml(o.customerPhone || '—')}</td>
+            <td>${Number.isFinite(total) ? total.toFixed(2) : '0.00'} ل.د</td>
+            <td>${Number(o.itemsCount || 0)}</td>
+            <td><span class="badge ${statusBadgeClass(status)}">${escHtml(status)}</span></td>
+            <td>${escHtml(createdAt)}</td>
+            <td>
+              <div class="quick-row" style="min-width:200px">
+                <select id="ordStatus_${escHtml(id)}" style="min-width:140px">${options}</select>
+                <button class="btn btn-soft" onclick="updateOrderStatus('${escHtml(id)}')">حفظ</button>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    async function loadOrders(forceToast = false) {
+      const status = (document.getElementById('ordersStatusFilter')?.value || '').trim();
+      const qs = status ? `?limit=300&status=${encodeURIComponent(status)}` : '?limit=300';
+      try {
+        const data = await api('GET', `/orders${qs}`);
+        if (!data.ok) throw new Error(data.error || 'فشل تحميل الطلبات');
+        allOrders = Array.isArray(data.items) ? data.items : [];
+        renderOrders();
+        if (forceToast) toast('تم تحديث الطلبات', 'success');
+      } catch (err) {
+        if (forceToast) toast(String(err?.message || 'فشل تحميل الطلبات'), 'error');
+      }
+    }
+
+    async function updateOrderStatus(orderId) {
+      const sel = document.getElementById(`ordStatus_${orderId}`);
+      if (!sel) return;
+      const status = String(sel.value || '').trim().toLowerCase();
+      try {
+        const data = await api('PUT', `/orders/${encodeURIComponent(orderId)}/status`, { status });
+        if (!data.ok) throw new Error(data.error || 'فشل تحديث الحالة');
+        toast('تم تحديث حالة الطلب', 'success');
+        await loadOrders();
+      } catch (err) {
+        toast(String(err?.message || 'فشل تحديث الحالة'), 'error');
+      }
+    }
+
+    function toShortDeviceId(id) {
+      const s = String(id || '').trim();
+      if (!s) return '—';
+      if (s.length <= 14) return s;
+      return `${s.substring(0, 8)}...${s.substring(s.length - 4)}`;
+    }
+
+    function fmtTime(ms) {
+      const n = Number(ms || 0);
+      if (!n) return '—';
+      const d = new Date(n);
+      if (Number.isNaN(d.getTime())) return '—';
+      return d.toLocaleString('ar-EG');
+    }
+
+    function findCount(list, key) {
+      if (!Array.isArray(list)) return 0;
+      const target = String(key || '').trim().toLowerCase();
+      const it = list.find(x => String(x?.name || '').trim().toLowerCase() === target);
+      return Number(it?.count || 0);
+    }
+
+    function renderDeviceStats() {
+      const data = devicesStats || {};
+      const total = Number(data.totalInstalled || 0);
+      const active = Number(data.activeDevices || 0);
+      const active1d = Number(data.active1d || 0);
+      const active7d = Number(data.active7d || 0);
+      const active30d = Number(data.active30d || active);
+      const platforms = Array.isArray(data.platforms) ? data.platforms : [];
+      const topModels = Array.isArray(data.topModels) ? data.topModels : [];
+      const recentItems = Array.isArray(data.recentItems) ? data.recentItems : [];
+
+      document.getElementById('devTotal').textContent = total;
+      document.getElementById('devActive1d').textContent = active1d;
+      document.getElementById('devActive7d').textContent = active7d;
+      document.getElementById('devActive30d').textContent = active30d;
+      document.getElementById('devAndroid').textContent = findCount(platforms, 'android');
+      document.getElementById('devIos').textContent = findCount(platforms, 'ios');
+
+      const platformsList = document.getElementById('platformsList');
+      if (!platforms.length) {
+        platformsList.innerHTML = '<div class="empty">لا يوجد توزيع منصات بعد.</div>';
+      } else {
+        platformsList.innerHTML = platforms.map(p => `
+          <div class="row">
+            <div><h4>${escHtml(p.name || 'unknown')}</h4><p>عدد الأجهزة</p></div>
+            <span class="badge ok">${Number(p.count || 0)}</span>
+          </div>
+        `).join('');
+      }
+
+      const topModelsList = document.getElementById('topModelsList');
+      if (!topModels.length) {
+        topModelsList.innerHTML = '<div class="empty">لا توجد بيانات موديلات بعد.</div>';
+      } else {
+        topModelsList.innerHTML = topModels.map(m => `
+          <div class="row">
+            <div><h4>${escHtml(m.name || 'Unknown')}</h4><p>من أكثر الأجهزة استخدامًا</p></div>
+            <span class="badge ok">${Number(m.count || 0)}</span>
+          </div>
+        `).join('');
+      }
+
+      const body = document.getElementById('devicesTableBody');
+      if (!recentItems.length) {
+        body.innerHTML = '<tr><td colspan="10" class="empty">لا توجد بيانات أجهزة بعد.</td></tr>';
+        return;
+      }
+
+      body.innerHTML = recentItems.map(d => {
+        const brand = String(d.brand || '').trim();
+        const model = String(d.model || '').trim();
+        const name = `${brand} ${model}`.trim() || 'غير محدد';
+        return `
+          <tr>
+            <td>${escHtml(d.platform || 'unknown')}</td>
+            <td>${escHtml(name)}<div style="margin-top:4px;color:var(--muted);font-size:.76rem">${escHtml(d.osVersion || '')}</div></td>
+            <td>${escHtml(d.uid || '—')}</td>
+            <td>${escHtml(d.locale || '—')}</td>
+            <td>${escHtml(d.appVersion || '—')}<div style="margin-top:4px;color:var(--muted);font-size:.76rem">Build: ${escHtml(d.appBuild || '—')}</div></td>
+            <td>${escHtml(fmtTime(d.lastSeenMs))}</td>
+            <td>${escHtml(d.lastEvent || 'heartbeat')}</td>
+            <td>${escHtml(d.lastIp || '—')}</td>
+            <td>${Number(d.seenCount || 1)}</td>
+            <td title="${escHtml(d.installationId || '')}">${escHtml(toShortDeviceId(d.installationId || ''))}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    async function loadDeviceStats(forceToast = false) {
+      try {
+        const data = await api('GET', '/devices/stats?days=30&limit=250');
+        if (!data.ok) throw new Error(data.error || 'فشل تحميل بيانات الأجهزة');
+        devicesStats = data;
+        renderDeviceStats();
+        if (forceToast) toast('تم تحديث إحصائيات الأجهزة', 'success');
+      } catch (err) {
+        if (forceToast) toast(String(err?.message || 'فشل الاتصال بالسيرفر'), 'error');
+      }
+    }
+
     function filteredProducts() {
       const q = document.getElementById('searchBox').value.trim().toLowerCase();
       const showHidden = document.getElementById('showHidden').checked;
@@ -705,6 +1064,10 @@
     }
 
     function updateStats() {
+      if (dashboardSummary) {
+        renderDashboardSummary();
+        return;
+      }
       const visible = allProducts.filter(p => Number(p.isHidden || 0) !== 1).length;
       const hidden = allProducts.filter(p => Number(p.isHidden || 0) === 1).length;
       const cats = new Set(allProducts.map(p => String(p.category || '').trim()).filter(Boolean)).size;
@@ -712,6 +1075,10 @@
       document.getElementById('statVisible').textContent = visible;
       document.getElementById('statHidden').textContent = hidden;
       document.getElementById('statCats').textContent = cats;
+      document.getElementById('statOrdersTotal').textContent = Number(allOrders.length || 0);
+      document.getElementById('statOrdersOpen').textContent = 0;
+      document.getElementById('statRegisteredUsers').textContent = 0;
+      document.getElementById('statActiveUsers1d').textContent = 0;
     }
 
     function renderRecentProducts() {
@@ -986,7 +1353,14 @@
       syncPresetStates();
       onNotificationAudienceChange();
       checkHealth();
+      loadDashboardSummary();
       loadProducts();
+      loadOrders();
+      loadDeviceStats();
+
+      setInterval(() => {
+        loadDashboardSummary();
+      }, 45000);
     }
 
     init();
