@@ -61,6 +61,7 @@ PRODUCTS_BACKUP_DIR = DATA_DIR / "backups"
 NOTIFICATIONS_FILE = DATA_DIR / "notifications.json"
 DEVICES_FILE = DATA_DIR / "devices.json"
 ORDERS_FILE = DATA_DIR / "orders.json"
+MARKETING_FILE = DATA_DIR / "marketing.json"
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -372,6 +373,91 @@ if not DEVICES_FILE.exists():
 if not ORDERS_FILE.exists():
     ORDERS_FILE.write_text("[]", encoding="utf-8")
 
+
+def default_marketing_config() -> Dict[str, Any]:
+    return {
+        "coupons": [
+            {
+                "code": "CK10",
+                "type": "percent",
+                "value": 10.0,
+                "minSubtotal": 0.0,
+                "maxDiscount": 50.0,
+                "freeShipping": 0,
+                "enabled": 1,
+                "startAt": None,
+                "endAt": None,
+                "createdAt": int(time.time() * 1000) - 3,
+            },
+            {
+                "code": "CK20",
+                "type": "percent",
+                "value": 20.0,
+                "minSubtotal": 200.0,
+                "maxDiscount": 80.0,
+                "freeShipping": 0,
+                "enabled": 1,
+                "startAt": None,
+                "endAt": None,
+                "createdAt": int(time.time() * 1000) - 2,
+            },
+            {
+                "code": "FREESHIP",
+                "type": "freeShipping",
+                "value": 0.0,
+                "minSubtotal": 0.0,
+                "maxDiscount": 0.0,
+                "freeShipping": 1,
+                "enabled": 1,
+                "startAt": None,
+                "endAt": None,
+                "createdAt": int(time.time() * 1000) - 1,
+            },
+        ],
+        "offers": {
+            "title": "💎 عروض لفترة محدودة",
+            "subtitle": "تُطبق العروض تلقائياً عند الدفع — والأفضل لك يتفعل مباشرة.",
+            "ctaLabel": "تسوقي العروض",
+            "items": [
+                {"id": "buy2", "text": "اشتري فستانين واحصلي على خصم إضافي 7%", "kind": "discount", "enabled": True, "productIds": []},
+                {"id": "gold", "text": "خصم 10% على كل الفساتين الذهبية", "kind": "discount", "enabled": True, "productIds": []},
+                {"id": "vip", "text": "تغليف VIP مجاني لمشتريات فوق 400 د.ل", "kind": "vip", "enabled": True, "productIds": []},
+                {"id": "ship", "text": "شحن مجاني لمشتريات فوق 250 د.ل داخل ليبيا", "kind": "shipping", "enabled": True, "productIds": []},
+            ],
+        },
+        "gifts": [
+            {
+                "id": "gift_welcome",
+                "title": "هدية الترحيب",
+                "description": "أول طلب مؤهل يحصل على هدية رمزية أو تغليف مجاني.",
+                "enabled": True,
+                "badge": "جديد",
+                "ctaLabel": "تسوقي الآن",
+                "giftType": "welcome",
+                "giftValue": "تغليف مجاني",
+                "minOrderTotal": 0.0,
+                "imageUrl": "",
+            }
+        ],
+        "competitions": [
+            {
+                "id": "comp_monthly",
+                "title": "مسابقة الشهر",
+                "description": "كل عملية شراء مؤهلة تمنح فرصة دخول السحب الشهري.",
+                "enabled": True,
+                "prize": "قسيمة شراء",
+                "ctaLabel": "شاركي الآن",
+                "endAt": None,
+                "imageUrl": "",
+            }
+        ],
+        "updatedAt": int(time.time() * 1000),
+    }
+
+
+if not MARKETING_FILE.exists():
+    _write_json_file_atomic(MARKETING_FILE, default_marketing_config())
+
 app = Flask(__name__)
 
 if CORS_ORIGIN:
@@ -438,6 +524,149 @@ def read_orders() -> List[Dict[str, Any]]:
 
 def write_orders(items: List[Dict[str, Any]]) -> None:
     _write_json_file_atomic(ORDERS_FILE, items)
+
+
+def read_marketing_config() -> Dict[str, Any]:
+    try:
+        raw = MARKETING_FILE.read_text(encoding="utf-8")
+        data = json.loads(raw)
+        if isinstance(data, dict):
+            base = default_marketing_config()
+            base.update(data)
+            return normalize_marketing_config(base)
+    except Exception:
+        pass
+    return normalize_marketing_config(default_marketing_config())
+
+
+def write_marketing_config(config: Dict[str, Any]) -> None:
+    normalized = normalize_marketing_config(config)
+    normalized["updatedAt"] = int(time.time() * 1000)
+    _write_json_file_atomic(MARKETING_FILE, normalized)
+
+
+def normalize_coupon_item(payload: Dict[str, Any], current: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+    cur = current or {}
+    code = str(payload.get("code") or cur.get("code") or "").strip().upper()
+    if not code:
+        return None
+    ctype = str(payload.get("type") or cur.get("type") or "percent").strip()
+    if ctype not in {"percent", "fixed", "freeShipping"}:
+        ctype = "percent"
+    value = max(0.0, as_number(payload.get("value", cur.get("value", 0.0)), 0.0))
+    min_sub = max(0.0, as_number(payload.get("minSubtotal", cur.get("minSubtotal", 0.0)), 0.0))
+    max_disc = max(0.0, as_number(payload.get("maxDiscount", cur.get("maxDiscount", 0.0)), 0.0))
+    free_shipping = 1 if (as_hidden_int(payload.get("freeShipping", cur.get("freeShipping", 0))) == 1 or ctype == "freeShipping") else 0
+    return {
+        "code": code,
+        "type": ctype,
+        "value": value,
+        "minSubtotal": min_sub,
+        "maxDiscount": max_disc,
+        "freeShipping": free_shipping,
+        "enabled": as_hidden_int(payload.get("enabled", cur.get("enabled", 1))),
+        "startAt": payload.get("startAt", cur.get("startAt")),
+        "endAt": payload.get("endAt", cur.get("endAt")),
+        "createdAt": as_int(payload.get("createdAt", cur.get("createdAt", int(time.time() * 1000))), int(time.time() * 1000)),
+    }
+
+
+def normalize_offer_item(payload: Dict[str, Any], current: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+    cur = current or {}
+    oid = str(payload.get("id") or cur.get("id") or "").strip()
+    text = str(payload.get("text") or cur.get("text") or "").strip()
+    if not oid or not text:
+        return None
+    return {
+        "id": oid,
+        "text": text,
+        "kind": str(payload.get("kind") or cur.get("kind") or "other").strip(),
+        "enabled": bool(payload.get("enabled", cur.get("enabled", True))),
+        "productIds": normalize_string_list(payload.get("productIds", cur.get("productIds", []))),
+    }
+
+
+def normalize_campaign_item(payload: Dict[str, Any], *, fallback_id_prefix: str, current: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+    cur = current or {}
+    cid = str(payload.get("id") or cur.get("id") or f"{fallback_id_prefix}_{uuid.uuid4().hex[:8]}").strip()
+    title = str(payload.get("title") or cur.get("title") or "").strip()
+    description = str(payload.get("description") or cur.get("description") or "").strip()
+    if not title:
+        return None
+    return {
+        "id": cid,
+        "title": title,
+        "description": description,
+        "enabled": bool(payload.get("enabled", cur.get("enabled", True))),
+        "badge": str(payload.get("badge") or cur.get("badge") or "").strip(),
+        "ctaLabel": str(payload.get("ctaLabel") or cur.get("ctaLabel") or "").strip(),
+        "giftType": str(payload.get("giftType") or cur.get("giftType") or "").strip(),
+        "giftValue": str(payload.get("giftValue") or cur.get("giftValue") or "").strip(),
+        "minOrderTotal": max(0.0, as_number(payload.get("minOrderTotal", cur.get("minOrderTotal", 0.0)), 0.0)),
+        "prize": str(payload.get("prize") or cur.get("prize") or "").strip(),
+        "endAt": payload.get("endAt", cur.get("endAt")),
+        "imageUrl": str(payload.get("imageUrl") or cur.get("imageUrl") or "").strip(),
+    }
+
+
+def normalize_marketing_config(payload: Dict[str, Any]) -> Dict[str, Any]:
+    now_ms = int(time.time() * 1000)
+    raw_coupons = payload.get("coupons") if isinstance(payload.get("coupons"), list) else []
+    coupons = [x for x in (normalize_coupon_item(i if isinstance(i, dict) else {}) for i in raw_coupons) if x]
+
+    offers_src = payload.get("offers") if isinstance(payload.get("offers"), dict) else {}
+    raw_offers = offers_src.get("items") if isinstance(offers_src.get("items"), list) else []
+    offers = [x for x in (normalize_offer_item(i if isinstance(i, dict) else {}) for i in raw_offers) if x]
+
+    raw_gifts = payload.get("gifts") if isinstance(payload.get("gifts"), list) else []
+    gifts = [x for x in (normalize_campaign_item(i if isinstance(i, dict) else {}, fallback_id_prefix="gift") for i in raw_gifts) if x]
+
+    raw_competitions = payload.get("competitions") if isinstance(payload.get("competitions"), list) else []
+    competitions = [x for x in (normalize_campaign_item(i if isinstance(i, dict) else {}, fallback_id_prefix="competition") for i in raw_competitions) if x]
+
+    return {
+        "coupons": coupons,
+        "offers": {
+            "title": str(offers_src.get("title") or "💎 عروض لفترة محدودة").strip() or "💎 عروض لفترة محدودة",
+            "subtitle": str(offers_src.get("subtitle") or "").strip(),
+            "ctaLabel": str(offers_src.get("ctaLabel") or "تسوقي العروض").strip() or "تسوقي العروض",
+            "items": offers,
+        },
+        "gifts": gifts,
+        "competitions": competitions,
+        "updatedAt": as_int(payload.get("updatedAt", now_ms), now_ms),
+    }
+
+
+def public_app_content() -> Dict[str, Any]:
+    cfg = read_marketing_config()
+    now_ms = int(time.time() * 1000)
+
+    public_coupons = []
+    for row in cfg.get("coupons", []):
+        if as_hidden_int(row.get("enabled", 1)) != 1:
+            continue
+        start_at = row.get("startAt")
+        end_at = row.get("endAt")
+        if start_at is not None and as_int(start_at, 0) > now_ms:
+            continue
+        if end_at is not None and as_int(end_at, now_ms) < now_ms:
+            continue
+        public_coupons.append(row)
+
+    public_offers = cfg.get("offers", {})
+    public_offers["items"] = [x for x in public_offers.get("items", []) if bool(x.get("enabled", True))]
+    public_gifts = [x for x in cfg.get("gifts", []) if bool(x.get("enabled", True))]
+    public_competitions = [x for x in cfg.get("competitions", []) if bool(x.get("enabled", True))]
+
+    return {
+        "ok": True,
+        "updatedAt": cfg.get("updatedAt", now_ms),
+        "coupons": public_coupons,
+        "offers": public_offers,
+        "gifts": public_gifts,
+        "competitions": public_competitions,
+    }
 
 
 def normalize_order_item(payload: Dict[str, Any], current: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -784,6 +1013,31 @@ def health():
         "productionReady": production_ready,
         "publicBase": _request_public_base(),
     })
+
+
+@app.get("/marketing/config")
+def get_marketing_config():
+    ok, err = require_admin()
+    if not ok:
+        return err
+    return jsonify({"ok": True, "config": read_marketing_config()})
+
+
+@app.put("/marketing/config")
+def update_marketing_config():
+    ok, err = require_admin()
+    if not ok:
+        return err
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "error": "Invalid config payload"}), 400
+    write_marketing_config(payload)
+    return jsonify({"ok": True, "config": read_marketing_config()})
+
+
+@app.get("/app/content")
+def app_content():
+    return jsonify(public_app_content())
 
 
 @app.post("/devices/register")

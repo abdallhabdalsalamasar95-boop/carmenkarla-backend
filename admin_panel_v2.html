@@ -98,8 +98,85 @@
     .btn-danger { background: linear-gradient(135deg, #d75d5d, #f07878); color: #fff; }
     .dashboard-strip {
       margin-top: 18px;
-      display: grid;
+      display: none;
       grid-template-columns: repeat(8, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .modules-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 16px;
+    }
+    .module-card {
+      background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.015));
+      border: 1px solid rgba(255,255,255,.07);
+      border-radius: 24px;
+      padding: 22px;
+      min-height: 220px;
+      cursor: pointer;
+      display: grid;
+      align-content: space-between;
+      transition: transform .18s ease, border-color .18s ease, background .18s ease;
+    }
+    .module-card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(212,176,123,.28);
+      background: linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.02));
+    }
+    .module-icon {
+      width: 56px;
+      height: 56px;
+      border-radius: 18px;
+      display: grid;
+      place-items: center;
+      font-size: 24px;
+      background: rgba(255,255,255,.045);
+      border: 1px solid rgba(255,255,255,.06);
+    }
+    .module-copy h3 {
+      font-size: 1.02rem;
+      font-weight: 900;
+      margin-top: 18px;
+    }
+    .module-copy p {
+      color: var(--muted);
+      margin-top: 8px;
+      line-height: 1.8;
+      font-size: .84rem;
+    }
+    .module-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text);
+      font-weight: 800;
+      font-size: .84rem;
+    }
+    .campaign-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+    .campaign-item {
+      border: 1px solid rgba(255,255,255,.06);
+      border-radius: 18px;
+      padding: 16px;
+      background: rgba(255,255,255,.02);
+      display: grid;
+      gap: 12px;
+    }
+    .campaign-item h4 {
+      font-size: .95rem;
+      font-weight: 900;
+    }
+    .campaign-item p {
+      color: var(--muted);
+      font-size: .82rem;
+      line-height: 1.7;
+    }
+    .split-2 {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 12px;
     }
     .stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
@@ -144,6 +221,16 @@
       color: var(--text);
       border-color: var(--line-strong);
       box-shadow: inset 0 0 0 1px rgba(255,255,255,.03);
+    }
+    body[data-view="overview"] .dashboard-strip,
+    body[data-view="overview"] .switcher {
+      display: none;
+    }
+    body[data-view="overview"] .top-home-btn {
+      display: none;
+    }
+    body:not([data-view="overview"]) .landing-panel {
+      display: none;
     }
     .panel { display: none; border-radius: 24px; padding: 22px; }
     .panel.active { display: block; }
@@ -216,12 +303,14 @@
     @keyframes spin { to { transform: rotate(360deg); } }
     @media (max-width: 1180px) {
       .dashboard-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .modules-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .overview-grid { grid-template-columns: 1fr; }
       .products-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .campaign-grid, .split-2 { grid-template-columns: 1fr; }
     }
     @media (max-width: 760px) {
       .topbar, .switcher, .panel-head, .toolbar, .row, .product-top { flex-direction: column; align-items: stretch; }
-      .products-grid, .form-grid, .dashboard-strip { grid-template-columns: 1fr; }
+      .products-grid, .form-grid, .dashboard-strip, .modules-grid { grid-template-columns: 1fr; }
       .btn { width: 100%; }
     }
   </style>
@@ -238,8 +327,9 @@
       </div>
       <div class="top-actions">
         <span class="pill"><span class="dot" id="statusDot"></span><span id="statusText">جاري الاتصال...</span></span>
+        <button class="btn btn-soft top-home-btn" onclick="setView('overview')">الرئيسية</button>
+        <button class="btn btn-soft" onclick="setView('settings')">الاتصال</button>
         <button class="btn btn-soft" onclick="checkHealth()">فحص الاتصال</button>
-        <button class="btn btn-primary" onclick="openAddModal()">+ إضافة منتج</button>
       </div>
     </header>
 
@@ -272,36 +362,69 @@
       </div>
 
       <div class="panel active" id="panel-overview">
-        <div class="overview-grid">
-          <div class="stack">
-            <div class="card">
-              <div class="panel-head"><div><h3>آخر المنتجات</h3><p>آخر العناصر المضافة أو المعدلة.</p></div></div>
-              <div class="list" id="recentProducts"></div>
+        <div class="landing-panel">
+          <div class="modules-grid">
+            <div class="module-card" onclick="setView('products')">
+              <div>
+                <div class="module-icon">📦</div>
+                <div class="module-copy">
+                  <h3>إدارة المنتجات</h3>
+                  <p>إضافة وتعديل المنتجات والصور والمخزون والألوان.</p>
+                </div>
+              </div>
+              <div class="module-link">فتح القسم <span>←</span></div>
             </div>
-            <div class="card">
-              <div class="panel-head"><div><h3>تنبيهات المخزون</h3><p>حالة المنتجات التي تحتاج متابعة.</p></div></div>
-              <div class="list" id="inventoryAlerts"></div>
+            <div class="module-card" onclick="setView('orders')">
+              <div>
+                <div class="module-icon">🧾</div>
+                <div class="module-copy">
+                  <h3>طلبات العملاء</h3>
+                  <p>متابعة الطلبات وتحديث حالاتها بشكل مباشر.</p>
+                </div>
+              </div>
+              <div class="module-link">فتح القسم <span>←</span></div>
+            </div>
+            <div class="module-card" onclick="setView('notifications')">
+              <div>
+                <div class="module-icon">🔔</div>
+                <div class="module-copy">
+                  <h3>إشعارات الزباين</h3>
+                  <p>إرسال إشعارات سريعة لجميع الزباين أو لمستخدم محدد.</p>
+                </div>
+              </div>
+              <div class="module-link">فتح القسم <span>←</span></div>
+            </div>
+            <div class="module-card" onclick="setView('devices')">
+              <div>
+                <div class="module-icon">📱</div>
+                <div class="module-copy">
+                  <h3>الأجهزة</h3>
+                  <p>مراقبة الأجهزة النشطة والمنصات وآخر النشاطات.</p>
+                </div>
+              </div>
+              <div class="module-link">فتح القسم <span>←</span></div>
+            </div>
+            <div class="module-card" onclick="setView('campaigns')">
+              <div>
+                <div class="module-icon">🎁</div>
+                <div class="module-copy">
+                  <h3>العروض والحملات</h3>
+                  <p>إدارة أكواد الخصم والعروض والهدايا والمسابقات.</p>
+                </div>
+              </div>
+              <div class="module-link">فتح القسم <span>←</span></div>
             </div>
           </div>
-          <div class="stack">
-            <div class="card">
-              <div class="panel-head"><div><h3>الوحدات النشطة</h3><p>الأقسام المتاحة داخل اللوحة.</p></div></div>
-              <div class="list">
-                <div class="row"><div><h4>إدارة المنتجات</h4><p>إضافة وتعديل وحذف ورفع صور.</p></div><span class="badge ok">فعّالة</span></div>
-                <div class="row"><div><h4>طلبات العملاء</h4><p>متابعة الحالات والتحديثات.</p></div><span class="badge ok">فعّالة</span></div>
-                <div class="row"><div><h4>الإشعارات والأجهزة</h4><p>إرسال الإشعارات ومراقبة الاستخدام.</p></div><span class="badge ok">فعّالة</span></div>
-              </div>
-            </div>
-            <div class="card">
-              <div class="panel-head"><div><h3>حالة الخدمة</h3><p>قراءة مباشرة من السيرفر.</p></div></div>
-              <div class="list">
-                <div class="row"><div><h4>Base URL</h4><p id="healthBase">—</p></div><span class="badge ok">نشط</span></div>
-                <div class="row"><div><h4>وضع التخزين</h4><p id="healthStorage">—</p></div><span class="badge soon">مراقبة</span></div>
-                <div class="row"><div><h4>محرك الكتالوج</h4><p id="healthCatalogBackend">—</p></div><span class="badge" id="healthCatalogBadge">مراقبة</span></div>
-                <div class="row"><div><h4>جاهزية الإنتاج</h4><p id="healthProd">—</p></div><span class="badge" id="healthProdBadge">مراقبة</span></div>
-              </div>
-            </div>
-          </div>
+        </div>
+        <div style="display:none">
+          <div id="recentProducts"></div>
+          <div id="inventoryAlerts"></div>
+          <p id="healthBase"></p>
+          <p id="healthStorage"></p>
+          <p id="healthCatalogBackend"></p>
+          <p id="healthProd"></p>
+          <span id="healthCatalogBadge"></span>
+          <span id="healthProdBadge"></span>
         </div>
       </div>
 
@@ -469,6 +592,41 @@
             </div>
         </div>
       </div>
+
+      <div class="panel" id="panel-campaigns">
+        <div class="panel-head">
+          <div><h3>العروض والحملات</h3><p>إدارة كل ما يظهر للعميل من خصومات وهدايا ومسابقات.</p></div>
+          <div class="quick-row">
+            <button class="btn btn-primary" onclick="saveMarketingConfig()">حفظ التغييرات</button>
+            <button class="btn btn-soft" onclick="loadMarketingConfig(true)">تحديث</button>
+          </div>
+        </div>
+        <div class="campaign-grid">
+          <div class="card">
+            <div class="panel-head"><div><h3>أكواد الخصم</h3><p>مرتبطة بالدفع داخل التطبيق.</p></div></div>
+            <div class="list" id="couponList"></div>
+            <div class="hero-actions"><button class="btn btn-soft" onclick="addCouponItem()">+ إضافة كود</button></div>
+          </div>
+          <div class="card">
+            <div class="panel-head"><div><h3>العروض الرئيسية</h3><p>مرتبطة ببانر العروض داخل التطبيق.</p></div></div>
+            <div class="field" style="margin-bottom:10px"><label>عنوان البانر</label><input id="offersTitle" type="text" placeholder="💎 عروض لفترة محدودة" /></div>
+            <div class="field" style="margin-bottom:10px"><label>الوصف</label><textarea id="offersSubtitle" placeholder="وصف مختصر"></textarea></div>
+            <div class="field" style="margin-bottom:10px"><label>نص الزر</label><input id="offersCtaLabel" type="text" placeholder="تسوقي العروض" /></div>
+            <div class="list" id="offersItemsList"></div>
+            <div class="hero-actions"><button class="btn btn-soft" onclick="addOfferItem()">+ إضافة عرض</button></div>
+          </div>
+          <div class="card">
+            <div class="panel-head"><div><h3>الهدايا</h3><p>حوافز إضافية تظهر للعميل.</p></div></div>
+            <div class="list" id="giftsList"></div>
+            <div class="hero-actions"><button class="btn btn-soft" onclick="addGiftItem()">+ إضافة هدية</button></div>
+          </div>
+          <div class="card">
+            <div class="panel-head"><div><h3>المسابقات</h3><p>حملات تفاعلية وربطها بالتطبيق.</p></div></div>
+            <div class="list" id="competitionsList"></div>
+            <div class="hero-actions"><button class="btn btn-soft" onclick="addCompetitionItem()">+ إضافة مسابقة</button></div>
+          </div>
+        </div>
+      </div>
     </section>
   </div>
 
@@ -584,6 +742,13 @@
     let devicesStats = null;
     let allOrders = [];
     let dashboardSummary = null;
+    let marketingConfig = {
+      coupons: [],
+      offers: { title: '', subtitle: '', ctaLabel: '', items: [] },
+      gifts: [],
+      competitions: [],
+      updatedAt: 0,
+    };
 
     function authHeaders(extra = {}) {
       const h = { ...extra };
@@ -675,6 +840,181 @@
       if (inv.lowStock) return '<span class="badge soon">قارب النفاد</span>';
       if (inv.available > 0) return `<span class="badge ok">${inv.available} متوفر</span>`;
       return '<span class="badge">غير محدد</span>';
+    }
+
+    function uniqueId(prefix) {
+      return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 999)}`;
+    }
+
+    function renderCampaignEditor(containerId, items, kind) {
+      const box = document.getElementById(containerId);
+      if (!box) return;
+      if (!items.length) {
+        box.innerHTML = '<div class="empty" style="padding:18px 0">لا توجد عناصر بعد.</div>';
+        return;
+      }
+      box.innerHTML = items.map((item, idx) => {
+        if (kind === 'coupon') {
+          return `
+            <div class="campaign-item">
+              <div class="split-2">
+                <div class="field"><label>الكود</label><input type="text" value="${escHtml(item.code || '')}" onchange="updateCouponField(${idx}, 'code', this.value)" /></div>
+                <div class="field"><label>النوع</label><select onchange="updateCouponField(${idx}, 'type', this.value)">
+                  <option value="percent" ${item.type === 'percent' ? 'selected' : ''}>نسبة</option>
+                  <option value="fixed" ${item.type === 'fixed' ? 'selected' : ''}>مبلغ</option>
+                  <option value="freeShipping" ${item.type === 'freeShipping' ? 'selected' : ''}>شحن مجاني</option>
+                </select></div>
+                <div class="field"><label>القيمة</label><input type="number" value="${escHtml(item.value ?? 0)}" onchange="updateCouponField(${idx}, 'value', this.value)" /></div>
+                <div class="field"><label>الحد الأدنى</label><input type="number" value="${escHtml(item.minSubtotal ?? 0)}" onchange="updateCouponField(${idx}, 'minSubtotal', this.value)" /></div>
+                <div class="field"><label>سقف الخصم</label><input type="number" value="${escHtml(item.maxDiscount ?? 0)}" onchange="updateCouponField(${idx}, 'maxDiscount', this.value)" /></div>
+                <div class="field"><label>الحالة</label><select onchange="updateCouponField(${idx}, 'enabled', this.value)"><option value="1" ${Number(item.enabled || 0) === 1 ? 'selected' : ''}>مفعّل</option><option value="0" ${Number(item.enabled || 0) !== 1 ? 'selected' : ''}>متوقف</option></select></div>
+              </div>
+              <div class="quick-row"><button class="btn btn-danger" onclick="removeCouponItem(${idx})">حذف</button></div>
+            </div>`;
+        }
+
+        const title = item.title || item.text || '';
+        const desc = item.description || item.text || '';
+        const extra = kind === 'offer'
+          ? `<div class="field"><label>نوع العرض</label><input type="text" value="${escHtml(item.kind || '')}" onchange="updateMarketingItem('${kind}', ${idx}, 'kind', this.value)" /></div><div class="field"><label>معرّفات المنتجات</label><input type="text" value="${escHtml((item.productIds || []).join(', '))}" onchange="updateMarketingArray('${kind}', ${idx}, 'productIds', this.value)" /></div>`
+          : kind === 'gift'
+            ? `<div class="field"><label>قيمة الهدية</label><input type="text" value="${escHtml(item.giftValue || '')}" onchange="updateMarketingItem('${kind}', ${idx}, 'giftValue', this.value)" /></div><div class="field"><label>الحد الأدنى للطلب</label><input type="number" value="${escHtml(item.minOrderTotal ?? 0)}" onchange="updateMarketingItem('${kind}', ${idx}, 'minOrderTotal', this.value)" /></div>`
+            : `<div class="field"><label>الجائزة</label><input type="text" value="${escHtml(item.prize || '')}" onchange="updateMarketingItem('${kind}', ${idx}, 'prize', this.value)" /></div><div class="field"><label>تاريخ النهاية</label><input type="text" value="${escHtml(item.endAt || '')}" onchange="updateMarketingItem('${kind}', ${idx}, 'endAt', this.value)" /></div>`;
+        return `
+          <div class="campaign-item">
+            <div class="split-2">
+              <div class="field"><label>العنوان</label><input type="text" value="${escHtml(title)}" onchange="updateMarketingItem('${kind}', ${idx}, '${kind === 'offer' ? 'text' : 'title'}', this.value)" /></div>
+              <div class="field"><label>نص الزر</label><input type="text" value="${escHtml(item.ctaLabel || '')}" onchange="updateMarketingItem('${kind}', ${idx}, 'ctaLabel', this.value)" /></div>
+              <div class="field" style="grid-column:1 / -1"><label>الوصف</label><textarea onchange="updateMarketingItem('${kind}', ${idx}, '${kind === 'offer' ? 'text' : 'description'}', this.value)">${escHtml(desc)}</textarea></div>
+              ${extra}
+              <div class="field"><label>الحالة</label><select onchange="updateMarketingItem('${kind}', ${idx}, 'enabled', this.value)"><option value="1" ${item.enabled ? 'selected' : ''}>مفعّل</option><option value="0" ${!item.enabled ? 'selected' : ''}>متوقف</option></select></div>
+            </div>
+            <div class="quick-row"><button class="btn btn-danger" onclick="removeMarketingItem('${kind}', ${idx})">حذف</button></div>
+          </div>`;
+      }).join('');
+    }
+
+    function renderMarketingConfig() {
+      const offers = marketingConfig.offers || { title: '', subtitle: '', ctaLabel: '', items: [] };
+      document.getElementById('offersTitle').value = offers.title || '';
+      document.getElementById('offersSubtitle').value = offers.subtitle || '';
+      document.getElementById('offersCtaLabel').value = offers.ctaLabel || '';
+      renderCampaignEditor('couponList', marketingConfig.coupons || [], 'coupon');
+      renderCampaignEditor('offersItemsList', offers.items || [], 'offer');
+      renderCampaignEditor('giftsList', marketingConfig.gifts || [], 'gift');
+      renderCampaignEditor('competitionsList', marketingConfig.competitions || [], 'competition');
+    }
+
+    async function loadMarketingConfig(forceToast = false) {
+      try {
+        const data = await api('GET', '/marketing/config');
+        if (!data.ok) throw new Error(data.error || 'فشل تحميل الحملات');
+        marketingConfig = data.config || marketingConfig;
+        renderMarketingConfig();
+        if (forceToast) toast('تم تحديث العروض والحملات', 'success');
+      } catch (err) {
+        if (forceToast) toast(String(err?.message || 'فشل تحميل الحملات'), 'error');
+      }
+    }
+
+    async function saveMarketingConfig() {
+      try {
+        marketingConfig.offers = marketingConfig.offers || {};
+        marketingConfig.offers.title = document.getElementById('offersTitle').value.trim();
+        marketingConfig.offers.subtitle = document.getElementById('offersSubtitle').value.trim();
+        marketingConfig.offers.ctaLabel = document.getElementById('offersCtaLabel').value.trim();
+        const data = await api('PUT', '/marketing/config', marketingConfig);
+        if (!data.ok) throw new Error(data.error || 'فشل حفظ الحملات');
+        marketingConfig = data.config || marketingConfig;
+        renderMarketingConfig();
+        toast('تم حفظ العروض والحملات', 'success');
+      } catch (err) {
+        toast(String(err?.message || 'فشل حفظ الحملات'), 'error');
+      }
+    }
+
+    function updateCouponField(index, field, value) {
+      const item = marketingConfig.coupons[index];
+      if (!item) return;
+      if (['value', 'minSubtotal', 'maxDiscount'].includes(field)) {
+        item[field] = Math.max(0, parseFloat(value || '0') || 0);
+      } else if (field === 'enabled') {
+        item[field] = parseInt(value || '0', 10) || 0;
+      } else {
+        item[field] = String(value || '').trim();
+      }
+    }
+
+    function updateMarketingItem(kind, index, field, value) {
+      const source = kind === 'offer' ? (marketingConfig.offers?.items || []) : (marketingConfig[`${kind}s`] || marketingConfig[kind] || []);
+      const item = source[index];
+      if (!item) return;
+      if (field === 'enabled') {
+        item[field] = String(value) === '1';
+      } else if (field === 'minOrderTotal') {
+        item[field] = Math.max(0, parseFloat(value || '0') || 0);
+      } else {
+        item[field] = String(value || '').trim();
+      }
+    }
+
+    function updateMarketingArray(kind, index, field, value) {
+      const source = kind === 'offer' ? (marketingConfig.offers?.items || []) : (marketingConfig[`${kind}s`] || marketingConfig[kind] || []);
+      const item = source[index];
+      if (!item) return;
+      item[field] = parseList(value, normalizePlain);
+    }
+
+    function addCouponItem() {
+      marketingConfig.coupons = marketingConfig.coupons || [];
+      marketingConfig.coupons.unshift({
+        code: `NEW${Date.now().toString().slice(-4)}`,
+        type: 'percent',
+        value: 10,
+        minSubtotal: 0,
+        maxDiscount: 0,
+        freeShipping: 0,
+        enabled: 1,
+        startAt: null,
+        endAt: null,
+        createdAt: Date.now(),
+      });
+      renderMarketingConfig();
+    }
+
+    function removeCouponItem(index) {
+      marketingConfig.coupons.splice(index, 1);
+      renderMarketingConfig();
+    }
+
+    function addOfferItem() {
+      marketingConfig.offers = marketingConfig.offers || { items: [] };
+      marketingConfig.offers.items = marketingConfig.offers.items || [];
+      marketingConfig.offers.items.unshift({ id: uniqueId('offer'), text: 'عرض جديد', kind: 'other', enabled: true, productIds: [] });
+      renderMarketingConfig();
+    }
+
+    function addGiftItem() {
+      marketingConfig.gifts = marketingConfig.gifts || [];
+      marketingConfig.gifts.unshift({ id: uniqueId('gift'), title: 'هدية جديدة', description: '', enabled: true, badge: '', ctaLabel: '', giftType: '', giftValue: '', minOrderTotal: 0, imageUrl: '' });
+      renderMarketingConfig();
+    }
+
+    function addCompetitionItem() {
+      marketingConfig.competitions = marketingConfig.competitions || [];
+      marketingConfig.competitions.unshift({ id: uniqueId('competition'), title: 'مسابقة جديدة', description: '', enabled: true, prize: '', ctaLabel: '', endAt: '', imageUrl: '' });
+      renderMarketingConfig();
+    }
+
+    function removeMarketingItem(kind, index) {
+      if (kind === 'offer') {
+        marketingConfig.offers.items.splice(index, 1);
+      } else if (kind === 'gift') {
+        marketingConfig.gifts.splice(index, 1);
+      } else if (kind === 'competition') {
+        marketingConfig.competitions.splice(index, 1);
+      }
+      renderMarketingConfig();
     }
 
     function toast(message, type = 'info') {
@@ -783,6 +1123,7 @@
     }
 
     function setView(view) {
+      document.body.dataset.view = view;
       document.querySelectorAll('.panel').forEach(el => el.classList.remove('active'));
       document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
       const panel = document.getElementById(`panel-${view}`);
@@ -794,6 +1135,9 @@
       }
       if (view === 'devices') {
         loadDeviceStats();
+      }
+      if (view === 'campaigns') {
+        loadMarketingConfig();
       }
     }
 
@@ -1477,6 +1821,7 @@
     }
 
     function init() {
+      document.body.dataset.view = 'overview';
       document.getElementById('cfgBase').value = BASE_URL;
       document.getElementById('cfgToken').value = API_TOKEN;
       populateCategorySelect();
@@ -1492,6 +1837,7 @@
       loadProducts();
       loadOrders();
       loadDeviceStats();
+      loadMarketingConfig();
 
       setInterval(() => {
         loadDashboardSummary();
