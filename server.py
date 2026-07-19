@@ -78,6 +78,12 @@ _FIREBASE_SERVICE_ACCOUNT_JSON = (os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "")
 _FIREBASE_PROJECT_ID = (os.getenv("FIREBASE_PROJECT_ID", "") or "").strip()
 _PRODUCTS_STORAGE_MODE = (os.getenv("PRODUCTS_STORAGE_MODE", "auto") or "auto").strip().lower()
 _PRODUCTS_FIRESTORE_COLLECTION = (os.getenv("PRODUCTS_FIRESTORE_COLLECTION", "products_catalog") or "products_catalog").strip()
+try:
+    _MAX_IMAGE_UPLOAD_MB = max(1, int(float((os.getenv("MAX_IMAGE_UPLOAD_MB", "10") or "10").strip())))
+except Exception:
+    _MAX_IMAGE_UPLOAD_MB = 10
+
+ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"}
 
 _FIRESTORE_DB = None
 _FIREBASE_INIT_ERROR = ""
@@ -596,6 +602,67 @@ def normalize_image_urls(value: Any) -> List[str]:
     return [x.strip() for x in s.split(",") if x.strip()]
 
 
+def normalize_string_list(value: Any) -> List[str]:
+    if isinstance(value, list):
+        return [str(x).strip() for x in value if str(x).strip()]
+
+    if value is None:
+        return []
+
+    s = str(value).strip()
+    if not s:
+        return []
+
+    if s.startswith("["):
+        try:
+            parsed = json.loads(s)
+            if isinstance(parsed, list):
+                return [str(x).strip() for x in parsed if str(x).strip()]
+        except Exception:
+            pass
+
+    return [x.strip() for x in re.split(r"[,\n\r\t]+", s) if x.strip()]
+
+
+def normalize_quantity_map(value: Any) -> Dict[str, int]:
+    if isinstance(value, dict):
+        src = value
+    elif value is None:
+        src = {}
+    else:
+        s = str(value).strip()
+        if not s:
+            src = {}
+        elif s.startswith("{"):
+            try:
+                parsed = json.loads(s)
+                src = parsed if isinstance(parsed, dict) else {}
+            except Exception:
+                src = {}
+        else:
+            src = {}
+            for part in re.split(r"[,\n\r]+", s):
+                token = str(part or "").strip()
+                if not token or ":" not in token:
+                    continue
+                key, qty = token.split(":", 1)
+                key = key.strip()
+                if key:
+                    src[key] = qty.strip()
+
+    out: Dict[str, int] = {}
+    for raw_key, raw_val in src.items():
+        key = str(raw_key or "").strip()
+        if not key:
+            continue
+        out[key] = max(0, as_int(raw_val, 0))
+    return out
+
+
+def _quantity_map_total(src: Dict[str, int]) -> int:
+    return sum(max(0, as_int(v, 0)) for v in src.values())
+
+
 def normalize_product(payload: Dict[str, Any], current: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     cur = current or {}
     now = int(time.time() * 1000)
@@ -608,9 +675,31 @@ def normalize_product(payload: Dict[str, Any], current: Optional[Dict[str, Any]]
 
     image_url = str(payload.get("imageUrl") or cur.get("imageUrl") or "").strip()
     image_urls = normalize_image_urls(payload.get("imageUrls", cur.get("imageUrls", [])))
+    colors = normalize_string_list(payload.get("colors", cur.get("colors", [])))
+    size_quantities = normalize_quantity_map(payload.get("sizeQuantities", cur.get("sizeQuantities", {})))
+    color_quantities = normalize_quantity_map(payload.get("colorQuantities", cur.get("colorQuantities", {})))
+    stock_quantity = max(0, as_int(payload.get("stockQuantity", cur.get("stockQuantity", 0)), 0))
+    low_stock_threshold = max(0, as_int(payload.get("lowStockThreshold", cur.get("lowStockThreshold", 0)), 0))
 
     if not image_url and image_urls:
         image_url = image_urls[0]
+
+    available_stock = stock_quantity
+    if available_stock <= 0:
+        size_total = _quantity_map_total(size_quantities)
+        color_total = _quantity_map_total(color_quantities)
+        available_stock = size_total if size_total > 0 else color_total
+
+    has_inventory_tracking = (
+        payload.get("stockQuantity") is not None
+        or cur.get("stockQuantity") is not None
+        or bool(size_quantities)
+        or bool(color_quantities)
+    )
+    out_of_stock = has_inventory_tracking and available_stock <= 0
+    low_stock = (not out_of_stock) and low_stock_threshold > 0 and available_stock <= low_stock_threshold
+    low_stock_sizes = [k for k, v in size_quantities.items() if low_stock_threshold > 0 and v <= low_stock_threshold]
+    low_stock_colors = [k for k, v in color_quantities.items() if low_stock_threshold > 0 and v <= low_stock_threshold]
 
     product = {
         "id": pid,
@@ -627,9 +716,20 @@ def normalize_product(payload: Dict[str, Any], current: Optional[Dict[str, Any]]
         "isHidden": as_hidden_int(payload.get("isHidden", cur.get("isHidden", 0))),
         "sizes": str(payload.get("sizes") if payload.get("sizes") is not None else cur.get("sizes", "")).strip(),
         "lengths": str(payload.get("lengths") if payload.get("lengths") is not None else cur.get("lengths", "")).strip(),
+        "colors": ",".join(colors),
+        "stockQuantity": stock_quantity,
+        "lowStockThreshold": low_stock_threshold,
+        "sizeQuantities": size_quantities,
+        "colorQuantities": color_quantities,
+        "availableStock": available_stock,
+        "outOfStock": 1 if out_of_stock else 0,
+        "lowStock": 1 if low_stock else 0,
+        "lowStockSizes": low_stock_sizes,
+        "lowStockColors": low_stock_colors,
         "sabilEnabled": as_hidden_int(payload.get("sabilEnabled", cur.get("sabilEnabled", 0))),
         "sabilReferenceCode": str(payload.get("sabilReferenceCode") if payload.get("sabilReferenceCode") is not None else cur.get("sabilReferenceCode", "")).strip(),
         "createdAt": as_int(payload.get("createdAt", cur.get("createdAt", now)), now),
+        "updatedAt": as_int(payload.get("updatedAt", now), now),
     }
 
     return product
@@ -844,6 +944,8 @@ def dashboard_summary():
     visible_products = len([p for p in products if as_hidden_int(p.get("isHidden", 0)) == 0])
     hidden_products = total_products - visible_products
     categories = len({str(p.get("category") or "").strip() for p in products if str(p.get("category") or "").strip()})
+    low_stock_count = len([p for p in products if as_hidden_int(p.get("lowStock", 0)) == 1])
+    out_of_stock_count = len([p for p in products if as_hidden_int(p.get("outOfStock", 0)) == 1])
 
     orders = [normalize_order_item(x) for x in read_orders() if isinstance(x, dict)]
     orders_total = len(orders)
@@ -891,6 +993,8 @@ def dashboard_summary():
             "visible": visible_products,
             "hidden": hidden_products,
             "categories": categories,
+            "lowStock": low_stock_count,
+            "outOfStock": out_of_stock_count,
         },
         "orders": {
             "total": orders_total,
@@ -1011,21 +1115,39 @@ def upload_image():
     if not ok:
         return err
 
-    if "image" not in request.files:
-        return jsonify({"ok": False, "error": "No image uploaded (field name: image)"}), 400
+    file = None
+    for field_name in ("image", "file", "files[]", "images[]"):
+        if field_name in request.files:
+            file = request.files[field_name]
+            break
 
-    file = request.files["image"]
+    if file is None:
+        return jsonify({"ok": False, "error": "No image uploaded (supported fields: image, file, files[], images[])"}), 400
+
     if not file or not file.filename:
         return jsonify({"ok": False, "error": "Invalid image file"}), 400
 
     safe = secure_filename(file.filename)
     safe = re.sub(r"\s+", "_", safe)
+    ext = Path(safe).suffix.lower().strip()
+    if ext not in ALLOWED_IMAGE_EXTENSIONS:
+        return jsonify({"ok": False, "error": f"Unsupported image type: {ext or 'unknown'}"}), 400
+
+    mime = str(getattr(file, "mimetype", "") or "").strip().lower()
+    if mime and not mime.startswith("image/"):
+        return jsonify({"ok": False, "error": f"Invalid image MIME type: {mime}"}), 400
+
+    max_bytes = _MAX_IMAGE_UPLOAD_MB * 1024 * 1024
+    content_length = as_int(request.content_length or 0, 0)
+    if content_length > max_bytes:
+        return jsonify({"ok": False, "error": f"Image exceeds max size of {_MAX_IMAGE_UPLOAD_MB}MB"}), 413
+
     filename = f"{int(time.time() * 1000)}_{safe}"
     dest = UPLOAD_DIR / filename
     file.save(dest)
 
     url = f"{_request_public_base()}/uploads/{filename}"
-    return jsonify({"ok": True, "filename": filename, "url": url})
+    return jsonify({"ok": True, "filename": filename, "url": url, "sizeBytes": dest.stat().st_size if dest.exists() else 0})
 
 
 @app.post("/products")
