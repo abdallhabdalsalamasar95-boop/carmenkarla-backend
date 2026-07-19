@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: carmenkarla-backend
+    env: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn server:app
+    autoDeploy: true
+    disk:
+      name: carmenkarla-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: SERVER_BASE_URL
+        value: https://carmenkarla-backend.onrender.com
+      - key: STORAGE_ROOT
+        value: /var/data/carmenkarla
+      - key: PRODUCTS_STORAGE_MODE
+        value: auto
+      - key: API_TOKEN
+        sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false
+      - key: FIREBASE_PROJECT_ID
+        sync: false

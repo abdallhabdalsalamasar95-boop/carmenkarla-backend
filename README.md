@@ -105,7 +105,7 @@ Body (لمستخدم محدد):
 
 ### متغيرات البيئة المهمة على Render
 
-- `API_TOKEN` = نفس التوكن الموجود في التطبيق
+- `API_TOKEN` = توكن إدارة لوحة الويب فقط
 - `SERVER_BASE_URL` = `https://carmenkarla-backend.onrender.com`
 - `STORAGE_ROOT` = `/var/data/carmenkarla`
 - `CORS_ORIGIN` = اتركه فارغًا أو حدده حسب حاجتك
@@ -114,6 +114,18 @@ Body (لمستخدم محدد):
 - `FIREBASE_PROJECT_ID` = اختياري
 - `PRODUCTS_STORAGE_MODE` = `firestore` (موصى به للإنتاج)
 - `PRODUCTS_FIRESTORE_COLLECTION` = `products_catalog`
+
+### تفعيل التخزين الدائم (Persistent Disk) — خطوة إلزامية
+
+1. في Render افتح الخدمة `carmenkarla-backend`.
+2. من تبويب **Disks** أضف Disk بحجم 1GB (أو أكثر).
+3. اجعل مسار الربط `mountPath` = `/var/data`.
+4. تأكد أن متغير البيئة `STORAGE_ROOT` = `/var/data/carmenkarla`.
+5. أعد النشر (Manual Deploy) بعد الحفظ.
+
+> بعد التفعيل يجب أن يظهر في `/health`:
+> - `storageMode: "persistent"`
+> - `storageRoot` يبدأ بـ `/var/data`
 
 ### فحص الجاهزية من لوحة التحكم
 
@@ -132,5 +144,4 @@ Body (لمستخدم محدد):
 
 - فعّل: `تفعيل Catalog محلي داخل الشبكة`
 - أدخل Base URL (مثال: `http://192.168.1.50:8080`)
-- أدخل نفس `API_TOKEN`
 - اختبر الاتصال عبر زر `اختبار اتصال السيرفر المحلي`
