@@ -934,9 +934,6 @@ def create_order_from_app():
     if not isinstance(order_payload, dict):
         return jsonify({"ok": False, "error": "payload is required"}), 400
 
-    if API_TOKEN and not _is_valid_api_token_from_request():
-        return jsonify({"ok": False, "error": "Unauthorized"}), 401
-
     entries = read_orders()
     idx = next((i for i, o in enumerate(entries) if str(o.get("orderId", "")).strip() == order_id), -1)
 

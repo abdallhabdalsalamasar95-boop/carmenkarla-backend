@@ -589,8 +589,17 @@
     let allOrders = [];
     let dashboardSummary = null;
 
+    function authHeaders(extra = {}) {
+      const h = { ...extra };
+      const token = String(API_TOKEN || '').trim();
+      if (token) {
+        h['Authorization'] = `Bearer ${token}`;
+      }
+      return h;
+    }
+
     function headers() {
-      return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_TOKEN}` };
+      return authHeaders({ 'Content-Type': 'application/json' });
     }
 
     function escHtml(value) {
@@ -1236,9 +1245,33 @@
         for (const file of selectedFiles) {
           const fd = new FormData();
           fd.append('image', file);
-          const res = await fetch(BASE_URL + '/products/upload', { method: 'POST', headers: { 'Authorization': `Bearer ${API_TOKEN}` }, body: fd });
-          const data = await res.json();
-          if (!data.ok || !data.url) throw new Error(data.error || 'فشل رفع الصورة');
+          const res = await fetch(BASE_URL + '/products/upload', {
+            method: 'POST',
+            headers: authHeaders(),
+            body: fd,
+          });
+
+          let data = null;
+          let rawText = '';
+          try {
+            rawText = await res.text();
+            data = rawText ? JSON.parse(rawText) : null;
+          } catch (_) {
+            data = null;
+          }
+
+          if (!res.ok) {
+            const msg = data?.error || data?.message || rawText || `HTTP ${res.status}`;
+            if (res.status === 401) {
+              throw new Error('غير مصرح: تأكدي من API Token في تبويب الاتصال');
+            }
+            throw new Error(`فشل رفع الصورة (${res.status}): ${msg}`);
+          }
+
+          if (!data || !data.ok || !data.url) {
+            throw new Error(data?.error || 'فشل رفع الصورة: الرد من السيرفر غير مكتمل');
+          }
+
           if (!imageGallery.includes(data.url)) imageGallery.push(data.url);
         }
         clearSelectedFiles();
