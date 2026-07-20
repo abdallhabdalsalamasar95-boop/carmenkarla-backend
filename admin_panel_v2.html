@@ -485,7 +485,7 @@
 
       <div class="panel" id="panel-orders">
         <div class="panel-head">
-          <div><h3>طلبات العملاء</h3><p>إدارة حالة الطلبات الواردة من التطبيق.</p></div>
+          <div><h3>طلبات العملاء</h3><p>إدارة حالة الطلبات الواردة من التطبيق. عند تغيير الحالة يتم إرسال إشعار تلقائي للعميل.</p></div>
           <div class="quick-row">
             <select id="ordersStatusFilter" onchange="loadOrders()" style="min-width:180px">
               <option value="">كل الحالات</option>
@@ -551,6 +551,10 @@
               <div class="field form-full">
                 <label>محتوى الإشعار *</label>
                 <textarea id="nBody" placeholder="تفاصيل مختصرة ومشجعة للزبونة..."></textarea>
+              </div>
+              <div class="field form-full">
+                <label>رابط صورة الإشعار (اختياري)</label>
+                <input id="nImageUrl" type="text" placeholder="https://... صورة تظهر بجانب الإشعار داخل التطبيق" />
               </div>
               <div class="field">
                 <label>target (اختياري)</label>
@@ -1116,6 +1120,7 @@
       document.getElementById('nUserId').value = '';
       document.getElementById('nTitle').value = '';
       document.getElementById('nBody').value = '';
+      document.getElementById('nImageUrl').value = '';
       document.getElementById('nTarget').value = '';
       document.getElementById('nTargetId').value = '';
       onNotificationAudienceChange();
@@ -1124,6 +1129,7 @@
     async function sendCustomerNotification() {
       const title = document.getElementById('nTitle').value.trim();
       const body = document.getElementById('nBody').value.trim();
+      const imageUrl = document.getElementById('nImageUrl').value.trim();
       const audience = document.getElementById('nAudience').value;
       const userId = document.getElementById('nUserId').value.trim();
       const limit = parseInt(document.getElementById('nLimit').value || '500', 10) || 500;
@@ -1139,7 +1145,7 @@
       btn.disabled = true;
       btn.innerHTML = '<span class="spinner"></span>';
 
-      const payload = { title, body, audience, target, targetId };
+      const payload = { title, body, imageUrl, audience, target, targetId };
       if (audience === 'all') payload.limit = Math.max(1, Math.min(limit, 2000));
       if (audience === 'user') payload.userId = userId;
 

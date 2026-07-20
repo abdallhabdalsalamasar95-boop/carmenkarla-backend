@@ -781,6 +781,7 @@ def normalize_notification_item(payload: Dict[str, Any], current: Optional[Dict[
     body = str(payload.get("body") or cur.get("body") or "").strip()
     target = str(payload.get("target") or cur.get("target") or "").strip()
     target_id = str(payload.get("targetId") or cur.get("targetId") or "").strip()
+    image_url = str(payload.get("imageUrl") or cur.get("imageUrl") or "").strip()
     audience = str(payload.get("audience") or cur.get("audience") or "all").strip().lower()
     uid = str(payload.get("uid") or cur.get("uid") or "").strip()
 
@@ -793,10 +794,97 @@ def normalize_notification_item(payload: Dict[str, Any], current: Optional[Dict[
         "body": body,
         "target": target,
         "targetId": target_id,
+        "imageUrl": image_url,
         "audience": audience,
         "uid": uid,
         "createdAtMs": as_int(payload.get("createdAtMs", cur.get("createdAtMs", now_ms)), now_ms),
     }
+
+
+def _status_label_ar(status: str) -> str:
+    s = str(status or "").strip().lower()
+    if s == "pending":
+        return "قيد الانتظار"
+    if s == "processing":
+        return "قيد التجهيز"
+    if s == "shipped":
+        return "تم الشحن"
+    if s == "delivered":
+        return "مكتمل"
+    if s == "canceled":
+        return "ملغي"
+    return "محدث"
+
+
+def _extract_order_image_url(order_item: Dict[str, Any]) -> str:
+    payload = order_item.get("payload") if isinstance(order_item.get("payload"), dict) else {}
+    if not isinstance(payload, dict):
+        return ""
+    items = payload.get("items") if isinstance(payload.get("items"), list) else []
+    for x in items:
+        if not isinstance(x, dict):
+            continue
+        u = str(x.get("imageUrl") or "").strip()
+        if u:
+            return u
+    return ""
+
+
+def _notify_user_on_order_status_change(order_item: Dict[str, Any], *, old_status: str, new_status: str) -> None:
+    if str(old_status or "").strip().lower() == str(new_status or "").strip().lower():
+        return
+
+    uid = str(order_item.get("uid") or "").strip()
+    payload = order_item.get("payload") if isinstance(order_item.get("payload"), dict) else {}
+    if not uid and isinstance(payload, dict):
+        customer = payload.get("customer") if isinstance(payload.get("customer"), dict) else {}
+        uid = str((customer or {}).get("submitterUid") or "").strip()
+    if not uid:
+        return
+
+    now_ms = int(time.time() * 1000)
+    order_id = str(order_item.get("orderId") or "").strip()
+    title = f"تحديث حالة الطلب #{order_id}" if order_id else "تحديث حالة الطلب"
+    body = f"تم تحديث حالة طلبك إلى: {_status_label_ar(new_status)}"
+    image_url = _extract_order_image_url(order_item)
+
+    db, _ = _firestore_db()
+    if db:
+        try:
+            doc_id = f"n_order_{now_ms}_{uuid.uuid4().hex[:10]}"
+            ref = db.collection("users").document(uid).collection("notifications").document(doc_id)
+            ref.set({
+                "title": title,
+                "body": body,
+                "target": "orders",
+                "targetId": order_id,
+                "imageUrl": image_url,
+                "read": False,
+                "createdAtMs": now_ms,
+                "createdAt": firestore.SERVER_TIMESTAMP,
+                "updatedAt": firestore.SERVER_TIMESTAMP,
+                "source": "order_status",
+            }, merge=True)
+        except Exception:
+            pass
+
+    try:
+        entries = read_notifications()
+        entries.append(normalize_notification_item({
+            "title": title,
+            "body": body,
+            "target": "orders",
+            "targetId": order_id,
+            "imageUrl": image_url,
+            "audience": "user",
+            "uid": uid,
+            "createdAtMs": now_ms,
+        }))
+        entries.sort(key=lambda x: as_int(x.get("createdAtMs", 0)), reverse=True)
+        entries = entries[:2000]
+        write_notifications(entries)
+    except Exception:
+        pass
 
 
 def as_number(v: Any, fallback: float = 0.0) -> float:
@@ -1395,6 +1483,34 @@ def list_orders():
     return jsonify({"ok": True, "count": len(items), "items": items})
 
 
+@app.get("/orders/statuses")
+def list_order_statuses_for_app():
+    limit = as_int(request.args.get("limit", 1000), 1000)
+    limit = max(1, min(limit, 5000))
+    since_ms = as_int(request.args.get("sinceMs", 0), 0)
+    uid = str(request.args.get("uid", "") or "").strip()
+
+    items = [normalize_order_item(x) for x in read_orders() if isinstance(x, dict)]
+    if uid:
+        items = [x for x in items if str(x.get("uid") or "").strip() == uid]
+
+    compact = []
+    for x in items:
+        updated = as_int(x.get("updatedAtMs", x.get("createdAtMs", 0)), 0)
+        if updated <= since_ms:
+            continue
+        compact.append({
+            "orderId": str(x.get("orderId") or "").strip(),
+            "status": str(x.get("status") or "pending").strip().lower(),
+            "updatedAtMs": updated,
+        })
+
+    compact = [x for x in compact if x["orderId"]]
+    compact.sort(key=lambda x: as_int(x.get("updatedAtMs", 0), 0), reverse=True)
+    compact = compact[:limit]
+    return jsonify({"ok": True, "count": len(compact), "items": compact})
+
+
 @app.put("/orders/<order_id>/status")
 def update_order_status(order_id: str):
     ok, err = require_admin()
@@ -1414,12 +1530,15 @@ def update_order_status(order_id: str):
         return jsonify({"ok": False, "error": "Order not found"}), 404
 
     current = entries[idx]
+    previous_status = str(current.get("status") or "pending").strip().lower()
     merged = dict(current)
     merged["status"] = status
     merged["updatedAtMs"] = int(time.time() * 1000)
     item = normalize_order_item(merged, current)
     entries[idx] = item
     write_orders(entries)
+
+    _notify_user_on_order_status_change(item, old_status=previous_status, new_status=status)
 
     return jsonify({"ok": True, "item": item})
 
@@ -1556,6 +1675,7 @@ def send_customer_notifications():
     payload = request.get_json(silent=True) or {}
     title = str(payload.get("title") or "").strip()
     body = str(payload.get("body") or "").strip()
+    image_url = str(payload.get("imageUrl") or "").strip()
     audience = str(payload.get("audience") or "all").strip().lower()
     target = str(payload.get("target") or "").strip()
     target_id = str(payload.get("targetId") or "").strip()
@@ -1610,6 +1730,7 @@ def send_customer_notifications():
                 batch.set(ref, {
                     "title": title,
                     "body": body,
+                    "imageUrl": image_url,
                     "target": target,
                     "targetId": target_id,
                     "read": False,
@@ -1638,6 +1759,7 @@ def send_customer_notifications():
         item = normalize_notification_item({
             "title": title,
             "body": body,
+            "imageUrl": image_url,
             "target": target,
             "targetId": target_id,
             "audience": "all",
@@ -1662,6 +1784,7 @@ def send_customer_notifications():
             entries.append(normalize_notification_item({
                 "title": title,
                 "body": body,
+                "imageUrl": image_url,
                 "target": target,
                 "targetId": target_id,
                 "audience": "user",
