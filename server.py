@@ -806,11 +806,11 @@ def _status_label_ar(status: str) -> str:
     if s == "pending":
         return "قيد الانتظار"
     if s == "processing":
-        return "قيد التجهيز"
+        return "قيد المعالجة"
     if s == "shipped":
         return "تم الشحن"
     if s == "delivered":
-        return "مكتمل"
+        return "تم التوصيل"
     if s == "canceled":
         return "ملغي"
     return "محدث"
@@ -1509,6 +1509,49 @@ def list_order_statuses_for_app():
     compact.sort(key=lambda x: as_int(x.get("updatedAtMs", 0), 0), reverse=True)
     compact = compact[:limit]
     return jsonify({"ok": True, "count": len(compact), "items": compact})
+
+
+@app.get("/orders/feed")
+def list_orders_feed_for_app():
+    limit = as_int(request.args.get("limit", 200), 200)
+    limit = max(1, min(limit, 1000))
+    uid = str(request.args.get("uid", "") or "").strip()
+    if not uid:
+        return jsonify({"ok": True, "count": 0, "items": []})
+
+    items = [normalize_order_item(x) for x in read_orders() if isinstance(x, dict)]
+
+    def belongs_to_uid(order: Dict[str, Any]) -> bool:
+        direct_uid = str(order.get("uid") or "").strip()
+        if direct_uid == uid:
+            return True
+        payload = order.get("payload") if isinstance(order.get("payload"), dict) else {}
+        customer = payload.get("customer") if isinstance(payload.get("customer"), dict) else {}
+        submitter_uid = str(customer.get("submitterUid") or "").strip()
+        return submitter_uid == uid
+
+    out = []
+    for x in items:
+        if not belongs_to_uid(x):
+            continue
+        payload = x.get("payload") if isinstance(x.get("payload"), dict) else {}
+        ambassador_summary = x.get("ambassadorSummary") if isinstance(x.get("ambassadorSummary"), dict) else payload.get("ambassadorSummary")
+        if not isinstance(ambassador_summary, dict):
+            ambassador_summary = {}
+        out.append({
+            "orderId": str(x.get("orderId") or "").strip(),
+            "status": str(x.get("status") or "pending").strip().lower(),
+            "createdAtMs": as_int(x.get("createdAtMs", 0), 0),
+            "updatedAtMs": as_int(x.get("updatedAtMs", x.get("createdAtMs", 0)), 0),
+            "payload": payload,
+            "ambassadorSummary": ambassador_summary,
+            "uid": str(x.get("uid") or "").strip(),
+        })
+
+    out = [x for x in out if x["orderId"]]
+    out.sort(key=lambda x: as_int(x.get("createdAtMs", 0), 0), reverse=True)
+    out = out[:limit]
+    return jsonify({"ok": True, "count": len(out), "items": out})
 
 
 @app.put("/orders/<order_id>/status")

@@ -490,9 +490,9 @@
             <select id="ordersStatusFilter" onchange="loadOrders()" style="min-width:180px">
               <option value="">كل الحالات</option>
               <option value="pending">قيد الانتظار</option>
-              <option value="processing">قيد التجهيز</option>
+              <option value="processing">قيد المعالجة</option>
               <option value="shipped">تم الشحن</option>
-              <option value="delivered">مكتمل</option>
+              <option value="delivered">تم التوصيل</option>
               <option value="canceled">ملغي</option>
             </select>
             <button class="btn btn-soft" onclick="loadOrders(true)">تحديث</button>
@@ -501,9 +501,9 @@
         <div class="stats" style="margin-bottom:16px">
           <div class="stat"><div class="label">إجمالي الطلبات</div><div class="num" id="ordTotal">0</div></div>
           <div class="stat"><div class="label">قيد الانتظار</div><div class="num" id="ordPending">0</div></div>
-          <div class="stat"><div class="label">قيد التجهيز</div><div class="num" id="ordProcessing">0</div></div>
+          <div class="stat"><div class="label">قيد المعالجة</div><div class="num" id="ordProcessing">0</div></div>
           <div class="stat"><div class="label">تم الشحن</div><div class="num" id="ordShipped">0</div></div>
-          <div class="stat"><div class="label">مكتملة</div><div class="num" id="ordDelivered">0</div></div>
+          <div class="stat"><div class="label">تم التوصيل</div><div class="num" id="ordDelivered">0</div></div>
           <div class="stat"><div class="label">ملغية</div><div class="num" id="ordCanceled">0</div></div>
         </div>
         <div class="table-wrap">
@@ -1329,9 +1329,9 @@
     function statusLabel(status) {
       const s = String(status || '').toLowerCase();
       if (s === 'pending') return 'قيد الانتظار';
-      if (s === 'processing') return 'قيد التجهيز';
+      if (s === 'processing') return 'قيد المعالجة';
       if (s === 'shipped') return 'تم الشحن';
-      if (s === 'delivered') return 'مكتمل';
+      if (s === 'delivered') return 'تم التوصيل';
       if (s === 'canceled') return 'ملغي';
       return s || 'غير معروف';
     }
