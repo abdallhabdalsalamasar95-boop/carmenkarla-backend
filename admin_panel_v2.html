@@ -489,11 +489,11 @@
           <div class="quick-row">
             <select id="ordersStatusFilter" onchange="loadOrders()" style="min-width:180px">
               <option value="">كل الحالات</option>
-              <option value="pending">pending</option>
-              <option value="processing">processing</option>
-              <option value="shipped">shipped</option>
-              <option value="delivered">delivered</option>
-              <option value="canceled">canceled</option>
+              <option value="pending">قيد الانتظار</option>
+              <option value="processing">قيد التجهيز</option>
+              <option value="shipped">تم الشحن</option>
+              <option value="delivered">مكتمل</option>
+              <option value="canceled">ملغي</option>
             </select>
             <button class="btn btn-soft" onclick="loadOrders(true)">تحديث</button>
           </div>
@@ -1320,6 +1320,16 @@
       return 'soon';
     }
 
+    function statusLabel(status) {
+      const s = String(status || '').toLowerCase();
+      if (s === 'pending') return 'قيد الانتظار';
+      if (s === 'processing') return 'قيد التجهيز';
+      if (s === 'shipped') return 'تم الشحن';
+      if (s === 'delivered') return 'مكتمل';
+      if (s === 'canceled') return 'ملغي';
+      return s || 'غير معروف';
+    }
+
     function renderOrders() {
       const body = document.getElementById('ordersTableBody');
       if (!body) return;
@@ -1355,7 +1365,7 @@
         const total = Number(o.grandTotal || 0);
         const createdAt = fmtTime(o.createdAtMs);
         const options = ['pending', 'processing', 'shipped', 'delivered', 'canceled']
-          .map(s => `<option value="${s}" ${s === status ? 'selected' : ''}>${s}</option>`)
+          .map(s => `<option value="${s}" ${s === status ? 'selected' : ''}>${statusLabel(s)}</option>`)
           .join('');
 
         return `
@@ -1365,7 +1375,7 @@
             <td>${escHtml(o.customerPhone || '—')}</td>
             <td>${Number.isFinite(total) ? total.toFixed(2) : '0.00'} ل.د</td>
             <td>${Number(o.itemsCount || 0)}</td>
-            <td><span class="badge ${statusBadgeClass(status)}">${escHtml(status)}</span></td>
+            <td><span class="badge ${statusBadgeClass(status)}">${escHtml(statusLabel(status))}</span></td>
             <td>${escHtml(createdAt)}</td>
             <td>
               <div class="quick-row" style="min-width:200px">
@@ -1895,6 +1905,13 @@
       setInterval(() => {
         loadDashboardSummary();
       }, 45000);
+
+      // Live refresh for active operational views.
+      setInterval(() => {
+        const view = String(document.body.dataset.view || 'overview');
+        if (view === 'orders') loadOrders();
+        if (view === 'devices') loadDeviceStats();
+      }, 20000);
     }
 
     init();
