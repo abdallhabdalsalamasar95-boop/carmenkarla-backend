@@ -383,6 +383,7 @@
           <button class="tab active" data-tab="overview" onclick="setView('overview')">نظرة عامة</button>
           <button class="tab" data-tab="products" onclick="setView('products')">إدارة المنتجات</button>
           <button class="tab" data-tab="orders" onclick="setView('orders')">طلبات العملاء</button>
+          <button class="tab" data-tab="ambassadors" onclick="setView('ambassadors')">المندوبات</button>
           <button class="tab" data-tab="notifications" onclick="setView('notifications')">إشعارات الزباين</button>
           <button class="tab" data-tab="devices" onclick="setView('devices')">الأجهزة</button>
           <button class="tab" data-tab="settings" onclick="setView('settings')">الاتصال</button>
@@ -413,6 +414,16 @@
                 <div class="module-copy">
                   <h3>طلبات العملاء</h3>
                   <p>متابعة الطلبات وتحديث حالاتها بشكل مباشر.</p>
+                </div>
+              </div>
+              <div class="module-link">فتح القسم <span>←</span></div>
+            </div>
+            <div class="module-card" onclick="setView('ambassadors')">
+              <div>
+                <div class="module-icon">📣</div>
+                <div class="module-copy">
+                  <h3>مندوبات التسويق</h3>
+                  <p>لوحة متزامنة مع الطلبات لحساب العمولة الفعلية والأهداف والتحفيز.</p>
                 </div>
               </div>
               <div class="module-link">فتح القسم <span>←</span></div>
@@ -522,6 +533,52 @@
             </thead>
             <tbody id="ordersTableBody"><tr><td colspan="8" class="empty">لا توجد طلبات بعد.</td></tr></tbody>
           </table>
+        </div>
+      </div>
+
+      <div class="panel" id="panel-ambassadors">
+        <div class="panel-head">
+          <div><h3>مركز مندوبات التسويق</h3><p>لوحة متزامنة مع كل الطلبات الخاصة بالمندوبات: العمولة الفعلية، المعلقة، الأهداف، وآخر النشاطات.</p></div>
+          <div class="quick-row">
+            <button class="btn btn-soft" onclick="loadAmbassadors(true)">تحديث</button>
+            <button class="btn btn-soft" onclick="setView('orders')">فتح الطلبات</button>
+          </div>
+        </div>
+        <div class="stats" style="margin-bottom:16px">
+          <div class="stat"><div class="label">عدد المندوبات النشطات</div><div class="num" id="ambCount">0</div></div>
+          <div class="stat"><div class="label">إجمالي طلبات المندوبات</div><div class="num" id="ambOrders">0</div></div>
+          <div class="stat"><div class="label">المبيعات عبر المندوبات</div><div class="num" id="ambSales">0.00</div></div>
+          <div class="stat"><div class="label">العمولة التقديرية</div><div class="num" id="ambEstimated">0.00</div></div>
+          <div class="stat"><div class="label">العمولة الفعلية (تم التوصيل)</div><div class="num" id="ambDelivered">0.00</div></div>
+          <div class="stat"><div class="label">العمولة المعلقة</div><div class="num" id="ambPending">0.00</div></div>
+        </div>
+        <div class="overview-grid">
+          <div class="card">
+            <div class="panel-head"><div><h3>ترتيب المندوبات</h3><p>حسب إجمالي المبيعات ثم عدد الطلبات.</p></div></div>
+            <div class="list" id="ambLeadersList"></div>
+          </div>
+          <div class="card">
+            <div class="panel-head"><div><h3>أهداف تحفيزية</h3><p>أهداف بسيطة وواضحة لرفع الأداء والعمولة.</p></div></div>
+            <div class="list" id="ambGoalsList"></div>
+          </div>
+        </div>
+        <div class="card" style="margin-top:16px">
+          <div class="panel-head"><div><h3>آخر طلبات المندوبات</h3><p>متزامنة مباشرة مع حالات الطلبات الحالية.</p></div></div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>رقم الطلب</th>
+                  <th>المندوبة</th>
+                  <th>الحالة</th>
+                  <th>المبيعات</th>
+                  <th>العمولة</th>
+                  <th>تاريخ الطلب</th>
+                </tr>
+              </thead>
+              <tbody id="ambOrdersTableBody"><tr><td colspan="6" class="empty">لا توجد بيانات مندوبات بعد.</td></tr></tbody>
+            </table>
+          </div>
         </div>
       </div>
 
@@ -779,6 +836,7 @@
     let imageGallery = [];
     let devicesStats = null;
     let allOrders = [];
+    let ambassadorOrders = [];
     let dashboardSummary = null;
     let marketingConfig = {
       coupons: [],
@@ -1190,6 +1248,9 @@
       if (view === 'orders') {
         loadOrders();
       }
+      if (view === 'ambassadors') {
+        loadAmbassadors();
+      }
       if (view === 'devices') {
         loadDeviceStats();
       }
@@ -1334,6 +1395,222 @@
       if (s === 'delivered') return 'تم التوصيل';
       if (s === 'canceled') return 'ملغي';
       return s || 'غير معروف';
+    }
+
+    function ambassadorNameFromCustomer(customer) {
+      if (!customer || typeof customer !== 'object') return 'مندوبة غير محددة';
+      const email = String(customer.submitterEmail || '').trim();
+      if (email) return email;
+      const name = String(customer.name || '').trim();
+      if (name) return name;
+      const phone = String(customer.phone || '').trim();
+      if (phone) return phone;
+      return 'مندوبة غير محددة';
+    }
+
+    function ambassadorKeyFromCustomer(customer) {
+      if (!customer || typeof customer !== 'object') return 'unknown';
+      const uid = String(customer.submitterUid || '').trim();
+      if (uid) return `uid:${uid}`;
+      const email = String(customer.submitterEmail || '').trim();
+      if (email) return `email:${email}`;
+      const phone = String(customer.phone || '').trim();
+      if (phone) return `phone:${phone}`;
+      const name = String(customer.name || '').trim();
+      if (name) return `name:${name}`;
+      return 'unknown';
+    }
+
+    function isAmbassadorOrder(order) {
+      const payload = order && typeof order.payload === 'object' ? order.payload : {};
+      const customer = payload && typeof payload.customer === 'object' ? payload.customer : {};
+      const summary = order && typeof order.ambassadorSummary === 'object'
+        ? order.ambassadorSummary
+        : (payload && typeof payload.ambassadorSummary === 'object' ? payload.ambassadorSummary : {});
+      return summary.isAmbassadorOrder === true || customer.placedAsAmbassador === true || String(customer.accountRole || '').trim() === 'ambassador';
+    }
+
+    function coerceNumber(value, fallback = 0) {
+      const n = Number(value);
+      return Number.isFinite(n) ? n : fallback;
+    }
+
+    function estimateAmbassadorCommission(payload) {
+      const items = Array.isArray(payload?.items) ? payload.items : [];
+      let total = 0;
+      for (const raw of items) {
+        if (!raw || typeof raw !== 'object') continue;
+        const price = coerceNumber(raw.price, 0);
+        const qty = Math.max(0, parseInt(raw.quantity || 0, 10) || 0);
+        const pct = Math.max(0, Math.min(100, coerceNumber(raw.commissionPercent, 0)));
+        total += (price * qty) * (pct / 100);
+      }
+      return total;
+    }
+
+    function buildAmbassadorModel(orders) {
+      const leadersMap = new Map();
+      let ambassadorCount = 0;
+      let ambassadorOrdersCount = 0;
+      let salesTotal = 0;
+      let estimatedTotal = 0;
+      let deliveredTotal = 0;
+      let pendingTotal = 0;
+      let deliveredOrders = 0;
+      let activeOrders = 0;
+      const recent = [];
+
+      for (const order of orders) {
+        if (!isAmbassadorOrder(order)) continue;
+        const payload = order && typeof order.payload === 'object' ? order.payload : {};
+        const customer = payload && typeof payload.customer === 'object' ? payload.customer : {};
+        const summary = order && typeof order.ambassadorSummary === 'object'
+          ? order.ambassadorSummary
+          : (payload && typeof payload.ambassadorSummary === 'object' ? payload.ambassadorSummary : {});
+        const key = ambassadorKeyFromCustomer(customer);
+        const name = ambassadorNameFromCustomer(customer);
+        const status = String(order.status || 'pending').trim().toLowerCase();
+        const total = coerceNumber(summary.grandTotal, 0) > 0
+          ? coerceNumber(summary.grandTotal, 0)
+          : (coerceNumber(payload?.pricing?.grandTotal, 0) > 0 ? coerceNumber(payload.pricing.grandTotal, 0) : coerceNumber(payload.total, 0));
+        const estimated = coerceNumber(summary.estimatedCommission, 0) > 0
+          ? coerceNumber(summary.estimatedCommission, 0)
+          : estimateAmbassadorCommission(payload);
+
+        ambassadorOrdersCount += 1;
+        salesTotal += total;
+        estimatedTotal += estimated;
+        if (status === 'delivered') {
+          deliveredOrders += 1;
+          deliveredTotal += estimated;
+        } else if (status !== 'canceled') {
+          activeOrders += 1;
+          pendingTotal += estimated;
+        }
+
+        const current = leadersMap.get(key) || {
+          key,
+          name,
+          ordersCount: 0,
+          deliveredOrdersCount: 0,
+          totalSales: 0,
+          estimatedCommission: 0,
+          deliveredCommission: 0,
+          pendingCommission: 0,
+        };
+        current.ordersCount += 1;
+        current.totalSales += total;
+        current.estimatedCommission += estimated;
+        if (status === 'delivered') {
+          current.deliveredOrdersCount += 1;
+          current.deliveredCommission += estimated;
+        } else if (status !== 'canceled') {
+          current.pendingCommission += estimated;
+        }
+        leadersMap.set(key, current);
+
+        recent.push({
+          orderId: order.orderId,
+          ambassadorName: name,
+          status,
+          total,
+          estimated,
+          createdAtMs: coerceNumber(order.createdAtMs, 0),
+        });
+      }
+
+      const leaders = Array.from(leadersMap.values()).sort((a, b) => {
+        if (b.totalSales !== a.totalSales) return b.totalSales - a.totalSales;
+        return b.ordersCount - a.ordersCount;
+      });
+      ambassadorCount = leaders.length;
+      recent.sort((a, b) => b.createdAtMs - a.createdAtMs);
+
+      return {
+        ambassadorCount,
+        ambassadorOrdersCount,
+        salesTotal,
+        estimatedTotal,
+        deliveredTotal,
+        pendingTotal,
+        deliveredOrders,
+        activeOrders,
+        leaders,
+        recent: recent.slice(0, 12),
+      };
+    }
+
+    function renderAmbassadors() {
+      const model = buildAmbassadorModel(ambassadorOrders);
+      document.getElementById('ambCount').textContent = model.ambassadorCount;
+      document.getElementById('ambOrders').textContent = model.ambassadorOrdersCount;
+      document.getElementById('ambSales').textContent = model.salesTotal.toFixed(2);
+      document.getElementById('ambEstimated').textContent = model.estimatedTotal.toFixed(2);
+      document.getElementById('ambDelivered').textContent = model.deliveredTotal.toFixed(2);
+      document.getElementById('ambPending').textContent = model.pendingTotal.toFixed(2);
+
+      const leadersBox = document.getElementById('ambLeadersList');
+      if (!model.leaders.length) {
+        leadersBox.innerHTML = '<div class="empty">لا توجد بيانات مندوبات بعد.</div>';
+      } else {
+        leadersBox.innerHTML = model.leaders.map((a, index) => `
+          <div class="row">
+            <div>
+              <h4>#${index + 1} — ${escHtml(a.name)}</h4>
+              <p>طلبات: ${a.ordersCount} • مبيعات: ${a.totalSales.toFixed(2)} ل.د • فعلية: ${a.deliveredCommission.toFixed(2)} ل.د</p>
+            </div>
+            <span class="badge ok">معلقة ${a.pendingCommission.toFixed(2)} ل.د</span>
+          </div>
+        `).join('');
+      }
+
+      const salesGoal = [500, 1000, 2500, 5000, 10000].find(v => model.salesTotal < v) || Math.ceil(model.salesTotal * 1.5 || 10000);
+      const deliveredGoal = [3, 5, 10, 20, 35].find(v => model.deliveredOrders < v) || Math.ceil(model.deliveredOrders * 1.5 || 35);
+      const commissionGoal = [50, 100, 250, 500, 1000].find(v => model.deliveredTotal < v) || Math.ceil(model.deliveredTotal * 1.5 || 1000);
+      const goalsBox = document.getElementById('ambGoalsList');
+      const goalRow = (title, subtitle, current, target, colorClass = 'ok') => `
+        <div class="row">
+          <div>
+            <h4>${escHtml(title)}</h4>
+            <p>${escHtml(subtitle)}</p>
+          </div>
+          <span class="badge ${colorClass}">${escHtml(current)} / ${escHtml(target)}</span>
+        </div>`;
+      goalsBox.innerHTML = [
+        goalRow('هدف المبيعات', 'ارفعي مبيعات المندوبات للوصول إلى المرحلة التالية.', `${model.salesTotal.toFixed(0)} د.ل`, `${salesGoal.toFixed ? salesGoal.toFixed(0) : salesGoal} د.ل`, 'ok'),
+        goalRow('هدف الطلبات الموصلة', 'الطلبات الموصلة هي التي تتحول إلى عمولة فعلية.', `${model.deliveredOrders} طلب`, `${deliveredGoal} طلب`, 'soon'),
+        goalRow('هدف العمولة الفعلية', 'كل توصيل ناجح يرفع الرصيد الفعلي مباشرة.', `${model.deliveredTotal.toFixed(2)} د.ل`, `${commissionGoal.toFixed ? commissionGoal.toFixed(0) : commissionGoal} د.ل`, 'ok'),
+      ].join('');
+
+      const recentBody = document.getElementById('ambOrdersTableBody');
+      if (!model.recent.length) {
+        recentBody.innerHTML = '<tr><td colspan="6" class="empty">لا توجد بيانات مندوبات بعد.</td></tr>';
+      } else {
+        recentBody.innerHTML = model.recent.map(o => `
+          <tr>
+            <td><strong>${escHtml(o.orderId || '')}</strong></td>
+            <td>${escHtml(o.ambassadorName || 'مندوبة غير محددة')}</td>
+            <td><span class="badge ${statusBadgeClass(o.status)}">${escHtml(statusLabel(o.status))}</span></td>
+            <td>${o.total.toFixed(2)} ل.د</td>
+            <td>${o.estimated.toFixed(2)} ل.د</td>
+            <td>${escHtml(fmtTime(o.createdAtMs))}</td>
+          </tr>
+        `).join('');
+      }
+    }
+
+    async function loadAmbassadors(forceToast = false) {
+      try {
+        const data = await api('GET', '/orders?limit=1000');
+        if (!data.ok) throw new Error(data.error || 'فشل تحميل بيانات المندوبات');
+        ambassadorOrders = Array.isArray(data.items) ? data.items : [];
+        renderAmbassadors();
+        if (forceToast) toast('تم تحديث مركز المندوبات', 'success');
+      } catch (err) {
+        const body = document.getElementById('ambOrdersTableBody');
+        if (body) body.innerHTML = '<tr><td colspan="6" class="empty">تعذر تحميل بيانات المندوبات.</td></tr>';
+        if (forceToast) toast(String(err?.message || 'فشل تحميل بيانات المندوبات'), 'error');
+      }
     }
 
     function renderOrders() {
@@ -1905,6 +2182,7 @@
       loadDashboardSummary();
       loadProducts();
       loadOrders();
+      loadAmbassadors();
       loadDeviceStats();
       loadMarketingConfig();
 
@@ -1916,6 +2194,7 @@
       setInterval(() => {
         const view = String(document.body.dataset.view || 'overview');
         if (view === 'orders') loadOrders();
+        if (view === 'ambassadors') loadAmbassadors();
         if (view === 'devices') loadDeviceStats();
       }, 20000);
     }
