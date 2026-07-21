@@ -1801,6 +1801,8 @@
 
     function bestPersonName(payload = {}) {
       const nameCandidates = [
+        payload.submitterName,
+        payload.accountName,
         payload.displayName,
         payload.fullName,
         payload.name,
@@ -1850,7 +1852,9 @@
           email: customer.submitterEmail || customer.email,
           phone: customer.phone,
           role: customer.accountRole,
-          name: customer.name || item.customerName,
+          name: customer.submitterName || customer.accountName || customer.displayName || customer.fullName || customer.name || item.customerName,
+          submitterName: customer.submitterName,
+          accountName: customer.accountName,
           displayName: customer.displayName,
           fullName: customer.fullName,
           firstName: customer.firstName,
