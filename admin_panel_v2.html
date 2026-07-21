@@ -1874,6 +1874,78 @@
       return fallback;
     }
 
+    function shortHandleFromEmail(email) {
+      const e = String(email || '').trim().toLowerCase();
+      if (!e || !e.includes('@')) return '';
+      const local = e.split('@')[0] || '';
+      if (!local) return '';
+      if (local.length <= 6) return local;
+      return `${local.slice(0, 3)}...${local.slice(-2)}`;
+    }
+
+    function shortHandleFromUid(uid) {
+      const u = String(uid || '').trim();
+      if (!u) return '';
+      if (u.length <= 8) return u;
+      return `${u.slice(0, 4)}...${u.slice(-3)}`;
+    }
+
+    function resolveCommissionFromOrder({ payload = {}, summary = {}, defaultPercent = 7, perProductEnabled = true } = {}) {
+      const asMoney = (v) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : 0;
+      };
+
+      let commission = asMoney(summary.estimatedCommission);
+
+      if (commission <= 0) {
+        const grossSales = asMoney(summary.grossSales);
+        const commissionPct = asMoney(summary.commissionPercent);
+        if (grossSales > 0 && commissionPct > 0) {
+          commission = grossSales * (Math.max(0, Math.min(100, commissionPct)) / 100);
+        }
+      }
+
+      if (commission <= 0) {
+        const items = Array.isArray(payload.items) ? payload.items : [];
+        let fallback = 0;
+        for (const raw of items) {
+          if (!raw || typeof raw !== 'object') continue;
+          const m = raw;
+          const qty = Math.max(0, parseInt(m.quantity ?? m.qty ?? 1, 10) || 0);
+          if (qty <= 0) continue;
+          const price = asMoney(m.price ?? m.unitPrice ?? m.salePrice ?? m.finalPrice);
+          const rawPct = Number.isFinite(Number(m.commissionPercent)) ? Number(m.commissionPercent) : defaultPercent;
+          const effectivePct = perProductEnabled
+            ? Math.max(0, Math.min(100, rawPct))
+            : Math.max(0, Math.min(100, defaultPercent));
+          fallback += (price * qty) * (effectivePct / 100);
+        }
+        commission = fallback;
+      }
+
+      if (commission <= 0) {
+        const pricing = payload && typeof payload.pricing === 'object' ? payload.pricing : {};
+        const summaryMap = payload && typeof payload.summary === 'object' ? payload.summary : {};
+        const orderTotal = asMoney(
+          payload.grandTotal
+          ?? payload.total
+          ?? payload.totalLyd
+          ?? payload.amount
+          ?? payload.subtotal
+          ?? pricing.grandTotal
+          ?? summaryMap.grandTotal
+          ?? summaryMap.total
+          ?? summaryMap.subtotal,
+        );
+        if (orderTotal > 0) {
+          commission = orderTotal * (Math.max(0, Math.min(100, defaultPercent)) / 100);
+        }
+      }
+
+      return commission > 0 ? commission : 0;
+    }
+
     function ambassadorNameFromCustomer(customer) {
       if (!customer || typeof customer !== 'object') return 'مندوبة غير محددة';
       return resolveUserName({
@@ -1925,6 +1997,13 @@
 
     function buildAmbassadorModel(orders) {
       const leadersMap = new Map();
+      const commissionCfg = marketingConfig && marketingConfig.commission && typeof marketingConfig.commission === 'object'
+        ? marketingConfig.commission
+        : {};
+      const defaultPercent = Number.isFinite(Number(commissionCfg.defaultPercent))
+        ? Math.max(0, Math.min(100, Number(commissionCfg.defaultPercent)))
+        : 7;
+      const perProductEnabled = commissionCfg.perProductEnabled !== false;
       let ambassadorCount = 0;
       let ambassadorOrdersCount = 0;
       let salesTotal = 0;
@@ -1948,9 +2027,12 @@
         const total = coerceNumber(summary.grandTotal, 0) > 0
           ? coerceNumber(summary.grandTotal, 0)
           : (coerceNumber(payload?.pricing?.grandTotal, 0) > 0 ? coerceNumber(payload.pricing.grandTotal, 0) : coerceNumber(payload.total, 0));
-        const estimated = coerceNumber(summary.estimatedCommission, 0) > 0
-          ? coerceNumber(summary.estimatedCommission, 0)
-          : estimateAmbassadorCommission(payload);
+        const estimated = resolveCommissionFromOrder({
+          payload,
+          summary,
+          defaultPercent,
+          perProductEnabled,
+        });
 
         ambassadorOrdersCount += 1;
         salesTotal += total;
@@ -2037,13 +2119,24 @@
       document.getElementById('ambPending').textContent = model.pendingTotal.toFixed(2);
 
       const leadersBox = document.getElementById('ambLeadersList');
+      const nameCounts = new Map();
+      for (const l of model.leaders) {
+        const k = String(l.name || 'مندوبة').trim() || 'مندوبة';
+        nameCounts.set(k, (nameCounts.get(k) || 0) + 1);
+      }
+      const displayNameForLeader = (a) => {
+        const base = String(a.name || 'مندوبة غير محددة').trim() || 'مندوبة غير محددة';
+        if ((nameCounts.get(base) || 0) <= 1) return base;
+        const hint = shortHandleFromEmail(a.email) || shortHandleFromUid(a.uid) || a.phone || a.key;
+        return hint ? `${base} • ${hint}` : base;
+      };
       if (!model.leaders.length) {
         leadersBox.innerHTML = '<div class="empty">لا توجد بيانات مندوبات بعد.</div>';
       } else {
         leadersBox.innerHTML = model.leaders.map((a, index) => `
           <div class="row">
             <div>
-              <h4>#${index + 1} — ${escHtml(a.name)}</h4>
+              <h4>#${index + 1} — ${escHtml(displayNameForLeader(a))}</h4>
               <p>طلبات: ${a.ordersCount} • مبيعات: ${a.totalSales.toFixed(2)} ل.د • فعلية: ${a.deliveredCommission.toFixed(2)} ل.د</p>
             </div>
             <span class="badge ok">معلقة ${a.pendingCommission.toFixed(2)} ل.د</span>
@@ -2066,7 +2159,7 @@
             return `
               <div class="amb-card">
                 <div class="amb-card-head">
-                  <h4>${escHtml(a.name)}</h4>
+                  <h4>${escHtml(displayNameForLeader(a))}</h4>
                   <span class="badge ${successClass}">${rankText}</span>
                 </div>
                 <div class="subtle">آخر نشاط: ${escHtml(fmtTime(a.lastOrderMs))}</div>
