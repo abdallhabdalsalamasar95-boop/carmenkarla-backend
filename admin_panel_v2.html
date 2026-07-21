@@ -843,6 +843,10 @@
           </div>
         </div>
         <div class="card" style="margin-top:16px">
+          <div class="panel-head"><div><h3>حضور المندوبات (متزامن مع التطبيق)</h3><p>تعرض آخر نشاط لكل مندوبة من التطبيق مباشرة مع بيانات التواصل.</p></div></div>
+          <div class="list" id="ambPresenceList"></div>
+        </div>
+        <div class="card" style="margin-top:16px">
           <div class="panel-head"><div><h3>بطاقات أداء كل مندوبة</h3><p>تحليل منفصل لكل مندوبة: المبيعات، التحويل، متوسط السلة وآخر نشاط.</p></div></div>
           <div class="ambassador-grid" id="ambProfilesList"></div>
         </div>
@@ -1178,6 +1182,7 @@
     let previewUrls = [];
     let imageGallery = [];
     let devicesStats = null;
+    let ambassadorPresenceItems = [];
     let allOrders = [];
     let ambassadorOrders = [];
     let dashboardSummary = null;
@@ -2204,6 +2209,51 @@
         goalRow('هدف العمولة الفعلية', 'كل توصيل ناجح يرفع الرصيد الفعلي مباشرة.', `${model.deliveredTotal.toFixed(2)} د.ل`, `${commissionGoal.toFixed ? commissionGoal.toFixed(0) : commissionGoal} د.ل`, 'ok'),
       ].join('');
 
+      const presenceBox = document.getElementById('ambPresenceList');
+      if (presenceBox) {
+        const now = Date.now();
+        const byUid = new Map();
+        for (const raw of ambassadorPresenceItems) {
+          if (!raw || typeof raw !== 'object') continue;
+          const isAmb = raw.isAmbassador === true || String(raw.accountRole || '').toLowerCase() === 'ambassador';
+          if (!isAmb) continue;
+          const uid = String(raw.uid || '').trim();
+          if (!uid) continue;
+          const prev = byUid.get(uid);
+          const lastSeen = coerceNumber(raw.lastSeenMs, 0);
+          if (!prev || lastSeen > coerceNumber(prev.lastSeenMs, 0)) byUid.set(uid, raw);
+        }
+
+        const list = Array.from(byUid.values()).sort((a, b) => coerceNumber(b.lastSeenMs, 0) - coerceNumber(a.lastSeenMs, 0));
+        if (!list.length) {
+          presenceBox.innerHTML = '<div class="empty">لا توجد مندوبات متصلة من التطبيق حتى الآن.</div>';
+        } else {
+          const badgeFor = (ms) => {
+            const delta = Math.max(0, now - coerceNumber(ms, 0));
+            if (delta <= 10 * 60 * 1000) return { cls: 'ok', txt: 'متصلة الآن' };
+            if (delta <= 24 * 60 * 60 * 1000) return { cls: 'soon', txt: 'نشطة اليوم' };
+            return { cls: 'off', txt: 'غير نشطة' };
+          };
+
+          presenceBox.innerHTML = list.map((a, idx) => {
+            const name = String(a.ambassadorName || '').trim() || resolveUserName({ uid: a.uid, fallback: 'مندوبة بدون اسم' });
+            const phone = String(a.ambassadorPhone || '').trim() || '—';
+            const address = String(a.ambassadorAddress || '').trim() || '—';
+            const seen = fmtTime(a.lastSeenMs);
+            const badge = badgeFor(a.lastSeenMs);
+            return `
+              <div class="row">
+                <div>
+                  <h4>#${idx + 1} — ${escHtml(name)}</h4>
+                  <p>هاتف: ${escHtml(phone)} • عنوان: ${escHtml(address)} • آخر ظهور: ${escHtml(seen)}</p>
+                </div>
+                <span class="badge ${badge.cls}">${escHtml(badge.txt)}</span>
+              </div>
+            `;
+          }).join('');
+        }
+      }
+
       const recentBody = document.getElementById('ambOrdersTableBody');
       const recentMobile = document.getElementById('ambOrdersMobileList');
       if (!model.recent.length) {
@@ -2242,6 +2292,12 @@
         const data = await api('GET', '/orders?limit=1000');
         if (!data.ok) throw new Error(data.error || 'فشل تحميل بيانات المندوبات');
         ambassadorOrders = Array.isArray(data.items) ? data.items : [];
+        try {
+          const stats = await api('GET', '/devices/stats?days=30&limit=1000');
+          ambassadorPresenceItems = Array.isArray(stats?.recentItems) ? stats.recentItems : [];
+        } catch (_) {
+          ambassadorPresenceItems = [];
+        }
         indexProfilesFromOrders(ambassadorOrders);
         renderAmbassadors();
         if (forceToast) toast('تم تحديث مركز المندوبات', 'success');
