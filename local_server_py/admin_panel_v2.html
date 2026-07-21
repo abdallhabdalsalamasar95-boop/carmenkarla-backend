@@ -3,22 +3,3261 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CarmenKarla Admin Panel</title>
+  <title>CarmenKarla Admin</title>
   <style>
-    body { font-family: Segoe UI, Tahoma, sans-serif; background: #0f1520; color: #f4efe6; display: grid; place-items: center; min-height: 100vh; margin: 0; }
-    .card { max-width: 560px; margin: 16px; padding: 20px; border-radius: 14px; border: 1px solid rgba(255,255,255,.12); background: #141c2a; }
-    a { color: #e8c38d; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0a0d13;
+      --bg2: #10151e;
+      --bg3: #141b26;
+      --card: rgba(18, 23, 33, 0.88);
+      --card2: rgba(24, 31, 43, 0.92);
+      --line: rgba(255,255,255,.08);
+      --line-strong: rgba(255,255,255,.13);
+      --text: #f5f7fb;
+      --muted: #93a0b5;
+      --gold: #d4b07b;
+      --gold2: #f0d7ad;
+      --ok: #58d08c;
+      --warn: #f3b75f;
+      --err: #ef6f6c;
+      --blue: #74a8ff;
+      --radius: 20px;
+      --radius-sm: 14px;
+      --shadow: 0 18px 60px rgba(0,0,0,.36);
+    }
+    body {
+      font-family: Inter, "Segoe UI", Tahoma, sans-serif;
+      background:
+        radial-gradient(circle at top right, rgba(212,176,123,.14), transparent 22%),
+        radial-gradient(circle at top left, rgba(116,168,255,.08), transparent 26%),
+        linear-gradient(180deg, #07090d, #0d131b 38%, #0b1118 100%);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    .shell { max-width: 1540px; margin: 0 auto; padding: 14px 18px 42px; }
+    .topbar, .card, .panel, .modal {
+      background: var(--card);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(16px);
+    }
+    .topbar {
+      border-radius: 26px;
+      padding: 18px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      position: sticky;
+      top: 12px;
+      z-index: 20;
+    }
+    /* Requested: hide top header card entirely (brand + connection shortcuts). */
+    .topbar { display: none !important; }
+    .brand { display: flex; align-items: center; gap: 14px; }
+    .mark {
+      width: 52px;
+      height: 52px;
+      border-radius: 18px;
+      display: grid;
+      place-items: center;
+      font-size: 22px;
+      background: linear-gradient(145deg, rgba(212,176,123,.18), rgba(240,215,173,.08));
+      border: 1px solid rgba(212,176,123,.22);
+    }
+    .brand h1 { font-size: 1.1rem; font-weight: 900; letter-spacing: .2px; }
+    .brand p { color: var(--muted); margin-top: 4px; font-size: .83rem; }
+    .top-actions, .hero-actions, .toolbar, .quick-row, .chips, .thumbs, .tabs { display: flex; gap: 10px; flex-wrap: wrap; }
+    .top-actions { align-items: center; }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border-radius: 999px;
+      padding: 8px 12px;
+      background: rgba(255,255,255,.04);
+      border: 1px solid var(--line);
+      color: var(--muted);
+      font-size: .78rem;
+      font-weight: 800;
+    }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: #5a6478; }
+    .dot.ok { background: var(--ok); }
+    .dot.err { background: var(--err); }
+    .btn {
+      border: none;
+      cursor: pointer;
+      border-radius: 14px;
+      padding: 11px 16px;
+      font-size: .88rem;
+      font-weight: 800;
+      transition: .18s ease;
+    }
+    .btn:hover { transform: translateY(-1px); }
+    .btn:disabled { opacity: .6; cursor: not-allowed; transform: none; }
+    .btn-primary { background: linear-gradient(135deg, var(--gold), var(--gold2)); color: #17120c; box-shadow: 0 10px 30px rgba(212,176,123,.22); }
+    .btn-soft { background: rgba(255,255,255,.035); color: var(--text); border: 1px solid var(--line); }
+    .btn.top-link {
+      padding: 8px 10px;
+      border-radius: 10px;
+      font-size: .82rem;
+    }
+    .btn-danger { background: linear-gradient(135deg, #d75d5d, #f07878); color: #fff; }
+    .dashboard-strip {
+      margin-top: 18px;
+      display: none;
+      grid-template-columns: repeat(8, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .modules-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 16px;
+    }
+    .module-card {
+      background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.015));
+      border: 1px solid rgba(255,255,255,.07);
+      border-radius: 24px;
+      padding: 22px;
+      min-height: 220px;
+      cursor: pointer;
+      display: grid;
+      align-content: space-between;
+      transition: transform .18s ease, border-color .18s ease, background .18s ease;
+    }
+    .module-card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(212,176,123,.28);
+      background: linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.02));
+    }
+    .module-icon {
+      width: 56px;
+      height: 56px;
+      border-radius: 18px;
+      display: grid;
+      place-items: center;
+      font-size: 24px;
+      background: rgba(255,255,255,.045);
+      border: 1px solid rgba(255,255,255,.06);
+    }
+    .module-copy h3 {
+      font-size: 1.02rem;
+      font-weight: 900;
+      margin-top: 18px;
+    }
+    .module-copy p {
+      color: var(--muted);
+      margin-top: 8px;
+      line-height: 1.8;
+      font-size: .84rem;
+    }
+    .module-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text);
+      font-weight: 800;
+      font-size: .84rem;
+    }
+    .campaign-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+    .campaign-sections {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: 1fr;
+    }
+    .campaign-subnav {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    .campaign-subtab {
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.03);
+      color: var(--muted);
+      border-radius: 999px;
+      padding: 10px 14px;
+      font-weight: 900;
+      font-size: .82rem;
+      cursor: pointer;
+    }
+    .campaign-subtab.active {
+      background: rgba(212,176,123,.2);
+      border-color: rgba(212,176,123,.42);
+      color: var(--gold2);
+    }
+    .campaign-section {
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 18px;
+      padding: 14px;
+      background: rgba(255,255,255,.018);
+    }
+    .campaign-section-panel { display: none; }
+    .campaign-section-panel.active { display: block; }
+    .campaign-index {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 28px;
+      height: 28px;
+      border-radius: 999px;
+      font-size: .76rem;
+      font-weight: 900;
+      background: rgba(212,176,123,.16);
+      border: 1px solid rgba(212,176,123,.34);
+      color: var(--gold2);
+    }
+    .campaign-item {
+      border: 1px solid rgba(255,255,255,.06);
+      border-radius: 18px;
+      padding: 16px;
+      background: rgba(255,255,255,.02);
+      display: grid;
+      gap: 12px;
+    }
+    .campaign-item h4 {
+      font-size: .95rem;
+      font-weight: 900;
+    }
+    .campaign-item p {
+      color: var(--muted);
+      font-size: .82rem;
+      line-height: 1.7;
+    }
+    .split-2 {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .stat {
+      background: linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,.015));
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 16px;
+      min-height: 112px;
+    }
+    .stat .label { color: var(--muted); font-size: .77rem; font-weight: 700; line-height: 1.5; }
+    .stat .num { margin-top: 12px; color: var(--text); font-weight: 950; font-size: 1.85rem; letter-spacing: -.5px; }
+    .badge { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 6px 10px; font-size: .74rem; font-weight: 900; }
+    .badge.ok { color: var(--ok); background: rgba(95,213,144,.12); }
+    .badge.soon { color: var(--warn); background: rgba(255,191,102,.12); }
+    .badge.off { color: var(--err); background: rgba(241,114,114,.12); }
+    .workspace { margin-top: 18px; display: grid; gap: 16px; }
+    .switcher {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      padding: 14px;
+      border-radius: 22px;
+      background: rgba(255,255,255,.03);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+    }
+    .tabs { gap: 8px; }
+    .tab {
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--muted);
+      border-radius: 999px;
+      padding: 10px 14px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    .tab.active {
+      background: rgba(255,255,255,.055);
+      color: var(--text);
+      border-color: var(--line-strong);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.03);
+    }
+    body[data-view="overview"] .dashboard-strip,
+    body[data-view="overview"] .switcher {
+      display: none;
+    }
+    body[data-view="overview"] .top-home-btn {
+      display: none;
+    }
+    body:not([data-view="overview"]) .landing-panel {
+      display: none;
+    }
+    .panel { display: none; border-radius: 24px; padding: 22px; }
+    .panel.active { display: block; }
+    .panel-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+    .panel-head h3 { font-size: 1.04rem; font-weight: 900; }
+    .panel-head p { color: var(--muted); font-size: .86rem; margin-top: 4px; }
+    .overview-grid { display: grid; grid-template-columns: 1.15fr .95fr; gap: 16px; }
+    .stack { display: grid; gap: 16px; }
+    .card { border-radius: var(--radius); padding: 18px; background: var(--card2); }
+    .list { display: grid; gap: 10px; }
+    .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 13px 14px; border-radius: 16px; background: rgba(255,255,255,.025); border: 1px solid rgba(255,255,255,.06); }
+    .row h4 { font-size: .92rem; font-weight: 800; }
+    .row p { margin-top: 4px; font-size: .8rem; color: var(--muted); }
+    .search, input, textarea, select {
+      width: 100%; background: rgba(255,255,255,.04); color: var(--text); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; font-family: inherit; font-size: .9rem; outline: none;
+    }
+    .search:focus, input:focus, textarea:focus, select:focus { border-color: rgba(213,176,122,.35); box-shadow: 0 0 0 4px rgba(212,176,123,.08); }
+    textarea { min-height: 96px; resize: vertical; }
+    .products-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
+    .product-card { background: rgba(255,255,255,.02); border: 1px solid rgba(255,255,255,.06); border-radius: var(--radius); padding: 15px; display: grid; gap: 12px; }
+    .product-top { display: flex; gap: 12px; align-items: flex-start; }
+    .thumb, .thumb-ph, .gallery-thumb, .pending-thumb { width: 70px; height: 70px; border-radius: 16px; object-fit: cover; border: 1px solid var(--line); background: var(--bg2); }
+    .thumb-ph, .pending-thumb { display: grid; place-items: center; color: var(--muted); }
+    .product-meta h4 { font-size: .95rem; font-weight: 900; line-height: 1.5; }
+    .product-meta p { color: var(--muted); margin-top: 5px; font-size: .82rem; }
+    .price { color: var(--text); font-weight: 900; margin-top: 8px; }
+    .table-wrap { overflow: auto; border: 1px solid var(--line); border-radius: var(--radius); background: rgba(255,255,255,.015); }
+    .mobile-only-block { display: none; }
+    .mobile-list { display: grid; gap: 10px; }
+    .mobile-data-card {
+      background: rgba(255,255,255,.03);
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 16px;
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+    }
+    .mobile-data-card h4 {
+      font-size: .96rem;
+      font-weight: 900;
+      line-height: 1.5;
+    }
+    .mobile-meta {
+      color: var(--muted);
+      font-size: .84rem;
+      line-height: 1.7;
+      display: grid;
+      gap: 3px;
+    }
+    .mobile-actions {
+      display: grid;
+      gap: 8px;
+    }
+    .ambassador-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 16px;
+    }
+    .amb-card {
+      background: rgba(255,255,255,.03);
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 18px;
+      padding: 14px;
+      display: grid;
+      gap: 10px;
+    }
+    .amb-card-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .amb-card h4 {
+      font-size: .95rem;
+      font-weight: 900;
+      line-height: 1.5;
+    }
+    .amb-kpis {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .amb-kpi {
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 12px;
+      padding: 8px 9px;
+      background: rgba(255,255,255,.02);
+    }
+    .amb-kpi .k {
+      color: var(--muted);
+      font-size: .74rem;
+      margin-bottom: 4px;
+    }
+    .amb-kpi .v {
+      font-size: .9rem;
+      font-weight: 900;
+    }
+    .amb-progress {
+      display: grid;
+      gap: 6px;
+    }
+    .amb-progress-track {
+      width: 100%;
+      height: 8px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.08);
+      overflow: hidden;
+    }
+    .amb-progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, rgba(116,168,255,.9), rgba(212,176,123,.95));
+    }
+    .subtle {
+      color: var(--muted);
+      font-size: .79rem;
+      line-height: 1.6;
+    }
+    table { width: 100%; border-collapse: collapse; min-width: 980px; }
+    th, td { padding: 14px 12px; text-align: right; }
+    th { background: rgba(255,255,255,.03); color: var(--muted); font-size: .78rem; font-weight: 900; text-transform: none; }
+    td { border-top: 1px solid rgba(255,255,255,.06); font-size: .87rem; }
+    .empty { text-align: center; padding: 36px 20px; color: var(--muted); }
+    .empty .icon { font-size: 2.4rem; margin-bottom: 10px; }
+    .modal-overlay { position: fixed; inset: 0; background: rgba(3,6,12,.72); display: none; align-items: center; justify-content: center; padding: 16px; z-index: 100; }
+    .modal-overlay.open { display: flex; }
+    .modal { width: min(1080px, 100%); max-height: 92vh; overflow: auto; border-radius: 28px; padding: 22px; }
+    .modal-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 18px; }
+    .modal-header h3 { font-size: 1.1rem; font-weight: 950; }
+    .modal-header p { color: var(--muted); margin-top: 4px; font-size: .84rem; }
+    .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .form-full { grid-column: 1 / -1; }
+    .form-block { background: rgba(255,255,255,.02); border: 1px solid rgba(255,255,255,.06); border-radius: var(--radius); padding: 16px; }
+    .form-block h4 { font-size: .92rem; font-weight: 900; margin-bottom: 12px; }
+    .field { display: grid; gap: 6px; }
+    .field label { color: var(--muted); font-size: .8rem; font-weight: 700; }
+    .preset { border: 1px solid var(--line); background: rgba(255,255,255,.04); color: var(--muted); border-radius: 999px; padding: 8px 12px; font-size: .8rem; font-weight: 800; cursor: pointer; }
+    .preset.active { background: rgba(255,255,255,.08); color: var(--text); border-color: rgba(255,255,255,.12); }
+    .drop-zone { border: 1px dashed rgba(255,255,255,.16); border-radius: 18px; padding: 24px; background: rgba(255,255,255,.018); text-align: center; cursor: pointer; }
+    .drop-zone:hover, .drop-zone.drag { border-color: rgba(213,176,122,.45); background: rgba(213,176,122,.05); }
+    .drop-zone strong { display: block; margin-bottom: 8px; }
+    .drop-zone p { color: var(--muted); font-size: .84rem; }
+    .gallery-item { position: relative; width: 84px; }
+    .gallery-thumb, .pending-thumb { width: 84px; height: 84px; }
+    .remove-btn { position: absolute; top: -6px; left: -6px; width: 24px; height: 24px; border: none; border-radius: 50%; background: var(--err); color: #fff; font-weight: 900; cursor: pointer; }
+    .thumb-label { color: var(--muted); text-align: center; margin-top: 6px; font-size: .72rem; }
+    .toggle { display: inline-flex; align-items: center; gap: 10px; color: var(--muted); font-size: .86rem; font-weight: 700; }
+    .switch { position: relative; width: 48px; height: 28px; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; inset: 0; border-radius: 999px; background: rgba(255,255,255,.10); border: 1px solid var(--line); }
+    .slider::before { content: ""; position: absolute; width: 20px; height: 20px; right: 3px; top: 3px; background: #fff; border-radius: 50%; transition: transform .18s ease; }
+    .switch input:checked + .slider { background: rgba(213,176,122,.36); }
+    .switch input:checked + .slider::before { transform: translateX(-20px); }
+    .toast-wrap { position: fixed; left: 18px; bottom: 18px; display: grid; gap: 8px; z-index: 120; }
+    .toast { min-width: 230px; max-width: 360px; padding: 12px 14px; border-radius: 16px; font-size: .84rem; font-weight: 800; box-shadow: var(--shadow); }
+    .toast.success { background: rgba(95,213,144,.16); color: var(--ok); border: 1px solid rgba(95,213,144,.3); }
+    .toast.error { background: rgba(241,114,114,.16); color: var(--err); border: 1px solid rgba(241,114,114,.3); }
+    .toast.info { background: rgba(110,168,255,.16); color: var(--blue); border: 1px solid rgba(110,168,255,.3); }
+    .spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid rgba(255,255,255,.18); border-top-color: var(--gold); border-radius: 50%; animation: spin .7s linear infinite; }
+    .minimal-note { color: var(--muted); font-size: .78rem; }
+    .sku-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.05);
+      border: 1px solid rgba(255,255,255,.08);
+      color: var(--text);
+      font-size: .74rem;
+      font-weight: 900;
+      width: fit-content;
+      max-width: 100%;
+    }
+    .sku-copy {
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: .8rem;
+      padding: 0;
+      line-height: 1;
+    }
+    .sku-copy:hover { color: var(--text); }
+    .muted-code {
+      color: var(--muted);
+      font-size: .75rem;
+      font-weight: 800;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (max-width: 1180px) {
+      .dashboard-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .modules-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .overview-grid { grid-template-columns: 1fr; }
+      .products-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .campaign-grid, .split-2 { grid-template-columns: 1fr; }
+      .ambassador-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 760px) {
+      .switcher, .panel-head, .toolbar, .row, .product-top { flex-direction: column; align-items: stretch; }
+      .products-grid, .form-grid, .dashboard-strip, .modules-grid, .ambassador-grid { grid-template-columns: 1fr; }
+      .btn { width: 100%; min-height: 46px; font-size: .95rem; }
+
+      .shell {
+        padding: 10px 10px 26px;
+      }
+      .panel {
+        padding: 14px;
+        border-radius: 18px;
+      }
+      .switcher {
+        padding: 10px;
+      }
+      .tabs {
+        width: 100%;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        gap: 6px;
+        padding-bottom: 2px;
+      }
+      .tab {
+        flex: 0 0 auto;
+        white-space: nowrap;
+        padding: 10px 12px;
+        font-size: .86rem;
+      }
+      .panel-head h3 {
+        font-size: 1rem;
+      }
+      .panel-head p {
+        font-size: .9rem;
+        line-height: 1.7;
+      }
+      .product-card {
+        padding: 12px;
+      }
+      .product-meta h4 {
+        font-size: 1rem;
+      }
+      .product-meta p {
+        font-size: .86rem;
+      }
+      .price {
+        font-size: 1rem;
+      }
+      .table-wrap {
+        border-radius: 14px;
+      }
+      #panel-products .table-wrap {
+        display: none;
+      }
+      #panel-orders .table-wrap,
+      #panel-ambassadors .table-wrap,
+      #panel-devices .table-wrap {
+        display: none;
+      }
+      .mobile-only-block {
+        display: block;
+      }
+      .campaign-subnav {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        padding-bottom: 3px;
+      }
+      .campaign-subtab {
+        flex: 0 0 auto;
+        white-space: nowrap;
+      }
+      .campaign-section {
+        padding: 12px;
+        border-radius: 14px;
+      }
+      .campaign-item {
+        padding: 12px;
+        border-radius: 14px;
+      }
+      .field label {
+        font-size: .86rem;
+      }
+      input, textarea, select {
+        min-height: 44px;
+        font-size: .95rem;
+      }
+      textarea {
+        min-height: 100px;
+      }
+
+      .topbar {
+        padding: 12px;
+        border-radius: 18px;
+      }
+      .brand {
+        gap: 10px;
+      }
+      .mark {
+        width: 42px;
+        height: 42px;
+        border-radius: 14px;
+        font-size: 18px;
+      }
+      .brand h1 {
+        font-size: .98rem;
+      }
+      .brand p {
+        display: none;
+      }
+      .top-actions {
+        width: 100%;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        gap: 6px;
+        padding-bottom: 2px;
+        scrollbar-width: thin;
+      }
+      .top-actions .pill {
+        flex: 0 0 auto;
+        padding: 6px 8px;
+        font-size: .72rem;
+        background: transparent;
+        border-color: transparent;
+      }
+      .top-actions .btn.top-link {
+        width: auto !important;
+        flex: 0 0 auto;
+        background: transparent;
+        border: none;
+        color: var(--muted);
+        padding: 6px 4px;
+        font-weight: 900;
+      }
+      .top-actions .btn.top-link:hover {
+        transform: none;
+        color: var(--text);
+      }
+    }
   </style>
-  <script>
-    const LIVE = 'https://carmenkarla-backend.onrender.com/admin?v=live';
-    window.location.replace(LIVE);
-  </script>
 </head>
 <body>
-  <div class="card">
-  <h3>جاري تحويلك إلى لوحة الإدارة الحية...</h3>
-  <p>إذا لم يتم التحويل تلقائيًا، افتح هذا الرابط:</p>
-  <p><a href="https://carmenkarla-backend.onrender.com/admin?v=live">https://carmenkarla-backend.onrender.com/admin?v=live</a></p>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="mark">🛍</div>
+        <div>
+          <h1>CarmenKarla Admin</h1>
+          <p>إدارة المنتجات والطلبات والإشعارات من لوحة واحدة.</p>
+        </div>
+      </div>
+      <div class="top-actions">
+        <span class="pill"><span class="dot" id="statusDot"></span><span id="statusText">جاري الاتصال...</span></span>
+        <button class="btn btn-soft btn-text top-link top-home-btn" onclick="setView('overview')">الرئيسية</button>
+        <button class="btn btn-soft btn-text top-link" onclick="setView('settings')">الاتصال</button>
+        <button class="btn btn-soft btn-text top-link" onclick="checkHealth()">فحص الاتصال</button>
+      </div>
+    </header>
+
+    <section class="dashboard-strip">
+      <div class="stat"><div class="label">إجمالي المنتجات</div><div class="num" id="statTotal">–</div></div>
+      <div class="stat"><div class="label">المنتجات الظاهرة</div><div class="num" id="statVisible">–</div></div>
+      <div class="stat"><div class="label">المنتجات المخفية</div><div class="num" id="statHidden">–</div></div>
+      <div class="stat"><div class="label">التصنيفات</div><div class="num" id="statCats">–</div></div>
+      <div class="stat"><div class="label">إجمالي الطلبات</div><div class="num" id="statOrdersTotal">–</div></div>
+      <div class="stat"><div class="label">طلبات مفتوحة</div><div class="num" id="statOrdersOpen">–</div></div>
+      <div class="stat"><div class="label">العملاء المسجلين</div><div class="num" id="statRegisteredUsers">–</div></div>
+      <div class="stat"><div class="label">العملاء النشطين 24 ساعة</div><div class="num" id="statActiveUsers1d">–</div></div>
+    </section>
+
+    <section class="workspace">
+      <div class="switcher">
+        <div class="tabs">
+          <button class="tab active" data-tab="overview" onclick="setView('overview')">نظرة عامة</button>
+          <button class="tab" data-tab="products" onclick="setView('products')">إدارة المنتجات</button>
+          <button class="tab" data-tab="orders" onclick="setView('orders')">طلبات العملاء</button>
+          <button class="tab" data-tab="ambassadors" onclick="setView('ambassadors')">المندوبات</button>
+          <button class="tab" data-tab="notifications" onclick="setView('notifications')">إشعارات الزباين</button>
+          <button class="tab" data-tab="devices" onclick="setView('devices')">الأجهزة</button>
+          <button class="tab" data-tab="settings" onclick="setView('settings')">الاتصال</button>
+        </div>
+        <div class="quick-row">
+          <button class="btn btn-primary" onclick="openAddModal()">+ منتج جديد</button>
+          <button class="btn btn-soft" onclick="setView('notifications')">إرسال إشعار</button>
+          <button class="btn btn-soft" onclick="loadProducts()">تحديث البيانات</button>
+        </div>
+      </div>
+
+      <div class="panel active" id="panel-overview">
+        <div class="landing-panel">
+          <div class="modules-grid">
+            <div class="module-card" onclick="setView('products')">
+              <div>
+                <div class="module-icon">📦</div>
+                <div class="module-copy">
+                  <h3>إدارة المنتجات</h3>
+                  <p>إضافة وتعديل المنتجات والصور والمخزون والألوان.</p>
+                </div>
+              </div>
+              <div class="module-link">فتح القسم <span>←</span></div>
+            </div>
+            <div class="module-card" onclick="setView('orders')">
+              <div>
+                <div class="module-icon">🧾</div>
+                <div class="module-copy">
+                  <h3>طلبات العملاء</h3>
+                  <p>متابعة الطلبات وتحديث حالاتها بشكل مباشر.</p>
+                </div>
+              </div>
+              <div class="module-link">فتح القسم <span>←</span></div>
+            </div>
+            <div class="module-card" onclick="setView('ambassadors')">
+              <div>
+                <div class="module-icon">📣</div>
+                <div class="module-copy">
+                  <h3>مندوبات المبيعات</h3>
+                  <p>لوحة متزامنة مع الطلبات لحساب العمولة الفعلية والأهداف والتحفيز.</p>
+                </div>
+              </div>
+              <div class="module-link">فتح القسم <span>←</span></div>
+            </div>
+            <div class="module-card" onclick="setView('notifications')">
+              <div>
+                <div class="module-icon">🔔</div>
+                <div class="module-copy">
+                  <h3>إشعارات الزباين</h3>
+                  <p>إرسال إشعارات سريعة لجميع الزباين أو لمستخدم محدد.</p>
+                </div>
+              </div>
+              <div class="module-link">فتح القسم <span>←</span></div>
+            </div>
+            <div class="module-card" onclick="setView('devices')">
+              <div>
+                <div class="module-icon">📱</div>
+                <div class="module-copy">
+                  <h3>الأجهزة</h3>
+                  <p>مراقبة الأجهزة النشطة والمنصات وآخر النشاطات.</p>
+                </div>
+              </div>
+              <div class="module-link">فتح القسم <span>←</span></div>
+            </div>
+            <div class="module-card" onclick="setView('campaigns')">
+              <div>
+                <div class="module-icon">🎁</div>
+                <div class="module-copy">
+                  <h3>العروض والحملات</h3>
+                  <p>إدارة أكواد الخصم والعروض والهدايا والمسابقات.</p>
+                </div>
+              </div>
+              <div class="module-link">فتح القسم <span>←</span></div>
+            </div>
+          </div>
+        </div>
+        <div style="display:none">
+          <div id="recentProducts"></div>
+          <div id="inventoryAlerts"></div>
+          <p id="healthBase"></p>
+          <p id="healthStorage"></p>
+          <p id="healthCatalogBackend"></p>
+          <p id="healthProd"></p>
+          <span id="healthCatalogBadge"></span>
+          <span id="healthProdBadge"></span>
+        </div>
+      </div>
+
+      <div class="panel" id="panel-products">
+        <div class="panel-head">
+          <div><h3>إدارة المنتجات</h3><p>مساحة العمل الأساسية في الويب، بأسلوب مرتب وقريب من الهاتف.</p></div>
+          <div class="quick-row"><button class="btn btn-primary" onclick="openAddModal()">+ إضافة منتج</button><button class="btn btn-soft" onclick="loadProducts()">إعادة تحميل</button></div>
+        </div>
+        <div class="toolbar">
+          <div style="flex:1; min-width:260px"><input class="search" id="searchBox" type="text" placeholder="ابحث بالاسم أو الكود أو التصنيف..." oninput="renderProducts()" /></div>
+          <div class="quick-row"><label class="pill"><input type="checkbox" id="showHidden" onchange="renderProducts()" /> إظهار المخفية</label></div>
+        </div>
+        <div class="card" style="margin-bottom:16px">
+          <div class="panel-head">
+            <div>
+              <h3>إدارة الإطلالات الكاملة</h3>
+              <p>كوّني إطلالة من عدة منتجات مرتبطة؛ تظهر كحزمة منسقة ومتزامنة مع المنتجات.</p>
+            </div>
+            <div class="quick-row">
+              <button class="btn btn-primary" onclick="openLookModal()">+ إطلالة كاملة</button>
+              <button class="btn btn-soft" onclick="loadLooks(true)">تحديث الإطلالات</button>
+            </div>
+          </div>
+          <div class="stats" style="margin-bottom:12px">
+            <div class="stat"><div class="label">كل الإطلالات</div><div class="num" id="looksTotal">0</div></div>
+            <div class="stat"><div class="label">الظاهرة</div><div class="num" id="looksVisible">0</div></div>
+            <div class="stat"><div class="label">المخفية</div><div class="num" id="looksHidden">0</div></div>
+            <div class="stat"><div class="label">متوسط المنتجات</div><div class="num" id="looksAvgProducts">0</div></div>
+          </div>
+          <div class="products-grid" id="looksCards"></div>
+        </div>
+        <div class="products-grid" id="productCards"></div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>صورة</th><th>الاسم</th><th>السعر</th><th>التصنيف</th><th>المقاسات/الأطوال</th><th>الألوان</th><th>المخزون</th><th>التقييم</th><th>الحالة</th><th>إجراءات</th>
+              </tr>
+            </thead>
+            <tbody id="tableBody"><tr><td colspan="10" class="empty"><span class="spinner"></span></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel" id="panel-orders">
+        <div class="panel-head">
+          <div><h3>طلبات العملاء</h3><p>إدارة حالة الطلبات الواردة من التطبيق. عند تغيير الحالة يتم إرسال إشعار تلقائي للعميل.</p></div>
+          <div class="quick-row">
+            <select id="ordersStatusFilter" onchange="loadOrders()" style="min-width:180px">
+              <option value="">كل الحالات</option>
+              <option value="pending">قيد الانتظار</option>
+              <option value="processing">قيد المعالجة</option>
+              <option value="shipped">تم الشحن</option>
+              <option value="delivered">تم التوصيل</option>
+              <option value="canceled">ملغي</option>
+            </select>
+            <button class="btn btn-soft" onclick="loadOrders(true)">تحديث</button>
+          </div>
+        </div>
+        <div class="stats" style="margin-bottom:16px">
+          <div class="stat"><div class="label">إجمالي الطلبات</div><div class="num" id="ordTotal">0</div></div>
+          <div class="stat"><div class="label">قيد الانتظار</div><div class="num" id="ordPending">0</div></div>
+          <div class="stat"><div class="label">قيد المعالجة</div><div class="num" id="ordProcessing">0</div></div>
+          <div class="stat"><div class="label">تم الشحن</div><div class="num" id="ordShipped">0</div></div>
+          <div class="stat"><div class="label">تم التوصيل</div><div class="num" id="ordDelivered">0</div></div>
+          <div class="stat"><div class="label">ملغية</div><div class="num" id="ordCanceled">0</div></div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>رقم الطلب</th>
+                <th>العميل</th>
+                <th>الهاتف</th>
+                <th>الإجمالي</th>
+                <th>العناصر</th>
+                <th>الحالة</th>
+                <th>تاريخ الطلب</th>
+                <th>إجراء</th>
+              </tr>
+            </thead>
+            <tbody id="ordersTableBody"><tr><td colspan="8" class="empty">لا توجد طلبات بعد.</td></tr></tbody>
+          </table>
+        </div>
+        <div class="mobile-only-block mobile-list" id="ordersMobileList"></div>
+      </div>
+
+      <div class="panel" id="panel-ambassadors">
+        <div class="panel-head">
+          <div><h3>مركز مندوبات المبيعات</h3><p>لوحة متزامنة مع كل الطلبات الخاصة بالمندوبات: العمولة الفعلية، المعلقة، الأهداف، وآخر النشاطات.</p></div>
+          <div class="quick-row">
+            <button class="btn btn-soft" onclick="loadAmbassadors(true)">تحديث</button>
+            <button class="btn btn-soft" onclick="setView('orders')">فتح الطلبات</button>
+          </div>
+        </div>
+        <div class="stats" style="margin-bottom:16px">
+          <div class="stat"><div class="label">عدد المندوبات النشطات</div><div class="num" id="ambCount">0</div></div>
+          <div class="stat"><div class="label">إجمالي طلبات المندوبات</div><div class="num" id="ambOrders">0</div></div>
+          <div class="stat"><div class="label">المبيعات عبر المندوبات</div><div class="num" id="ambSales">0.00</div></div>
+          <div class="stat"><div class="label">العمولة التقديرية</div><div class="num" id="ambEstimated">0.00</div></div>
+          <div class="stat"><div class="label">العمولة الفعلية (تم التوصيل)</div><div class="num" id="ambDelivered">0.00</div></div>
+          <div class="stat"><div class="label">العمولة المعلقة</div><div class="num" id="ambPending">0.00</div></div>
+        </div>
+        <div class="overview-grid">
+          <div class="card">
+            <div class="panel-head"><div><h3>ترتيب المندوبات</h3><p>حسب إجمالي المبيعات ثم عدد الطلبات.</p></div></div>
+            <div class="list" id="ambLeadersList"></div>
+          </div>
+          <div class="card">
+            <div class="panel-head"><div><h3>أهداف تحفيزية</h3><p>أهداف بسيطة وواضحة لرفع الأداء والعمولة.</p></div></div>
+            <div class="list" id="ambGoalsList"></div>
+          </div>
+        </div>
+        <div class="card" style="margin-top:16px">
+          <div class="panel-head"><div><h3>حضور المندوبات (متزامن مع التطبيق)</h3><p>تعرض آخر نشاط لكل مندوبة من التطبيق مباشرة مع بيانات التواصل.</p></div></div>
+          <div class="list" id="ambPresenceList"></div>
+        </div>
+        <div class="card" style="margin-top:16px">
+          <div class="panel-head"><div><h3>بطاقات أداء كل مندوبة</h3><p>تحليل منفصل لكل مندوبة: المبيعات، التحويل، متوسط السلة وآخر نشاط.</p></div></div>
+          <div class="ambassador-grid" id="ambProfilesList"></div>
+        </div>
+        <div class="card" style="margin-top:16px">
+          <div class="panel-head"><div><h3>آخر طلبات المندوبات</h3><p>متزامنة مباشرة مع حالات الطلبات الحالية.</p></div></div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>رقم الطلب</th>
+                  <th>المندوبة</th>
+                  <th>الحالة</th>
+                  <th>المبيعات</th>
+                  <th>العمولة</th>
+                  <th>تاريخ الطلب</th>
+                </tr>
+              </thead>
+              <tbody id="ambOrdersTableBody"><tr><td colspan="6" class="empty">لا توجد بيانات مندوبات بعد.</td></tr></tbody>
+            </table>
+          </div>
+          <div class="mobile-only-block mobile-list" id="ambOrdersMobileList"></div>
+        </div>
+      </div>
+
+      <div class="panel" id="panel-notifications">
+        <div class="card">
+          <div class="panel-head"><div><h3>إرسال إشعار</h3><p>إرسال مباشر إلى جميع الزباين أو مستخدم محدد.</p></div></div>
+            <div class="form-grid">
+              <div class="field">
+                <label>نوع الإرسال</label>
+                <select id="nAudience" onchange="onNotificationAudienceChange()">
+                  <option value="all">جميع الزباين</option>
+                  <option value="user">مستخدم محدد</option>
+                </select>
+              </div>
+              <div class="field" id="nLimitField">
+                <label>حد أقصى لعدد المستخدمين (للإرسال العام)</label>
+                <input id="nLimit" type="number" min="1" max="2000" value="500" />
+              </div>
+              <div class="field form-full" id="nUserField" style="display:none">
+                <label>UID المستخدم</label>
+                <input id="nUserId" type="text" placeholder="uid_..." />
+              </div>
+              <div class="field form-full">
+                <label>عنوان الإشعار *</label>
+                <input id="nTitle" type="text" placeholder="عرض جديد اليوم ✨" />
+              </div>
+              <div class="field form-full">
+                <label>محتوى الإشعار *</label>
+                <textarea id="nBody" placeholder="تفاصيل مختصرة ومشجعة للزبونة..."></textarea>
+              </div>
+              <div class="field form-full">
+                <label>رابط صورة الإشعار (اختياري)</label>
+                <input id="nImageUrl" type="text" placeholder="https://... صورة تظهر بجانب الإشعار داخل التطبيق" />
+              </div>
+              <div class="field">
+                <label>target (اختياري)</label>
+                <input id="nTarget" type="text" placeholder="offers / product / home" />
+              </div>
+              <div class="field">
+                <label>targetId (اختياري)</label>
+                <input id="nTargetId" type="text" placeholder="productId أو offerId" />
+              </div>
+            </div>
+            <div class="hero-actions">
+              <button class="btn btn-primary" id="sendNotifBtn" onclick="sendCustomerNotification()">إرسال الإشعار</button>
+              <button class="btn btn-soft" onclick="resetNotificationForm()">تفريغ الحقول</button>
+            </div>
+        </div>
+      </div>
+
+      <div class="panel" id="panel-devices">
+        <div class="panel-head">
+          <div><h3>إحصائيات الأجهزة</h3><p>عدد الأجهزة المثبّت عليها التطبيق + نوع الجهاز + النظام.</p></div>
+          <div class="quick-row"><button class="btn btn-soft" onclick="loadDeviceStats(true)">تحديث الإحصائيات</button></div>
+        </div>
+        <div class="stats" style="margin-bottom:16px">
+          <div class="stat"><div class="label">إجمالي الأجهزة المثبتة</div><div class="num" id="devTotal">–</div></div>
+          <div class="stat"><div class="label">الأجهزة النشطة (1 يوم)</div><div class="num" id="devActive1d">–</div></div>
+          <div class="stat"><div class="label">الأجهزة النشطة (7 أيام)</div><div class="num" id="devActive7d">–</div></div>
+          <div class="stat"><div class="label">الأجهزة النشطة (30 يوم)</div><div class="num" id="devActive30d">–</div></div>
+          <div class="stat"><div class="label">Android</div><div class="num" id="devAndroid">–</div></div>
+          <div class="stat"><div class="label">iOS</div><div class="num" id="devIos">–</div></div>
+        </div>
+        <div class="overview-grid">
+          <div class="card">
+            <div class="panel-head"><div><h3>أكثر أنواع الأجهزة</h3><p>حسب بيانات آخر اتصال من التطبيق.</p></div></div>
+            <div class="list" id="topModelsList"></div>
+          </div>
+          <div class="card">
+            <div class="panel-head"><div><h3>توزيع المنصات</h3><p>Android / iOS / غيرها</p></div></div>
+            <div class="list" id="platformsList"></div>
+          </div>
+        </div>
+        <div class="table-wrap" style="margin-top:16px">
+          <table>
+            <thead>
+              <tr>
+                <th>النظام</th>
+                <th>الجهاز</th>
+                <th>المستخدم</th>
+                <th>اللغة</th>
+                <th>نسخة التطبيق</th>
+                <th>آخر ظهور</th>
+                <th>آخر حدث</th>
+                <th>IP</th>
+                <th>مرات الظهور</th>
+                <th>المعرّف</th>
+              </tr>
+            </thead>
+            <tbody id="devicesTableBody"><tr><td colspan="10" class="empty">لا توجد بيانات أجهزة بعد.</td></tr></tbody>
+          </table>
+        </div>
+        <div class="mobile-only-block mobile-list" id="devicesMobileList" style="margin-top:12px"></div>
+      </div>
+
+      <div class="panel" id="panel-settings">
+        <div class="card">
+          <div class="panel-head"><div><h3>إعدادات الاتصال</h3><p>تحديث رابط الخدمة والتوكن.</p></div></div>
+            <div class="form-grid">
+              <div class="field form-full"><label>رابط السيرفر (Base URL)</label><input id="cfgBase" type="text" placeholder="https://carmenkarla-backend.onrender.com" /></div>
+              <div class="field form-full"><label>API Token</label><input id="cfgToken" type="password" placeholder="ck_..." /></div>
+            </div>
+            <div class="hero-actions">
+              <button class="btn btn-primary" onclick="saveSettings()">حفظ وتحقق</button>
+              <button class="btn btn-soft" onclick="checkHealth()">تحديث الحالة</button>
+            </div>
+        </div>
+      </div>
+
+      <div class="panel" id="panel-campaigns">
+        <div class="panel-head">
+          <div><h3>العروض والحملات</h3><p>إدارة كل ما يظهر للعميل من خصومات وهدايا ومسابقات.</p></div>
+          <div class="quick-row">
+            <button class="btn btn-primary" onclick="saveMarketingConfig()">حفظ التغييرات</button>
+            <button class="btn btn-soft" onclick="loadMarketingConfig(true)">تحديث</button>
+          </div>
+        </div>
+        <div class="campaign-subnav">
+          <button class="campaign-subtab active" data-campaign-tab="coupons" onclick="setCampaignSubView('coupons')">قسم الأكواد</button>
+          <button class="campaign-subtab" data-campaign-tab="offers" onclick="setCampaignSubView('offers')">قسم العروض</button>
+          <button class="campaign-subtab" data-campaign-tab="gifts" onclick="setCampaignSubView('gifts')">قسم الهدايا</button>
+          <button class="campaign-subtab" data-campaign-tab="competitions" onclick="setCampaignSubView('competitions')">قسم المسابقات</button>
+        </div>
+        <div class="card" style="margin-bottom:16px">
+          <div class="panel-head"><div><h3>إعدادات العمولة (متزامنة مع التطبيق)</h3><p>أي تعديل هنا يصل للتطبيق عبر <code>/app/content</code> تلقائيًا.</p></div></div>
+          <div class="split-2">
+            <div class="field">
+              <label>النسبة الافتراضية للعمولة (%)</label>
+              <input id="commissionDefaultPercent" type="number" min="0" max="100" step="0.1" placeholder="7" />
+            </div>
+            <div class="field">
+              <label>تفعيل عمولة لكل منتج</label>
+              <select id="commissionPerProductEnabled">
+                <option value="1">مفعّل</option>
+                <option value="0">متوقف (استخدام الافتراضي)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="campaign-sections">
+          <div class="card campaign-section campaign-section-panel active" id="campaignSection-coupons">
+            <div class="panel-head">
+              <div>
+                <h3><span class="campaign-index">1</span> أكواد الخصم</h3>
+                <p>قسم مستقل لأكواد الخصم فقط (بدون اختلاط مع العروض أو الهدايا).</p>
+              </div>
+              <div class="quick-row">
+                <button class="btn btn-primary" onclick="saveMarketingConfig()">حفظ القسم</button>
+              </div>
+            </div>
+            <div class="list" id="couponList"></div>
+            <div class="hero-actions"><button class="btn btn-soft" onclick="addCouponItem()">+ إضافة كود</button></div>
+          </div>
+
+          <div class="card campaign-section campaign-section-panel" id="campaignSection-offers">
+            <div class="panel-head">
+              <div>
+                <h3><span class="campaign-index">2</span> العروض الرئيسية</h3>
+                <p>قسم مستقل للبانر والعروض المرتبطة بواجهة العميل.</p>
+              </div>
+              <div class="quick-row">
+                <button class="btn btn-primary" onclick="saveMarketingConfig()">حفظ القسم</button>
+              </div>
+            </div>
+            <div class="field" style="margin-bottom:10px"><label>عنوان البانر</label><input id="offersTitle" type="text" placeholder="💎 عروض لفترة محدودة" /></div>
+            <div class="field" style="margin-bottom:10px"><label>الوصف</label><textarea id="offersSubtitle" placeholder="وصف مختصر"></textarea></div>
+            <div class="field" style="margin-bottom:10px"><label>نص الزر</label><input id="offersCtaLabel" type="text" placeholder="تسوقي العروض" /></div>
+            <div class="list" id="offersItemsList"></div>
+            <div class="hero-actions"><button class="btn btn-soft" onclick="addOfferItem()">+ إضافة عرض</button></div>
+          </div>
+
+          <div class="card campaign-section campaign-section-panel" id="campaignSection-gifts">
+            <div class="panel-head">
+              <div>
+                <h3><span class="campaign-index">3</span> الهدايا</h3>
+                <p>قسم مستقل للهدايا والحوافز فقط.</p>
+              </div>
+              <div class="quick-row">
+                <button class="btn btn-primary" onclick="saveMarketingConfig()">حفظ القسم</button>
+              </div>
+            </div>
+            <div class="list" id="giftsList"></div>
+            <div class="hero-actions"><button class="btn btn-soft" onclick="addGiftItem()">+ إضافة هدية</button></div>
+          </div>
+
+          <div class="card campaign-section campaign-section-panel" id="campaignSection-competitions">
+            <div class="panel-head">
+              <div>
+                <h3><span class="campaign-index">4</span> المسابقات</h3>
+                <p>قسم مستقل للمسابقات التفاعلية وربطها بالتطبيق.</p>
+              </div>
+              <div class="quick-row">
+                <button class="btn btn-primary" onclick="saveMarketingConfig()">حفظ القسم</button>
+              </div>
+            </div>
+            <div class="list" id="competitionsList"></div>
+            <div class="hero-actions"><button class="btn btn-soft" onclick="addCompetitionItem()">+ إضافة مسابقة</button></div>
+          </div>
+        </div>
+      </div>
+    </section>
   </div>
+
+  <div class="modal-overlay" id="productModal">
+    <div class="modal">
+      <div class="modal-header">
+        <div><h3 id="modalTitle">منتج جديد</h3><p>إدخال مختصر ومنظم لحفظ المنتج.</p></div>
+        <button class="btn btn-soft" onclick="closeModal()">إغلاق</button>
+      </div>
+      <input type="hidden" id="editId" />
+      <div class="form-grid">
+        <div class="form-block form-full">
+          <h4>المعلومات الأساسية</h4>
+          <div class="form-grid">
+            <div class="field form-full"><label>اسم المنتج *</label><input id="fName" type="text" placeholder="اسم المنتج" /></div>
+            <div class="field"><label>SKU / كود المنتج</label><input id="fProductCode" type="text" placeholder="مثال: CKP-123456" oninput="this.value = this.value.toUpperCase().replace(/\s+/g, '-')" /><div class="minimal-note">إذا تُرك فارغًا سيتم توليده تلقائيًا.</div></div>
+            <div class="field"><label>التصنيف</label><select id="fCategory"></select></div>
+            <div class="field"><label>الوسوم (Tags)</label><input id="fTags" type="text" placeholder="ذهبي,جديد,عرض" /><div class="chips" id="tagsPreset"></div></div>
+          </div>
+        </div>
+        <div class="form-block">
+          <h4>التسعير والتقييم</h4>
+          <div class="form-grid">
+            <div class="field"><label>السعر *</label><input id="fPrice" type="number" placeholder="0.00" /></div>
+            <div class="field"><label>السعر القديم</label><input id="fOldPrice" type="number" placeholder="0.00" /></div>
+            <div class="field"><label>التقييم (0–5)</label><input id="fRating" type="number" min="0" max="5" step="0.1" placeholder="0.0" /></div>
+            <div class="field"><label>عدد المراجعات</label><input id="fReviews" type="number" placeholder="0" /></div>
+          </div>
+        </div>
+        <div class="form-block">
+          <h4>المقاسات والأطوال</h4>
+          <div class="form-grid">
+            <div class="field form-full"><label>المقاسات</label><input id="fSizes" type="text" placeholder="XS,S,M,L,XL" /><div class="chips" id="sizesPreset"></div></div>
+            <div class="field form-full"><label>الأطوال</label><input id="fLengths" type="text" placeholder="قصير,عادي,طويل أو 150,152..." /><div class="chips" id="lengthsPreset"></div></div>
+          </div>
+        </div>
+        <div class="form-block">
+          <h4>المخزون والألوان</h4>
+          <div class="form-grid">
+            <div class="field"><label>إجمالي الكمية</label><input id="fStockQuantity" type="number" min="0" placeholder="مثال: 25" /></div>
+            <div class="field"><label>حد التنبيه قبل النفاد</label><input id="fLowStockThreshold" type="number" min="0" placeholder="مثال: 3" /></div>
+            <div class="field form-full"><label>ألوان المنتج</label><input id="fColors" type="text" placeholder="أسود,أبيض,سكري" /><div class="chips" id="colorsPreset"></div></div>
+            <div class="field form-full"><label>كمية كل مقاس</label><textarea id="fSizeQuantities" placeholder="S:5, M:3, L:0"></textarea></div>
+            <div class="field form-full"><label>كمية كل لون</label><textarea id="fColorQuantities" placeholder="أسود:8, أبيض:4"></textarea></div>
+          </div>
+        </div>
+        <div class="form-block form-full">
+          <h4>الوصف وحالة الظهور</h4>
+          <div class="field form-full"><label>الوصف</label><textarea id="fDesc" placeholder="اكتبي الوصف هنا..."></textarea></div>
+          <div class="field form-full"><label class="toggle"><span>مخفي من المتجر</span><span class="switch"><input type="checkbox" id="fHidden" /><span class="slider"></span></span></label></div>
+        </div>
+        <div class="form-block form-full">
+          <h4>صور المنتج</h4>
+          <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()" ondrop="handleDrop(event)" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)">
+            <strong>📷 اختيار أو سحب الصور هنا</strong>
+            <p>يمكنك اختيار أكثر من صورة، وسيتم رفعها تلقائيًا عند الحفظ أو يدويًا من الزر بالأسفل.</p>
+          </div>
+          <input type="file" id="fileInput" accept="image/*,.heic,.heif,.avif,.jfif" multiple style="display:none" onchange="handleFileSelect(event)" />
+          <div class="thumbs" id="pendingPreviews"></div>
+          <div class="hero-actions">
+            <button class="btn btn-soft" id="uploadBtn" onclick="uploadImages()">رفع الصور المحددة</button>
+            <button class="btn btn-soft" onclick="clearSelectedFiles()">مسح المحدد</button>
+          </div>
+          <div class="field form-full"><label>إضافة رابط صورة يدويًا</label><div class="quick-row"><input id="fImageUrl" type="text" placeholder="https://..." /><button class="btn btn-soft" onclick="addManualImageUrl()">إضافة للمعرض</button></div></div>
+          <div>
+            <div class="pill" style="margin-bottom:8px">معرض الصور الحالي</div>
+            <div class="thumbs" id="galleryPreviews"></div>
+          </div>
+        </div>
+      </div>
+      <div class="hero-actions" style="justify-content:flex-end">
+        <button class="btn btn-soft" onclick="closeModal()">إلغاء</button>
+        <button class="btn btn-primary" id="saveBtn" onclick="saveProduct()">حفظ المنتج</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="deleteModal">
+    <div class="modal" style="max-width:420px">
+      <div class="modal-header">
+        <div><h3>حذف المنتج</h3><p id="deleteProductName">—</p></div>
+        <button class="btn btn-soft" onclick="closeDeleteModal()">إغلاق</button>
+      </div>
+      <div class="card" style="padding:14px; margin-bottom:16px">سيُحذف المنتج من الكتالوج الحالي. يمكنك التراجع فقط بإعادة إضافته يدويًا.</div>
+      <div class="hero-actions" style="justify-content:flex-end">
+        <button class="btn btn-soft" onclick="closeDeleteModal()">إلغاء</button>
+        <button class="btn btn-danger" id="confirmDeleteBtn" onclick="confirmDelete()">حذف نهائي</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="lookModal">
+    <div class="modal">
+      <div class="modal-header">
+        <div><h3 id="lookModalTitle">إطلالة كاملة جديدة</h3><p>اختاري المنتجات المرتبطة وحددي صورة الغلاف والنص الظاهر.</p></div>
+        <button class="btn btn-soft" onclick="closeLookModal()">إغلاق</button>
+      </div>
+      <input type="hidden" id="lookEditId" />
+      <div class="form-grid">
+        <div class="form-block form-full">
+          <h4>بيانات الإطلالة</h4>
+          <div class="form-grid">
+            <div class="field form-full"><label>عنوان الإطلالة *</label><input id="lookTitle" type="text" placeholder="مثال: إطلالة سهرة ذهبية" /></div>
+            <div class="field"><label>شارة قصيرة</label><input id="lookBadge" type="text" placeholder="إطلالة كاملة" /></div>
+            <div class="field"><label>نص الزر</label><input id="lookCtaLabel" type="text" placeholder="تسوقي الإطلالة" /></div>
+            <div class="field"><label>خصم الإطلالة (%)</label><input id="lookDiscountPercent" type="number" min="0" max="100" step="0.1" placeholder="0" /></div>
+            <div class="field"><label>ترتيب الظهور</label><input id="lookSortOrder" type="number" placeholder="الأحدث يظهر أولاً" /></div>
+            <div class="field form-full"><label>وصف مختصر</label><textarea id="lookSubtitle" placeholder="نص قصير يظهر تحت العنوان..."></textarea></div>
+            <div class="field form-full"><label>وصف تفصيلي</label><textarea id="lookDescription" placeholder="تفاصيل الإطلالة، المناسبة، الألوان..."></textarea></div>
+            <div class="field form-full"><label>رابط صورة الغلاف</label><div class="quick-row"><input id="lookCoverImageUrl" type="text" placeholder="https://..." /><button class="btn btn-soft" onclick="useFirstLookProductImage()">استخدام أول صورة منتج</button></div></div>
+            <div class="field form-full"><label class="toggle"><span>مخفية من التطبيق</span><span class="switch"><input type="checkbox" id="lookHidden" /><span class="slider"></span></span></label></div>
+          </div>
+        </div>
+        <div class="form-block form-full">
+          <h4>منتجات الإطلالة</h4>
+          <div class="field form-full"><label>بحث سريع</label><input id="lookProductSearch" type="text" placeholder="ابحثي بالاسم أو الكود..." oninput="renderLookProductPicker()" /></div>
+          <div class="products-grid" id="lookProductPicker"></div>
+          <div class="minimal-note" id="lookSelectedSummary">لم يتم اختيار منتجات بعد.</div>
+        </div>
+      </div>
+      <div class="hero-actions" style="justify-content:flex-end">
+        <button class="btn btn-soft" onclick="closeLookModal()">إلغاء</button>
+        <button class="btn btn-danger" id="deleteLookBtn" onclick="deleteLookFromModal()" style="display:none">حذف الإطلالة</button>
+        <button class="btn btn-primary" id="saveLookBtn" onclick="saveLook()">حفظ الإطلالة</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-wrap" id="toastContainer"></div>
+
+  <script>
+    const CATEGORY_OPTIONS = ['قسم السهرة', 'قسم ناعمة وانيقة', 'قسم رمضان', 'قسم الاكثر طلبا', 'قسم جمبسوت', 'قسم الحوامل', 'قسم العيد'];
+    const TAG_PRESETS = ['ذهبي', 'جديد', 'عرض', 'مميز'];
+    const SIZE_PRESETS = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL', '50', '52', '54', '56', '58', '60'];
+    const LENGTH_PRESETS = ['قصير', 'عادي', 'طويل', '150', '152', '154', '156', '158', '160'];
+    const COLOR_PRESETS = ['أسود', 'أبيض', 'سكري', 'بيج', 'ذهبي', 'فضي', 'أحمر', 'أخضر', 'أزرق', 'وردي'];
+
+    const FALLBACK_BASE_URL = window.location.protocol.startsWith('http')
+      ? window.location.origin
+      : 'https://carmenkarla-backend.onrender.com';
+    let BASE_URL = localStorage.getItem('ck_base') || FALLBACK_BASE_URL;
+    if (window.location.protocol.startsWith('http') && /:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(BASE_URL)) {
+      BASE_URL = window.location.origin;
+    }
+    let API_TOKEN = localStorage.getItem('ck_token') || 'ck_9f6e3b42d14a4c4f8ea8a4fb6f6f0e11';
+    let allProducts = [];
+    let allLooks = [];
+    let lookSelectedProductIds = [];
+    let deleteTargetId = null;
+    let selectedFiles = [];
+    let previewUrls = [];
+    let imageGallery = [];
+    let devicesStats = null;
+    let ambassadorPresenceItems = [];
+    let allOrders = [];
+    let ambassadorOrders = [];
+    let dashboardSummary = null;
+    const userProfiles = new Map();
+    let marketingConfig = {
+      commission: {
+        defaultPercent: 7,
+        perProductEnabled: true,
+      },
+      coupons: [],
+      offers: { title: '', subtitle: '', ctaLabel: '', items: [] },
+      gifts: [],
+      competitions: [],
+      updatedAt: 0,
+    };
+
+    function authHeaders(extra = {}) {
+      const h = { ...extra };
+      const token = String(API_TOKEN || '').trim();
+      if (token) {
+        h['Authorization'] = `Bearer ${token}`;
+      }
+      return h;
+    }
+
+    function headers() {
+      return authHeaders({ 'Content-Type': 'application/json' });
+    }
+
+    function escHtml(value) {
+      return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function parseList(raw, normalize) {
+      const parts = String(raw || '').split(/[\n\r\t,]+/).map(v => v.trim()).filter(Boolean);
+      const out = [];
+      const seen = new Set();
+      for (const part of parts) {
+        const value = normalize ? normalize(part) : part;
+        if (!value || seen.has(value)) continue;
+        seen.add(value);
+        out.push(value);
+      }
+      return out;
+    }
+
+    function normalizePlain(v) { return String(v || '').trim(); }
+    function normalizeSize(v) { return String(v || '').trim().toUpperCase(); }
+    function joinList(items) { return items.join(','); }
+
+    function parseQuantityMap(raw, normalize = normalizePlain) {
+      const out = {};
+      const text = String(raw || '').trim();
+      if (!text) return out;
+      for (const token of text.split(/[\n\r,]+/)) {
+        const part = token.trim();
+        if (!part) continue;
+        const idx = part.indexOf(':');
+        if (idx <= 0) continue;
+        const key = normalize(part.slice(0, idx));
+        const qty = Math.max(0, parseInt(part.slice(idx + 1).trim(), 10) || 0);
+        if (!key) continue;
+        out[key] = qty;
+      }
+      return out;
+    }
+
+    function quantityMapToText(map) {
+      if (!map || typeof map !== 'object') return '';
+      return Object.entries(map)
+        .map(([key, value]) => `${String(key).trim()}:${Math.max(0, parseInt(value, 10) || 0)}`)
+        .join(', ');
+    }
+
+    function productColors(p) {
+      return parseList(p?.colors || '', normalizePlain);
+    }
+
+    function inventoryState(p) {
+      const sizeMap = (p && typeof p.sizeQuantities === 'object' && !Array.isArray(p.sizeQuantities))
+        ? p.sizeQuantities
+        : parseQuantityMap(p?.sizeQuantities || '', normalizeSize);
+      const colorMap = (p && typeof p.colorQuantities === 'object' && !Array.isArray(p.colorQuantities))
+        ? p.colorQuantities
+        : parseQuantityMap(p?.colorQuantities || '', normalizePlain);
+      const stockQuantity = Math.max(0, parseInt(p?.stockQuantity || 0, 10) || 0);
+      const threshold = Math.max(0, parseInt(p?.lowStockThreshold || 0, 10) || 0);
+      const sizeTotal = Object.values(sizeMap).reduce((sum, v) => sum + (parseInt(v, 10) || 0), 0);
+      const colorTotal = Object.values(colorMap).reduce((sum, v) => sum + (parseInt(v, 10) || 0), 0);
+      const available = stockQuantity > 0 ? stockQuantity : (sizeTotal > 0 ? sizeTotal : colorTotal);
+      const hasTracking = stockQuantity > 0 || threshold > 0 || Object.keys(sizeMap).length > 0 || Object.keys(colorMap).length > 0;
+      const outOfStock = hasTracking && available <= 0;
+      const lowStock = !outOfStock && threshold > 0 && available > 0 && available <= threshold;
+      return { stockQuantity, threshold, available, outOfStock, lowStock, sizeMap, colorMap };
+    }
+
+    function stockBadge(inv) {
+      if (inv.outOfStock) return '<span class="badge off">نفد</span>';
+      if (inv.lowStock) return '<span class="badge soon">قارب النفاد</span>';
+      if (inv.available > 0) return `<span class="badge ok">${inv.available} متوفر</span>`;
+      return '<span class="badge">غير محدد</span>';
+    }
+
+    function productCodeMarkup(code) {
+      const v = String(code || '').trim();
+      if (!v) return '<span class="muted-code">سيُولد تلقائيًا</span>';
+      return `<span class="sku-badge"><span>${escHtml(v)}</span><button type="button" class="sku-copy" onclick="copyProductCode('${escHtml(v)}')" title="نسخ الكود">⧉</button></span>`;
+    }
+
+    async function copyProductCode(code) {
+      const value = String(code || '').trim();
+      if (!value) return;
+      try {
+        await navigator.clipboard.writeText(value);
+        toast('تم نسخ كود المنتج', 'success');
+      } catch (_) {
+        toast('تعذر نسخ الكود', 'error');
+      }
+    }
+
+    function uniqueId(prefix) {
+      return `${prefix}_${Date.now()}_${Math.floor(Math.random() * 999)}`;
+    }
+
+    function renderCampaignEditor(containerId, items, kind) {
+      const box = document.getElementById(containerId);
+      if (!box) return;
+      if (!items.length) {
+        box.innerHTML = '<div class="empty" style="padding:18px 0">لا توجد عناصر بعد.</div>';
+        return;
+      }
+      box.innerHTML = items.map((item, idx) => {
+        if (kind === 'coupon') {
+          return `
+            <div class="campaign-item">
+              <div class="split-2">
+                <div class="field"><label>الكود</label><input type="text" value="${escHtml(item.code || '')}" onchange="updateCouponField(${idx}, 'code', this.value)" /></div>
+                <div class="field"><label>النوع</label><select onchange="updateCouponField(${idx}, 'type', this.value)">
+                  <option value="percent" ${item.type === 'percent' ? 'selected' : ''}>نسبة</option>
+                  <option value="fixed" ${item.type === 'fixed' ? 'selected' : ''}>مبلغ</option>
+                  <option value="freeShipping" ${item.type === 'freeShipping' ? 'selected' : ''}>شحن مجاني</option>
+                </select></div>
+                <div class="field"><label>القيمة</label><input type="number" value="${escHtml(item.value ?? 0)}" onchange="updateCouponField(${idx}, 'value', this.value)" /></div>
+                <div class="field"><label>الحد الأدنى</label><input type="number" value="${escHtml(item.minSubtotal ?? 0)}" onchange="updateCouponField(${idx}, 'minSubtotal', this.value)" /></div>
+                <div class="field"><label>سقف الخصم</label><input type="number" value="${escHtml(item.maxDiscount ?? 0)}" onchange="updateCouponField(${idx}, 'maxDiscount', this.value)" /></div>
+                <div class="field"><label>الحالة</label><select onchange="updateCouponField(${idx}, 'enabled', this.value)"><option value="1" ${Number(item.enabled || 0) === 1 ? 'selected' : ''}>مفعّل</option><option value="0" ${Number(item.enabled || 0) !== 1 ? 'selected' : ''}>متوقف</option></select></div>
+              </div>
+              <div class="quick-row"><button class="btn btn-primary" onclick="saveCouponItem(${idx})">حفظ</button><button class="btn btn-danger" onclick="removeCouponItem(${idx})">حذف</button></div>
+            </div>`;
+        }
+
+        const title = item.title || item.text || '';
+        const desc = item.description || item.text || '';
+        const extra = kind === 'offer'
+          ? `<div class="field"><label>نوع العرض</label><input type="text" value="${escHtml(item.kind || '')}" onchange="updateMarketingItem('${kind}', ${idx}, 'kind', this.value)" /></div><div class="field"><label>معرّفات المنتجات</label><input type="text" value="${escHtml((item.productIds || []).join(', '))}" onchange="updateMarketingArray('${kind}', ${idx}, 'productIds', this.value)" /></div>`
+          : kind === 'gift'
+            ? `<div class="field"><label>قيمة الهدية</label><input type="text" value="${escHtml(item.giftValue || '')}" onchange="updateMarketingItem('${kind}', ${idx}, 'giftValue', this.value)" /></div><div class="field"><label>الحد الأدنى للطلب</label><input type="number" value="${escHtml(item.minOrderTotal ?? 0)}" onchange="updateMarketingItem('${kind}', ${idx}, 'minOrderTotal', this.value)" /></div>`
+            : `<div class="field"><label>الجائزة</label><input type="text" value="${escHtml(item.prize || '')}" onchange="updateMarketingItem('${kind}', ${idx}, 'prize', this.value)" /></div><div class="field"><label>تاريخ النهاية</label><input type="text" value="${escHtml(item.endAt || '')}" onchange="updateMarketingItem('${kind}', ${idx}, 'endAt', this.value)" /></div>`;
+        return `
+          <div class="campaign-item">
+            <div class="split-2">
+              <div class="field"><label>العنوان</label><input type="text" value="${escHtml(title)}" onchange="updateMarketingItem('${kind}', ${idx}, '${kind === 'offer' ? 'text' : 'title'}', this.value)" /></div>
+              <div class="field"><label>نص الزر</label><input type="text" value="${escHtml(item.ctaLabel || '')}" onchange="updateMarketingItem('${kind}', ${idx}, 'ctaLabel', this.value)" /></div>
+              <div class="field" style="grid-column:1 / -1"><label>الوصف</label><textarea onchange="updateMarketingItem('${kind}', ${idx}, '${kind === 'offer' ? 'text' : 'description'}', this.value)">${escHtml(desc)}</textarea></div>
+              ${extra}
+              <div class="field"><label>الحالة</label><select onchange="updateMarketingItem('${kind}', ${idx}, 'enabled', this.value)"><option value="1" ${item.enabled ? 'selected' : ''}>مفعّل</option><option value="0" ${!item.enabled ? 'selected' : ''}>متوقف</option></select></div>
+            </div>
+            <div class="quick-row"><button class="btn btn-danger" onclick="removeMarketingItem('${kind}', ${idx})">حذف</button></div>
+          </div>`;
+      }).join('');
+    }
+
+    function renderMarketingConfig() {
+      const offers = marketingConfig.offers || { title: '', subtitle: '', ctaLabel: '', items: [] };
+      const commission = marketingConfig.commission || { defaultPercent: 7, perProductEnabled: true };
+      document.getElementById('commissionDefaultPercent').value = Number(commission.defaultPercent ?? 7);
+      document.getElementById('commissionPerProductEnabled').value = commission.perProductEnabled ? '1' : '0';
+      document.getElementById('offersTitle').value = offers.title || '';
+      document.getElementById('offersSubtitle').value = offers.subtitle || '';
+      document.getElementById('offersCtaLabel').value = offers.ctaLabel || '';
+      renderCampaignEditor('couponList', marketingConfig.coupons || [], 'coupon');
+      renderCampaignEditor('offersItemsList', offers.items || [], 'offer');
+      renderCampaignEditor('giftsList', marketingConfig.gifts || [], 'gift');
+      renderCampaignEditor('competitionsList', marketingConfig.competitions || [], 'competition');
+    }
+
+    async function loadMarketingConfig(forceToast = false) {
+      try {
+        const data = await api('GET', '/marketing/config');
+        if (!data.ok) throw new Error(data.error || 'فشل تحميل الحملات');
+        marketingConfig = data.config || marketingConfig;
+        renderMarketingConfig();
+        if (forceToast) toast('تم تحديث العروض والحملات', 'success');
+      } catch (err) {
+        if (forceToast) toast(String(err?.message || 'فشل تحميل الحملات'), 'error');
+      }
+    }
+
+    async function saveMarketingConfig() {
+      try {
+        marketingConfig.commission = marketingConfig.commission || {};
+        marketingConfig.commission.defaultPercent = Math.max(
+          0,
+          Math.min(100, parseFloat(document.getElementById('commissionDefaultPercent').value || '7') || 7),
+        );
+        marketingConfig.commission.perProductEnabled = document.getElementById('commissionPerProductEnabled').value === '1';
+
+        marketingConfig.offers = marketingConfig.offers || {};
+        marketingConfig.offers.title = document.getElementById('offersTitle').value.trim();
+        marketingConfig.offers.subtitle = document.getElementById('offersSubtitle').value.trim();
+        marketingConfig.offers.ctaLabel = document.getElementById('offersCtaLabel').value.trim();
+        const data = await api('PUT', '/marketing/config', marketingConfig);
+        if (!data.ok) throw new Error(data.error || 'فشل حفظ الحملات');
+        marketingConfig = data.config || marketingConfig;
+        renderMarketingConfig();
+        toast('تم حفظ العروض والحملات', 'success');
+      } catch (err) {
+        toast(String(err?.message || 'فشل حفظ الحملات'), 'error');
+      }
+    }
+
+    function updateCouponField(index, field, value) {
+      const item = marketingConfig.coupons[index];
+      if (!item) return;
+      if (['value', 'minSubtotal', 'maxDiscount'].includes(field)) {
+        item[field] = Math.max(0, parseFloat(value || '0') || 0);
+      } else if (field === 'enabled') {
+        item[field] = parseInt(value || '0', 10) || 0;
+      } else {
+        item[field] = String(value || '').trim();
+      }
+    }
+
+    function updateMarketingItem(kind, index, field, value) {
+      const source = kind === 'offer' ? (marketingConfig.offers?.items || []) : (marketingConfig[`${kind}s`] || marketingConfig[kind] || []);
+      const item = source[index];
+      if (!item) return;
+      if (field === 'enabled') {
+        item[field] = String(value) === '1';
+      } else if (field === 'minOrderTotal') {
+        item[field] = Math.max(0, parseFloat(value || '0') || 0);
+      } else {
+        item[field] = String(value || '').trim();
+      }
+    }
+
+    function updateMarketingArray(kind, index, field, value) {
+      const source = kind === 'offer' ? (marketingConfig.offers?.items || []) : (marketingConfig[`${kind}s`] || marketingConfig[kind] || []);
+      const item = source[index];
+      if (!item) return;
+      item[field] = parseList(value, normalizePlain);
+    }
+
+    function addCouponItem() {
+      marketingConfig.coupons = marketingConfig.coupons || [];
+      marketingConfig.coupons.unshift({
+        code: `NEW${Date.now().toString().slice(-4)}`,
+        type: 'percent',
+        value: 10,
+        minSubtotal: 0,
+        maxDiscount: 0,
+        freeShipping: 0,
+        enabled: 1,
+        startAt: null,
+        endAt: null,
+        createdAt: Date.now(),
+      });
+      renderMarketingConfig();
+    }
+
+    function removeCouponItem(index) {
+      marketingConfig.coupons.splice(index, 1);
+      renderMarketingConfig();
+    }
+
+    async function saveCouponItem(index) {
+      const item = marketingConfig?.coupons?.[index];
+      if (!item) return;
+      const code = String(item.code || '').trim().toUpperCase();
+      if (!code) {
+        toast('اكتبي كود الكوبون أولاً', 'error');
+        return;
+      }
+      item.code = code;
+      item.createdAt = Number(item.createdAt || Date.now());
+      await saveMarketingConfig();
+    }
+
+    function addOfferItem() {
+      marketingConfig.offers = marketingConfig.offers || { items: [] };
+      marketingConfig.offers.items = marketingConfig.offers.items || [];
+      marketingConfig.offers.items.unshift({ id: uniqueId('offer'), text: 'عرض جديد', kind: 'other', enabled: true, productIds: [] });
+      renderMarketingConfig();
+    }
+
+    function addGiftItem() {
+      marketingConfig.gifts = marketingConfig.gifts || [];
+      marketingConfig.gifts.unshift({ id: uniqueId('gift'), title: 'هدية جديدة', description: '', enabled: true, badge: '', ctaLabel: '', giftType: '', giftValue: '', minOrderTotal: 0, imageUrl: '' });
+      renderMarketingConfig();
+    }
+
+    function addCompetitionItem() {
+      marketingConfig.competitions = marketingConfig.competitions || [];
+      marketingConfig.competitions.unshift({ id: uniqueId('competition'), title: 'مسابقة جديدة', description: '', enabled: true, prize: '', ctaLabel: '', endAt: '', imageUrl: '' });
+      renderMarketingConfig();
+    }
+
+    function removeMarketingItem(kind, index) {
+      if (kind === 'offer') {
+        marketingConfig.offers.items.splice(index, 1);
+      } else if (kind === 'gift') {
+        marketingConfig.gifts.splice(index, 1);
+      } else if (kind === 'competition') {
+        marketingConfig.competitions.splice(index, 1);
+      }
+      renderMarketingConfig();
+    }
+
+    function toast(message, type = 'info') {
+      const box = document.getElementById('toastContainer');
+      const el = document.createElement('div');
+      el.className = `toast ${type}`;
+      el.textContent = message;
+      box.appendChild(el);
+      setTimeout(() => {
+        el.style.opacity = '0';
+        el.style.transition = 'opacity .25s ease';
+        setTimeout(() => el.remove(), 250);
+      }, 3200);
+    }
+
+    function populateCategorySelect() {
+      const select = document.getElementById('fCategory');
+      select.innerHTML = CATEGORY_OPTIONS.map(c => `<option value="${escHtml(c)}">${escHtml(c)}</option>`).join('');
+    }
+
+    function renderPresetGroup(containerId, inputId, presets, mode) {
+      const box = document.getElementById(containerId);
+      box.innerHTML = presets.map(item => `<button type="button" class="preset" data-group="${containerId}" data-mode="${mode}" data-value="${escHtml(item)}">${escHtml(item)}</button>`).join('');
+      box.querySelectorAll('.preset').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const normalize = mode === 'size' ? normalizeSize : normalizePlain;
+          const input = document.getElementById(inputId);
+          const items = parseList(input.value, normalize);
+          const value = normalize(btn.dataset.value || '');
+          const idx = items.indexOf(value);
+          if (idx >= 0) items.splice(idx, 1);
+          else items.push(value);
+          input.value = joinList(items);
+          syncPresetStates();
+        });
+      });
+    }
+
+    function onNotificationAudienceChange() {
+      const audience = document.getElementById('nAudience').value;
+      document.getElementById('nUserField').style.display = audience === 'user' ? 'grid' : 'none';
+      document.getElementById('nLimitField').style.display = audience === 'all' ? 'grid' : 'none';
+    }
+
+    function resetNotificationForm() {
+      document.getElementById('nAudience').value = 'all';
+      document.getElementById('nLimit').value = '500';
+      document.getElementById('nUserId').value = '';
+      document.getElementById('nTitle').value = '';
+      document.getElementById('nBody').value = '';
+      document.getElementById('nImageUrl').value = '';
+      document.getElementById('nTarget').value = '';
+      document.getElementById('nTargetId').value = '';
+      onNotificationAudienceChange();
+    }
+
+    async function sendCustomerNotification() {
+      const title = document.getElementById('nTitle').value.trim();
+      const body = document.getElementById('nBody').value.trim();
+      const imageUrl = document.getElementById('nImageUrl').value.trim();
+      const audience = document.getElementById('nAudience').value;
+      const userId = document.getElementById('nUserId').value.trim();
+      const limit = parseInt(document.getElementById('nLimit').value || '500', 10) || 500;
+      const target = document.getElementById('nTarget').value.trim();
+      const targetId = document.getElementById('nTargetId').value.trim();
+
+      if (!title) return toast('عنوان الإشعار مطلوب', 'error');
+      if (!body) return toast('محتوى الإشعار مطلوب', 'error');
+      if (audience === 'user' && !userId) return toast('UID المستخدم مطلوب للإرسال الفردي', 'error');
+
+      const btn = document.getElementById('sendNotifBtn');
+      const old = btn.textContent;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>';
+
+      const payload = { title, body, imageUrl, audience, target, targetId };
+      if (audience === 'all') payload.limit = Math.max(1, Math.min(limit, 2000));
+      if (audience === 'user') payload.userId = userId;
+
+      try {
+        const data = await api('POST', '/notifications/send', payload);
+        if (!data.ok) throw new Error(data.error || data.details || 'فشل إرسال الإشعار');
+        toast(`تم إرسال الإشعار بنجاح (${data.sent || 0})`, 'success');
+        resetNotificationForm();
+      } catch (err) {
+        toast(String(err?.message || 'فشل الاتصال بالسيرفر'), 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = old;
+      }
+    }
+
+    function syncPresetStates() {
+      const tagValues = parseList(document.getElementById('fTags').value, normalizePlain);
+      const sizeValues = parseList(document.getElementById('fSizes').value, normalizeSize);
+      const lengthValues = parseList(document.getElementById('fLengths').value, normalizePlain);
+      const colorValues = parseList(document.getElementById('fColors').value, normalizePlain);
+      document.querySelectorAll('.preset').forEach(btn => {
+        const value = btn.dataset.value || '';
+        const group = btn.dataset.group;
+        let active = false;
+        if (group === 'tagsPreset') active = tagValues.includes(normalizePlain(value));
+        if (group === 'sizesPreset') active = sizeValues.includes(normalizeSize(value));
+        if (group === 'lengthsPreset') active = lengthValues.includes(normalizePlain(value));
+        if (group === 'colorsPreset') active = colorValues.includes(normalizePlain(value));
+        btn.classList.toggle('active', active);
+      });
+    }
+
+    function setView(view) {
+      document.body.dataset.view = view;
+      document.querySelectorAll('.panel').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+      const panel = document.getElementById(`panel-${view}`);
+      if (panel) panel.classList.add('active');
+      const tab = document.querySelector(`[data-tab="${view}"]`);
+      if (tab) tab.classList.add('active');
+      if (view === 'orders') {
+        loadOrders();
+      }
+      if (view === 'products') {
+        loadProducts();
+      }
+      if (view === 'ambassadors') {
+        loadAmbassadors();
+      }
+      if (view === 'devices') {
+        loadDeviceStats();
+      }
+      if (view === 'campaigns') {
+        setCampaignSubView('coupons');
+        loadMarketingConfig();
+      }
+    }
+
+    function setCampaignSubView(view) {
+      const allowed = ['coupons', 'offers', 'gifts', 'competitions'];
+      const next = allowed.includes(String(view || '').trim()) ? view : 'coupons';
+      document.querySelectorAll('.campaign-subtab').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.campaignTab === next);
+      });
+      document.querySelectorAll('.campaign-section-panel').forEach(panel => panel.classList.remove('active'));
+      const target = document.getElementById(`campaignSection-${next}`);
+      if (target) target.classList.add('active');
+    }
+
+    function notifyUnavailable(name) {
+      toast(`${name} جاهزة كقسم في لوحة الويب، لكن ربطها الخلفي ما زال داخل نسخة الهاتف فقط حالياً.`, 'info');
+    }
+
+    async function api(method, path, body) {
+      const opts = { method, headers: headers() };
+      if (body) opts.body = JSON.stringify(body);
+      const res = await fetch(BASE_URL + path, opts);
+      return res.json();
+    }
+
+    async function checkHealth() {
+      const dot = document.getElementById('statusDot');
+      const statusText = document.getElementById('statusText');
+      const backendBadge = document.getElementById('healthCatalogBadge');
+      const prodBadge = document.getElementById('healthProdBadge');
+      dot.classList.remove('ok', 'err');
+      statusText.textContent = 'جاري الاتصال...';
+      try {
+        const data = await fetch(BASE_URL + '/health').then(r => r.json());
+        if (!data.ok) throw new Error();
+        dot.classList.add('ok');
+        statusText.textContent = 'متصل ✓';
+        document.getElementById('healthBase').textContent = data.publicBase || BASE_URL;
+        document.getElementById('healthStorage').textContent = data.storageMode === 'persistent' ? 'Persistent / دائم' : 'Local / تجريبي';
+        const backend = String(data.catalogBackend || 'local-file');
+        document.getElementById('healthCatalogBackend').textContent = backend === 'firestore' ? 'Firestore (مستقر)' : 'Local File';
+        backendBadge.className = `badge ${backend === 'firestore' ? 'ok' : 'soon'}`;
+        backendBadge.textContent = backend === 'firestore' ? 'احترافي' : 'تجريبي';
+
+        const prodReady = Boolean(data.productionReady);
+        document.getElementById('healthProd').textContent = prodReady
+          ? 'جاهز للنشر للزبائن'
+          : 'غير آمن بالكامل: فعل Persistent Disk أو Firestore';
+        prodBadge.className = `badge ${prodReady ? 'ok' : 'off'}`;
+        prodBadge.textContent = prodReady ? 'جاهز' : 'مخاطرة';
+      } catch (_) {
+        dot.classList.add('err');
+        statusText.textContent = 'غير متصل ✗';
+        document.getElementById('healthBase').textContent = '—';
+        document.getElementById('healthStorage').textContent = '—';
+        document.getElementById('healthCatalogBackend').textContent = '—';
+        document.getElementById('healthProd').textContent = '—';
+        backendBadge.className = 'badge soon';
+        backendBadge.textContent = 'مراقبة';
+        prodBadge.className = 'badge soon';
+        prodBadge.textContent = 'مراقبة';
+      }
+    }
+
+    function saveSettings() {
+      BASE_URL = document.getElementById('cfgBase').value.replace(/\/$/, '').trim();
+      API_TOKEN = document.getElementById('cfgToken').value.trim();
+      localStorage.setItem('ck_base', BASE_URL);
+      localStorage.setItem('ck_token', API_TOKEN);
+      toast('تم حفظ الإعدادات', 'success');
+      checkHealth();
+      loadProducts();
+    }
+
+    function productImages(p) {
+      if (Array.isArray(p.imageUrls)) return p.imageUrls.map(v => String(v || '').trim()).filter(Boolean);
+      if (typeof p.imageUrls === 'string' && p.imageUrls.trim()) {
+        try {
+          const parsed = JSON.parse(p.imageUrls);
+          if (Array.isArray(parsed)) return parsed.map(v => String(v || '').trim()).filter(Boolean);
+        } catch (_) {
+          return p.imageUrls.split(',').map(v => v.trim()).filter(Boolean);
+        }
+      }
+      const single = String(p.imageUrl || '').trim();
+      return single ? [single] : [];
+    }
+
+    async function loadProducts() {
+      try {
+        const data = await fetch(BASE_URL + '/products?includeHidden=1').then(r => r.json());
+        allProducts = Array.isArray(data.items) ? data.items : [];
+        allProducts.sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
+      } catch (_) {
+        allProducts = [];
+        toast('فشل تحميل المنتجات', 'error');
+      }
+      await loadLooks(false);
+      updateStats();
+      renderRecentProducts();
+      renderLowStockAlerts();
+      renderProducts();
+    }
+
+    async function loadLooks(forceToast = false) {
+      try {
+        const data = await api('GET', '/looks?includeHidden=1');
+        if (!data.ok) throw new Error(data.error || 'فشل تحميل الإطلالات');
+        allLooks = Array.isArray(data.items) ? data.items : [];
+        allLooks.sort((a, b) => Number(b.sortOrder || b.createdAt || 0) - Number(a.sortOrder || a.createdAt || 0));
+        renderLooks();
+        if (forceToast) toast('تم تحديث الإطلالات الكاملة', 'success');
+      } catch (err) {
+        allLooks = [];
+        renderLooks();
+        if (forceToast) toast(String(err?.message || 'فشل تحميل الإطلالات'), 'error');
+      }
+    }
+
+    function renderDashboardSummary() {
+      const s = dashboardSummary || {};
+      const products = s.products || {};
+      const orders = s.orders || {};
+      const users = s.users || {};
+
+      document.getElementById('statTotal').textContent = Number(products.total || 0);
+      document.getElementById('statVisible').textContent = Number(products.visible || 0);
+      document.getElementById('statHidden').textContent = Number(products.hidden || 0);
+      document.getElementById('statCats').textContent = Number(products.categories || 0);
+
+      document.getElementById('statOrdersTotal').textContent = Number(orders.total || 0);
+      const openOrders = Number(orders.pending || 0) + Number(orders.processing || 0) + Number(orders.shipped || 0);
+      document.getElementById('statOrdersOpen').textContent = openOrders;
+
+      document.getElementById('statRegisteredUsers').textContent = Number(users.registered || 0);
+      document.getElementById('statActiveUsers1d').textContent = Number(users.active1d || 0);
+    }
+
+    async function loadDashboardSummary(forceToast = false) {
+      try {
+        const data = await api('GET', '/dashboard/summary');
+        if (!data.ok) throw new Error(data.error || 'فشل تحميل ملخص اللوحة');
+        dashboardSummary = data;
+        renderDashboardSummary();
+        if (forceToast) toast('تم تحديث ملخص اللوحة', 'success');
+      } catch (err) {
+        if (forceToast) toast(String(err?.message || 'فشل تحميل الملخص'), 'error');
+      }
+    }
+
+    function statusBadgeClass(status) {
+      const s = String(status || '').toLowerCase();
+      if (s === 'delivered') return 'ok';
+      if (s === 'canceled') return 'off';
+      if (s === 'shipped') return 'ok';
+      return 'soon';
+    }
+
+    function statusLabel(status) {
+      const s = String(status || '').toLowerCase();
+      if (s === 'pending') return 'قيد الانتظار';
+      if (s === 'processing') return 'قيد المعالجة';
+      if (s === 'shipped') return 'تم الشحن';
+      if (s === 'delivered') return 'تم التوصيل';
+      if (s === 'canceled') return 'ملغي';
+      return s || 'غير معروف';
+    }
+
+    function emailToDisplayName(email) {
+      const e = String(email || '').trim().toLowerCase();
+      if (!e || !e.includes('@')) return '';
+      const local = e.split('@')[0] || '';
+      const cleaned = local
+        .replace(/[._-]+/g, ' ')
+        .replace(/\d+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      return cleaned ? cleaned.replace(/\b\w/g, ch => ch.toUpperCase()) : '';
+    }
+
+    function prettifyUid(uid) {
+      const s = String(uid || '').trim();
+      if (!s) return '';
+      if (s.length <= 10) return `مستخدم ${s}`;
+      return `مستخدم ${s.slice(0, 4)}...${s.slice(-3)}`;
+    }
+
+    function bestPersonName(payload = {}) {
+      const nameCandidates = [
+        payload.submitterName,
+        payload.accountName,
+        payload.displayName,
+        payload.fullName,
+        payload.name,
+        payload.customerName,
+        payload.firstName && payload.lastName ? `${payload.firstName} ${payload.lastName}` : '',
+      ]
+        .map(v => String(v || '').trim())
+        .filter(Boolean);
+      if (nameCandidates.length) return nameCandidates[0];
+
+      const fromEmail = emailToDisplayName(payload.email || payload.submitterEmail || '');
+      if (fromEmail) return fromEmail;
+
+      const fromUid = prettifyUid(payload.uid || payload.submitterUid || '');
+      if (fromUid) return fromUid;
+
+      return 'بدون اسم';
+    }
+
+    function upsertUserProfile(raw = {}) {
+      const uid = String(raw.uid || '').trim();
+      const email = String(raw.email || '').trim();
+      const phone = String(raw.phone || '').trim();
+      const role = String(raw.role || '').trim();
+      const name = String(bestPersonName(raw) || '').trim();
+
+      const key = uid || email;
+      if (!key) return;
+
+      const current = userProfiles.get(key) || {};
+      userProfiles.set(key, {
+        uid: uid || current.uid || '',
+        email: email || current.email || '',
+        phone: phone || current.phone || '',
+        role: role || current.role || '',
+        name: name || current.name || 'بدون اسم',
+      });
+    }
+
+    function indexProfilesFromOrders(list) {
+      if (!Array.isArray(list)) return;
+      for (const item of list) {
+        const payload = item && typeof item.payload === 'object' ? item.payload : {};
+        const customer = payload && typeof payload.customer === 'object' ? payload.customer : {};
+        upsertUserProfile({
+          uid: customer.submitterUid || customer.uid || item.userId,
+          email: customer.submitterEmail || customer.email,
+          phone: customer.phone,
+          role: customer.accountRole,
+          // IMPORTANT: ambassador name must come from account identity, not shipping/order form name.
+          name: customer.submitterName || customer.accountName || customer.displayName || customer.fullName,
+          submitterName: customer.submitterName,
+          accountName: customer.accountName,
+          displayName: customer.displayName,
+          fullName: customer.fullName,
+          firstName: customer.firstName,
+          lastName: customer.lastName,
+        });
+      }
+      if (devicesStats) {
+        renderDeviceStats();
+      }
+    }
+
+    function resolveUserName({ uid = '', email = '', fallback = 'بدون اسم' } = {}) {
+      const uidKey = String(uid || '').trim();
+      const emailKey = String(email || '').trim();
+      const profile = (uidKey && userProfiles.get(uidKey)) || (emailKey && userProfiles.get(emailKey)) || null;
+      if (profile && profile.name) return profile.name;
+      const emailName = emailToDisplayName(emailKey);
+      if (emailName) return emailName;
+      const uidName = prettifyUid(uidKey);
+      if (uidName) return uidName;
+      return fallback;
+    }
+
+    function shortHandleFromEmail(email) {
+      const e = String(email || '').trim().toLowerCase();
+      if (!e || !e.includes('@')) return '';
+      const local = e.split('@')[0] || '';
+      if (!local) return '';
+      if (local.length <= 6) return local;
+      return `${local.slice(0, 3)}...${local.slice(-2)}`;
+    }
+
+    function shortHandleFromUid(uid) {
+      const u = String(uid || '').trim();
+      if (!u) return '';
+      if (u.length <= 8) return u;
+      return `${u.slice(0, 4)}...${u.slice(-3)}`;
+    }
+
+    function resolveCommissionFromOrder({ payload = {}, summary = {}, defaultPercent = 7, perProductEnabled = true } = {}) {
+      const asMoney = (v) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : 0;
+      };
+
+      let commission = asMoney(summary.estimatedCommission);
+
+      if (commission <= 0) {
+        const grossSales = asMoney(summary.grossSales);
+        const commissionPct = asMoney(summary.commissionPercent);
+        if (grossSales > 0 && commissionPct > 0) {
+          commission = grossSales * (Math.max(0, Math.min(100, commissionPct)) / 100);
+        }
+      }
+
+      if (commission <= 0) {
+        const items = Array.isArray(payload.items) ? payload.items : [];
+        let fallback = 0;
+        for (const raw of items) {
+          if (!raw || typeof raw !== 'object') continue;
+          const m = raw;
+          const qty = Math.max(0, parseInt(m.quantity ?? m.qty ?? 1, 10) || 0);
+          if (qty <= 0) continue;
+          const price = asMoney(m.price ?? m.unitPrice ?? m.salePrice ?? m.finalPrice);
+          const rawPct = Number.isFinite(Number(m.commissionPercent)) ? Number(m.commissionPercent) : defaultPercent;
+          const effectivePct = perProductEnabled
+            ? Math.max(0, Math.min(100, rawPct))
+            : Math.max(0, Math.min(100, defaultPercent));
+          fallback += (price * qty) * (effectivePct / 100);
+        }
+        commission = fallback;
+      }
+
+      if (commission <= 0) {
+        const pricing = payload && typeof payload.pricing === 'object' ? payload.pricing : {};
+        const summaryMap = payload && typeof payload.summary === 'object' ? payload.summary : {};
+        const orderTotal = asMoney(
+          payload.grandTotal
+          ?? payload.total
+          ?? payload.totalLyd
+          ?? payload.amount
+          ?? payload.subtotal
+          ?? pricing.grandTotal
+          ?? summaryMap.grandTotal
+          ?? summaryMap.total
+          ?? summaryMap.subtotal,
+        );
+        if (orderTotal > 0) {
+          commission = orderTotal * (Math.max(0, Math.min(100, defaultPercent)) / 100);
+        }
+      }
+
+      return commission > 0 ? commission : 0;
+    }
+
+    function ambassadorNameFromCustomer(customer) {
+      if (!customer || typeof customer !== 'object') return 'مندوبة غير محددة';
+      return resolveUserName({
+        uid: String(customer.submitterUid || customer.uid || '').trim(),
+        email: String(customer.submitterEmail || customer.email || '').trim(),
+        // Do NOT fallback to customer.name because it may be shipping name, not account owner name.
+        fallback: emailToDisplayName(String(customer.submitterEmail || customer.email || '').trim()) || 'مندوبة غير محددة',
+      });
+    }
+
+    function ambassadorKeyFromCustomer(customer) {
+      if (!customer || typeof customer !== 'object') return 'unknown';
+      const uid = String(customer.submitterUid || '').trim();
+      if (uid) return `uid:${uid}`;
+      const email = String(customer.submitterEmail || '').trim();
+      if (email) return `email:${email}`;
+      const phone = String(customer.phone || '').trim();
+      if (phone) return `phone:${phone}`;
+      const name = String(customer.name || '').trim();
+      if (name) return `name:${name}`;
+      return 'unknown';
+    }
+
+    function isAmbassadorOrder(order) {
+      const payload = order && typeof order.payload === 'object' ? order.payload : {};
+      const customer = payload && typeof payload.customer === 'object' ? payload.customer : {};
+      const summary = order && typeof order.ambassadorSummary === 'object'
+        ? order.ambassadorSummary
+        : (payload && typeof payload.ambassadorSummary === 'object' ? payload.ambassadorSummary : {});
+      return summary.isAmbassadorOrder === true || customer.placedAsAmbassador === true || String(customer.accountRole || '').trim() === 'ambassador';
+    }
+
+    function coerceNumber(value, fallback = 0) {
+      const n = Number(value);
+      return Number.isFinite(n) ? n : fallback;
+    }
+
+    function estimateAmbassadorCommission(payload) {
+      const items = Array.isArray(payload?.items) ? payload.items : [];
+      let total = 0;
+      for (const raw of items) {
+        if (!raw || typeof raw !== 'object') continue;
+        const price = coerceNumber(raw.price, 0);
+        const qty = Math.max(0, parseInt(raw.quantity || 0, 10) || 0);
+        const pct = Math.max(0, Math.min(100, coerceNumber(raw.commissionPercent, 0)));
+        total += (price * qty) * (pct / 100);
+      }
+      return total;
+    }
+
+    function buildAmbassadorModel(orders) {
+      const leadersMap = new Map();
+      const commissionCfg = marketingConfig && marketingConfig.commission && typeof marketingConfig.commission === 'object'
+        ? marketingConfig.commission
+        : {};
+      const defaultPercent = Number.isFinite(Number(commissionCfg.defaultPercent))
+        ? Math.max(0, Math.min(100, Number(commissionCfg.defaultPercent)))
+        : 7;
+      const perProductEnabled = commissionCfg.perProductEnabled !== false;
+      let ambassadorCount = 0;
+      let ambassadorOrdersCount = 0;
+      let salesTotal = 0;
+      let estimatedTotal = 0;
+      let deliveredTotal = 0;
+      let pendingTotal = 0;
+      let deliveredOrders = 0;
+      let activeOrders = 0;
+      const recent = [];
+
+      for (const order of orders) {
+        if (!isAmbassadorOrder(order)) continue;
+        const payload = order && typeof order.payload === 'object' ? order.payload : {};
+        const customer = payload && typeof payload.customer === 'object' ? payload.customer : {};
+        const summary = order && typeof order.ambassadorSummary === 'object'
+          ? order.ambassadorSummary
+          : (payload && typeof payload.ambassadorSummary === 'object' ? payload.ambassadorSummary : {});
+        const key = ambassadorKeyFromCustomer(customer);
+        const name = ambassadorNameFromCustomer(customer);
+        const status = String(order.status || 'pending').trim().toLowerCase();
+        const total = coerceNumber(summary.grandTotal, 0) > 0
+          ? coerceNumber(summary.grandTotal, 0)
+          : (coerceNumber(payload?.pricing?.grandTotal, 0) > 0 ? coerceNumber(payload.pricing.grandTotal, 0) : coerceNumber(payload.total, 0));
+        const estimated = resolveCommissionFromOrder({
+          payload,
+          summary,
+          defaultPercent,
+          perProductEnabled,
+        });
+
+        ambassadorOrdersCount += 1;
+        salesTotal += total;
+        estimatedTotal += estimated;
+        if (status === 'delivered') {
+          deliveredOrders += 1;
+          deliveredTotal += estimated;
+        } else if (status !== 'canceled') {
+          activeOrders += 1;
+          pendingTotal += estimated;
+        }
+
+        const current = leadersMap.get(key) || {
+          key,
+          name,
+          uid: String(customer.submitterUid || customer.uid || '').trim(),
+          email: String(customer.submitterEmail || customer.email || '').trim(),
+          phone: String(customer.phone || '').trim(),
+          ordersCount: 0,
+          deliveredOrdersCount: 0,
+          totalSales: 0,
+          estimatedCommission: 0,
+          deliveredCommission: 0,
+          pendingCommission: 0,
+          canceledOrdersCount: 0,
+          lastOrderMs: 0,
+          statusBreakdown: { pending: 0, processing: 0, shipped: 0, delivered: 0, canceled: 0 },
+        };
+        current.ordersCount += 1;
+        current.totalSales += total;
+        current.estimatedCommission += estimated;
+        if (Object.prototype.hasOwnProperty.call(current.statusBreakdown, status)) {
+          current.statusBreakdown[status] += 1;
+        }
+        if (status === 'delivered') {
+          current.deliveredOrdersCount += 1;
+          current.deliveredCommission += estimated;
+        } else if (status === 'canceled') {
+          current.canceledOrdersCount += 1;
+        } else if (status !== 'canceled') {
+          current.pendingCommission += estimated;
+        }
+        current.lastOrderMs = Math.max(current.lastOrderMs || 0, coerceNumber(order.createdAtMs, 0));
+        leadersMap.set(key, current);
+
+        recent.push({
+          orderId: order.orderId,
+          ambassadorName: name,
+          status,
+          total,
+          estimated,
+          createdAtMs: coerceNumber(order.createdAtMs, 0),
+        });
+      }
+
+      const leaders = Array.from(leadersMap.values()).sort((a, b) => {
+        if (b.totalSales !== a.totalSales) return b.totalSales - a.totalSales;
+        return b.ordersCount - a.ordersCount;
+      });
+      ambassadorCount = leaders.length;
+      recent.sort((a, b) => b.createdAtMs - a.createdAtMs);
+
+      return {
+        ambassadorCount,
+        ambassadorOrdersCount,
+        salesTotal,
+        estimatedTotal,
+        deliveredTotal,
+        pendingTotal,
+        deliveredOrders,
+        activeOrders,
+        leaders,
+        recent: recent.slice(0, 12),
+      };
+    }
+
+    function renderAmbassadors() {
+      const model = buildAmbassadorModel(ambassadorOrders);
+      document.getElementById('ambCount').textContent = model.ambassadorCount;
+      document.getElementById('ambOrders').textContent = model.ambassadorOrdersCount;
+      document.getElementById('ambSales').textContent = model.salesTotal.toFixed(2);
+      document.getElementById('ambEstimated').textContent = model.estimatedTotal.toFixed(2);
+      document.getElementById('ambDelivered').textContent = model.deliveredTotal.toFixed(2);
+      document.getElementById('ambPending').textContent = model.pendingTotal.toFixed(2);
+
+      const leadersBox = document.getElementById('ambLeadersList');
+      const nameCounts = new Map();
+      for (const l of model.leaders) {
+        const k = String(l.name || 'مندوبة').trim() || 'مندوبة';
+        nameCounts.set(k, (nameCounts.get(k) || 0) + 1);
+      }
+      const displayNameForLeader = (a) => {
+        const base = String(a.name || 'مندوبة غير محددة').trim() || 'مندوبة غير محددة';
+        if ((nameCounts.get(base) || 0) <= 1) return base;
+        const hint = shortHandleFromEmail(a.email) || shortHandleFromUid(a.uid) || a.phone || a.key;
+        return hint ? `${base} • ${hint}` : base;
+      };
+      if (!model.leaders.length) {
+        leadersBox.innerHTML = '<div class="empty">لا توجد بيانات مندوبات بعد.</div>';
+      } else {
+        leadersBox.innerHTML = model.leaders.map((a, index) => `
+          <div class="row">
+            <div>
+              <h4>#${index + 1} — ${escHtml(displayNameForLeader(a))}</h4>
+              <p>طلبات: ${a.ordersCount} • مبيعات: ${a.totalSales.toFixed(2)} ل.د • فعلية: ${a.deliveredCommission.toFixed(2)} ل.د</p>
+            </div>
+            <span class="badge ok">معلقة ${a.pendingCommission.toFixed(2)} ل.د</span>
+          </div>
+        `).join('');
+      }
+
+      const profilesBox = document.getElementById('ambProfilesList');
+      if (profilesBox) {
+        if (!model.leaders.length) {
+          profilesBox.innerHTML = '<div class="empty" style="grid-column:1/-1">لا توجد بطاقات أداء حالياً.</div>';
+        } else {
+          profilesBox.innerHTML = model.leaders.map((a, index) => {
+            const conversion = a.ordersCount > 0 ? (a.deliveredOrdersCount / a.ordersCount) * 100 : 0;
+            const avgOrder = a.ordersCount > 0 ? (a.totalSales / a.ordersCount) : 0;
+            const openOrders = Math.max(0, a.ordersCount - a.deliveredOrdersCount - a.canceledOrdersCount);
+            const successClass = conversion >= 60 ? 'ok' : conversion >= 35 ? 'soon' : 'off';
+            const rankText = index === 0 ? '🏆 الأولى' : index === 1 ? '🥈 الثانية' : index === 2 ? '🥉 الثالثة' : `#${index + 1}`;
+
+            return `
+              <div class="amb-card">
+                <div class="amb-card-head">
+                  <h4>${escHtml(displayNameForLeader(a))}</h4>
+                  <span class="badge ${successClass}">${rankText}</span>
+                </div>
+                <div class="subtle">آخر نشاط: ${escHtml(fmtTime(a.lastOrderMs))}</div>
+                <div class="amb-kpis">
+                  <div class="amb-kpi"><div class="k">إجمالي المبيعات</div><div class="v">${a.totalSales.toFixed(2)} ل.د</div></div>
+                  <div class="amb-kpi"><div class="k">متوسط السلة</div><div class="v">${avgOrder.toFixed(2)} ل.د</div></div>
+                  <div class="amb-kpi"><div class="k">طلبات موصلة</div><div class="v">${a.deliveredOrdersCount}</div></div>
+                  <div class="amb-kpi"><div class="k">طلبات مفتوحة</div><div class="v">${openOrders}</div></div>
+                </div>
+                <div class="amb-progress">
+                  <div class="subtle">نسبة التحويل إلى توصيل: ${conversion.toFixed(1)}%</div>
+                  <div class="amb-progress-track"><div class="amb-progress-fill" style="width:${Math.max(0, Math.min(conversion, 100)).toFixed(1)}%"></div></div>
+                </div>
+                <div class="subtle">فعلية: ${a.deliveredCommission.toFixed(2)} ل.د • معلقة: ${a.pendingCommission.toFixed(2)} ل.د • ملغية: ${a.canceledOrdersCount}</div>
+              </div>
+            `;
+          }).join('');
+        }
+      }
+
+      const salesGoal = [500, 1000, 2500, 5000, 10000].find(v => model.salesTotal < v) || Math.ceil(model.salesTotal * 1.5 || 10000);
+      const deliveredGoal = [3, 5, 10, 20, 35].find(v => model.deliveredOrders < v) || Math.ceil(model.deliveredOrders * 1.5 || 35);
+      const commissionGoal = [50, 100, 250, 500, 1000].find(v => model.deliveredTotal < v) || Math.ceil(model.deliveredTotal * 1.5 || 1000);
+      const goalsBox = document.getElementById('ambGoalsList');
+      const goalRow = (title, subtitle, current, target, colorClass = 'ok') => `
+        <div class="row">
+          <div>
+            <h4>${escHtml(title)}</h4>
+            <p>${escHtml(subtitle)}</p>
+          </div>
+          <span class="badge ${colorClass}">${escHtml(current)} / ${escHtml(target)}</span>
+        </div>`;
+      goalsBox.innerHTML = [
+        goalRow('هدف المبيعات', 'ارفعي مبيعات المندوبات للوصول إلى المرحلة التالية.', `${model.salesTotal.toFixed(0)} د.ل`, `${salesGoal.toFixed ? salesGoal.toFixed(0) : salesGoal} د.ل`, 'ok'),
+        goalRow('هدف الطلبات الموصلة', 'الطلبات الموصلة هي التي تتحول إلى عمولة فعلية.', `${model.deliveredOrders} طلب`, `${deliveredGoal} طلب`, 'soon'),
+        goalRow('هدف العمولة الفعلية', 'كل توصيل ناجح يرفع الرصيد الفعلي مباشرة.', `${model.deliveredTotal.toFixed(2)} د.ل`, `${commissionGoal.toFixed ? commissionGoal.toFixed(0) : commissionGoal} د.ل`, 'ok'),
+      ].join('');
+
+      const presenceBox = document.getElementById('ambPresenceList');
+      if (presenceBox) {
+        const now = Date.now();
+        const byUid = new Map();
+        for (const raw of ambassadorPresenceItems) {
+          if (!raw || typeof raw !== 'object') continue;
+          const isAmb = raw.isAmbassador === true || String(raw.accountRole || '').toLowerCase() === 'ambassador';
+          if (!isAmb) continue;
+          const uid = String(raw.uid || '').trim();
+          if (!uid) continue;
+          const prev = byUid.get(uid);
+          const lastSeen = coerceNumber(raw.lastSeenMs, 0);
+          if (!prev || lastSeen > coerceNumber(prev.lastSeenMs, 0)) byUid.set(uid, raw);
+        }
+
+        const list = Array.from(byUid.values()).sort((a, b) => coerceNumber(b.lastSeenMs, 0) - coerceNumber(a.lastSeenMs, 0));
+        if (!list.length) {
+          presenceBox.innerHTML = '<div class="empty">لا توجد مندوبات متصلة من التطبيق حتى الآن.</div>';
+        } else {
+          const badgeFor = (ms) => {
+            const delta = Math.max(0, now - coerceNumber(ms, 0));
+            if (delta <= 10 * 60 * 1000) return { cls: 'ok', txt: 'متصلة الآن' };
+            if (delta <= 24 * 60 * 60 * 1000) return { cls: 'soon', txt: 'نشطة اليوم' };
+            return { cls: 'off', txt: 'غير نشطة' };
+          };
+
+          presenceBox.innerHTML = list.map((a, idx) => {
+            const name = String(a.ambassadorName || '').trim() || resolveUserName({ uid: a.uid, fallback: 'مندوبة بدون اسم' });
+            const phone = String(a.ambassadorPhone || '').trim() || '—';
+            const address = String(a.ambassadorAddress || '').trim() || '—';
+            const seen = fmtTime(a.lastSeenMs);
+            const badge = badgeFor(a.lastSeenMs);
+            return `
+              <div class="row">
+                <div>
+                  <h4>#${idx + 1} — ${escHtml(name)}</h4>
+                  <p>هاتف: ${escHtml(phone)} • عنوان: ${escHtml(address)} • آخر ظهور: ${escHtml(seen)}</p>
+                </div>
+                <span class="badge ${badge.cls}">${escHtml(badge.txt)}</span>
+              </div>
+            `;
+          }).join('');
+        }
+      }
+
+      const recentBody = document.getElementById('ambOrdersTableBody');
+      const recentMobile = document.getElementById('ambOrdersMobileList');
+      if (!model.recent.length) {
+        recentBody.innerHTML = '<tr><td colspan="6" class="empty">لا توجد بيانات مندوبات بعد.</td></tr>';
+        if (recentMobile) recentMobile.innerHTML = '<div class="empty">لا توجد بيانات مندوبات بعد.</div>';
+      } else {
+        recentBody.innerHTML = model.recent.map(o => `
+          <tr>
+            <td><strong>${escHtml(o.orderId || '')}</strong></td>
+            <td>${escHtml(o.ambassadorName || 'مندوبة غير محددة')}</td>
+            <td><span class="badge ${statusBadgeClass(o.status)}">${escHtml(statusLabel(o.status))}</span></td>
+            <td>${o.total.toFixed(2)} ل.د</td>
+            <td>${o.estimated.toFixed(2)} ل.د</td>
+            <td>${escHtml(fmtTime(o.createdAtMs))}</td>
+          </tr>
+        `).join('');
+        if (recentMobile) {
+          recentMobile.innerHTML = model.recent.map(o => `
+            <div class="mobile-data-card">
+              <h4>#${escHtml(o.orderId || '')}</h4>
+              <div class="mobile-meta">
+                <div>المندوبة: ${escHtml(o.ambassadorName || 'مندوبة غير محددة')}</div>
+                <div>الحالة: <span class="badge ${statusBadgeClass(o.status)}">${escHtml(statusLabel(o.status))}</span></div>
+                <div>المبيعات: ${o.total.toFixed(2)} ل.د</div>
+                <div>العمولة: ${o.estimated.toFixed(2)} ل.د</div>
+                <div>التاريخ: ${escHtml(fmtTime(o.createdAtMs))}</div>
+              </div>
+            </div>
+          `).join('');
+        }
+      }
+    }
+
+    async function loadAmbassadors(forceToast = false) {
+      try {
+        const data = await api('GET', '/orders?limit=1000');
+        if (!data.ok) throw new Error(data.error || 'فشل تحميل بيانات المندوبات');
+        ambassadorOrders = Array.isArray(data.items) ? data.items : [];
+        try {
+          const stats = await api('GET', '/devices/stats?days=30&limit=1000');
+          ambassadorPresenceItems = Array.isArray(stats?.recentItems) ? stats.recentItems : [];
+        } catch (_) {
+          ambassadorPresenceItems = [];
+        }
+        indexProfilesFromOrders(ambassadorOrders);
+        renderAmbassadors();
+        if (forceToast) toast('تم تحديث مركز المندوبات', 'success');
+      } catch (err) {
+        const body = document.getElementById('ambOrdersTableBody');
+        const mobile = document.getElementById('ambOrdersMobileList');
+        if (body) body.innerHTML = '<tr><td colspan="6" class="empty">تعذر تحميل بيانات المندوبات.</td></tr>';
+        if (mobile) mobile.innerHTML = '<div class="empty">تعذر تحميل بيانات المندوبات.</div>';
+        if (forceToast) toast(String(err?.message || 'فشل تحميل بيانات المندوبات'), 'error');
+      }
+    }
+
+    function renderOrders() {
+      const body = document.getElementById('ordersTableBody');
+      const mobileList = document.getElementById('ordersMobileList');
+      if (!body && !mobileList) return;
+
+      const statusCounter = {
+        pending: 0,
+        processing: 0,
+        shipped: 0,
+        delivered: 0,
+        canceled: 0,
+      };
+      for (const o of allOrders) {
+        const s = String(o?.status || 'pending').toLowerCase();
+        if (Object.prototype.hasOwnProperty.call(statusCounter, s)) {
+          statusCounter[s] += 1;
+        }
+      }
+      document.getElementById('ordTotal').textContent = Number(allOrders.length || 0);
+      document.getElementById('ordPending').textContent = statusCounter.pending;
+      document.getElementById('ordProcessing').textContent = statusCounter.processing;
+      document.getElementById('ordShipped').textContent = statusCounter.shipped;
+      document.getElementById('ordDelivered').textContent = statusCounter.delivered;
+      document.getElementById('ordCanceled').textContent = statusCounter.canceled;
+
+      if (!allOrders.length) {
+        if (body) body.innerHTML = '<tr><td colspan="8" class="empty">لا توجد طلبات بعد.</td></tr>';
+        if (mobileList) mobileList.innerHTML = '<div class="empty">لا توجد طلبات بعد.</div>';
+        return;
+      }
+
+      if (body) {
+        body.innerHTML = allOrders.map(o => {
+        const id = String(o.orderId || '');
+        const status = String(o.status || 'pending').toLowerCase();
+        const total = Number(o.grandTotal || 0);
+        const createdAt = fmtTime(o.createdAtMs);
+        const options = ['pending', 'processing', 'shipped', 'delivered', 'canceled']
+          .map(s => `<option value="${s}" ${s === status ? 'selected' : ''}>${statusLabel(s)}</option>`)
+          .join('');
+
+        return `
+          <tr>
+            <td><strong>${escHtml(id)}</strong></td>
+            <td>${escHtml(o.customerName || '—')}</td>
+            <td>${escHtml(o.customerPhone || '—')}</td>
+            <td>${Number.isFinite(total) ? total.toFixed(2) : '0.00'} ل.د</td>
+            <td>${Number(o.itemsCount || 0)}</td>
+            <td><span class="badge ${statusBadgeClass(status)}">${escHtml(statusLabel(status))}</span></td>
+            <td>${escHtml(createdAt)}</td>
+            <td>
+              <div class="quick-row" style="min-width:200px">
+                <select id="ordStatus_${escHtml(id)}" style="min-width:140px">${options}</select>
+                <button class="btn btn-soft" onclick="updateOrderStatus('${escHtml(id)}', 'table')">حفظ</button>
+              </div>
+            </td>
+          </tr>
+        `;
+        }).join('');
+      }
+
+      if (mobileList) {
+        mobileList.innerHTML = allOrders.map(o => {
+          const id = String(o.orderId || '');
+          const status = String(o.status || 'pending').toLowerCase();
+          const total = Number(o.grandTotal || 0);
+          const createdAt = fmtTime(o.createdAtMs);
+          const options = ['pending', 'processing', 'shipped', 'delivered', 'canceled']
+            .map(s => `<option value="${s}" ${s === status ? 'selected' : ''}>${statusLabel(s)}</option>`)
+            .join('');
+
+          return `
+            <div class="mobile-data-card">
+              <h4>#${escHtml(id)}</h4>
+              <div class="mobile-meta">
+                <div>العميل: ${escHtml(o.customerName || '—')}</div>
+                <div>الهاتف: ${escHtml(o.customerPhone || '—')}</div>
+                <div>الإجمالي: ${Number.isFinite(total) ? total.toFixed(2) : '0.00'} ل.د</div>
+                <div>العناصر: ${Number(o.itemsCount || 0)}</div>
+                <div>الحالة: <span class="badge ${statusBadgeClass(status)}">${escHtml(statusLabel(status))}</span></div>
+                <div>التاريخ: ${escHtml(createdAt)}</div>
+              </div>
+              <div class="mobile-actions">
+                <select id="ordStatusMobile_${escHtml(id)}">${options}</select>
+                <button class="btn btn-soft" onclick="updateOrderStatus('${escHtml(id)}', 'mobile')">حفظ الحالة</button>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+    }
+
+    async function loadOrders(forceToast = false) {
+      const status = (document.getElementById('ordersStatusFilter')?.value || '').trim();
+      const qs = status ? `?limit=300&status=${encodeURIComponent(status)}` : '?limit=300';
+      try {
+        const data = await api('GET', `/orders${qs}`);
+        if (!data.ok) throw new Error(data.error || 'فشل تحميل الطلبات');
+        allOrders = Array.isArray(data.items) ? data.items : [];
+        indexProfilesFromOrders(allOrders);
+        renderOrders();
+        if (forceToast) toast('تم تحديث الطلبات', 'success');
+      } catch (err) {
+        const mobile = document.getElementById('ordersMobileList');
+        if (mobile) mobile.innerHTML = '<div class="empty">تعذر تحميل الطلبات.</div>';
+        if (forceToast) toast(String(err?.message || 'فشل تحميل الطلبات'), 'error');
+      }
+    }
+
+    async function updateOrderStatus(orderId, source = 'table') {
+      const key = source === 'mobile' ? `ordStatusMobile_${orderId}` : `ordStatus_${orderId}`;
+      const sel = document.getElementById(key);
+      if (!sel) return;
+      const status = String(sel.value || '').trim().toLowerCase();
+      try {
+        const data = await api('PUT', `/orders/${encodeURIComponent(orderId)}/status`, { status });
+        if (!data.ok) throw new Error(data.error || 'فشل تحديث الحالة');
+        toast('تم تحديث حالة الطلب', 'success');
+        await loadOrders();
+      } catch (err) {
+        toast(String(err?.message || 'فشل تحديث الحالة'), 'error');
+      }
+    }
+
+    function toShortDeviceId(id) {
+      const s = String(id || '').trim();
+      if (!s) return '—';
+      if (s.length <= 14) return s;
+      return `${s.substring(0, 8)}...${s.substring(s.length - 4)}`;
+    }
+
+    function fmtTime(ms) {
+      const n = Number(ms || 0);
+      if (!n) return '—';
+      const d = new Date(n);
+      if (Number.isNaN(d.getTime())) return '—';
+      return d.toLocaleString('ar-EG');
+    }
+
+    function findCount(list, key) {
+      if (!Array.isArray(list)) return 0;
+      const target = String(key || '').trim().toLowerCase();
+      const it = list.find(x => String(x?.name || '').trim().toLowerCase() === target);
+      return Number(it?.count || 0);
+    }
+
+    function renderDeviceStats() {
+      const data = devicesStats || {};
+      const total = Number(data.totalInstalled || 0);
+      const active = Number(data.activeDevices || 0);
+      const active1d = Number(data.active1d || 0);
+      const active7d = Number(data.active7d || 0);
+      const active30d = Number(data.active30d || active);
+      const platforms = Array.isArray(data.platforms) ? data.platforms : [];
+      const topModels = Array.isArray(data.topModels) ? data.topModels : [];
+      const recentItems = Array.isArray(data.recentItems) ? data.recentItems : [];
+
+      document.getElementById('devTotal').textContent = total;
+      document.getElementById('devActive1d').textContent = active1d;
+      document.getElementById('devActive7d').textContent = active7d;
+      document.getElementById('devActive30d').textContent = active30d;
+      document.getElementById('devAndroid').textContent = findCount(platforms, 'android');
+      document.getElementById('devIos').textContent = findCount(platforms, 'ios');
+
+      const platformsList = document.getElementById('platformsList');
+      if (!platforms.length) {
+        platformsList.innerHTML = '<div class="empty">لا يوجد توزيع منصات بعد.</div>';
+      } else {
+        platformsList.innerHTML = platforms.map(p => `
+          <div class="row">
+            <div><h4>${escHtml(p.name || 'unknown')}</h4><p>عدد الأجهزة</p></div>
+            <span class="badge ok">${Number(p.count || 0)}</span>
+          </div>
+        `).join('');
+      }
+
+      const topModelsList = document.getElementById('topModelsList');
+      if (!topModels.length) {
+        topModelsList.innerHTML = '<div class="empty">لا توجد بيانات موديلات بعد.</div>';
+      } else {
+        topModelsList.innerHTML = topModels.map(m => `
+          <div class="row">
+            <div><h4>${escHtml(m.name || 'Unknown')}</h4><p>من أكثر الأجهزة استخدامًا</p></div>
+            <span class="badge ok">${Number(m.count || 0)}</span>
+          </div>
+        `).join('');
+      }
+
+      const body = document.getElementById('devicesTableBody');
+      const mobileList = document.getElementById('devicesMobileList');
+      if (!recentItems.length) {
+        body.innerHTML = '<tr><td colspan="10" class="empty">لا توجد بيانات أجهزة بعد.</td></tr>';
+        if (mobileList) mobileList.innerHTML = '<div class="empty">لا توجد بيانات أجهزة بعد.</div>';
+        return;
+      }
+
+      body.innerHTML = recentItems.map(d => {
+        const brand = String(d.brand || '').trim();
+        const model = String(d.model || '').trim();
+        const name = `${brand} ${model}`.trim() || 'غير محدد';
+        const ownerName = resolveUserName({ uid: d.uid, fallback: 'غير معروف' });
+        return `
+          <tr>
+            <td>${escHtml(d.platform || 'unknown')}</td>
+            <td>${escHtml(name)}<div style="margin-top:4px;color:var(--muted);font-size:.76rem">${escHtml(d.osVersion || '')}</div></td>
+            <td><strong>${escHtml(ownerName)}</strong><div style="margin-top:4px;color:var(--muted);font-size:.76rem">UID: ${escHtml(toShortDeviceId(d.uid || ''))}</div></td>
+            <td>${escHtml(d.locale || '—')}</td>
+            <td>${escHtml(d.appVersion || '—')}<div style="margin-top:4px;color:var(--muted);font-size:.76rem">Build: ${escHtml(d.appBuild || '—')}</div></td>
+            <td>${escHtml(fmtTime(d.lastSeenMs))}</td>
+            <td>${escHtml(d.lastEvent || 'heartbeat')}</td>
+            <td>${escHtml(d.lastIp || '—')}</td>
+            <td>${Number(d.seenCount || 1)}</td>
+            <td title="${escHtml(d.installationId || '')}">${escHtml(toShortDeviceId(d.installationId || ''))}</td>
+          </tr>
+        `;
+      }).join('');
+
+      if (mobileList) {
+        mobileList.innerHTML = recentItems.map(d => {
+          const brand = String(d.brand || '').trim();
+          const model = String(d.model || '').trim();
+          const name = `${brand} ${model}`.trim() || 'غير محدد';
+          const ownerName = resolveUserName({ uid: d.uid, fallback: 'غير معروف' });
+          return `
+            <div class="mobile-data-card">
+              <h4>${escHtml(name)}</h4>
+              <div class="mobile-meta">
+                <div>النظام: ${escHtml(d.platform || 'unknown')} ${escHtml(d.osVersion || '')}</div>
+                <div>المستخدم: ${escHtml(ownerName)}</div>
+                <div>UID: ${escHtml(toShortDeviceId(d.uid || '—'))}</div>
+                <div>اللغة: ${escHtml(d.locale || '—')}</div>
+                <div>نسخة التطبيق: ${escHtml(d.appVersion || '—')} (Build ${escHtml(d.appBuild || '—')})</div>
+                <div>آخر ظهور: ${escHtml(fmtTime(d.lastSeenMs))}</div>
+                <div>آخر حدث: ${escHtml(d.lastEvent || 'heartbeat')}</div>
+                <div>IP: ${escHtml(d.lastIp || '—')}</div>
+                <div>مرات الظهور: ${Number(d.seenCount || 1)}</div>
+                <div>المعرّف: ${escHtml(toShortDeviceId(d.installationId || ''))}</div>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+    }
+
+    async function loadDeviceStats(forceToast = false) {
+      try {
+        const data = await api('GET', '/devices/stats?days=30&limit=250');
+        if (!data.ok) throw new Error(data.error || 'فشل تحميل بيانات الأجهزة');
+        devicesStats = data;
+        renderDeviceStats();
+        if (forceToast) toast('تم تحديث إحصائيات الأجهزة', 'success');
+      } catch (err) {
+        if (forceToast) toast(String(err?.message || 'فشل الاتصال بالسيرفر'), 'error');
+      }
+    }
+
+    function filteredProducts() {
+      const q = document.getElementById('searchBox').value.trim().toLowerCase();
+      const showHidden = document.getElementById('showHidden').checked;
+      return allProducts.filter(p => {
+        const hidden = Number(p.isHidden || 0) === 1;
+        if (!showHidden && hidden) return false;
+        if (!q) return true;
+        return [p.name, p.productCode, p.category, p.description, p.tags].some(v => String(v || '').toLowerCase().includes(q));
+      });
+    }
+
+    function updateStats() {
+      if (dashboardSummary) {
+        renderDashboardSummary();
+        return;
+      }
+      const visible = allProducts.filter(p => Number(p.isHidden || 0) !== 1).length;
+      const hidden = allProducts.filter(p => Number(p.isHidden || 0) === 1).length;
+      const cats = new Set(allProducts.map(p => String(p.category || '').trim()).filter(Boolean)).size;
+      document.getElementById('statTotal').textContent = allProducts.length;
+      document.getElementById('statVisible').textContent = visible;
+      document.getElementById('statHidden').textContent = hidden;
+      document.getElementById('statCats').textContent = cats;
+      document.getElementById('statOrdersTotal').textContent = Number(allOrders.length || 0);
+      document.getElementById('statOrdersOpen').textContent = 0;
+      document.getElementById('statRegisteredUsers').textContent = 0;
+      document.getElementById('statActiveUsers1d').textContent = 0;
+    }
+
+    function renderRecentProducts() {
+      const box = document.getElementById('recentProducts');
+      const list = allProducts.slice(0, 5);
+      if (!list.length) {
+        box.innerHTML = '<div class="empty"><div class="icon">📭</div><div>لا توجد منتجات بعد.</div></div>';
+        return;
+      }
+      box.innerHTML = list.map(p => {
+        const hidden = Number(p.isHidden || 0) === 1;
+        const inv = inventoryState(p);
+        const sub = [escHtml(p.category || 'غير مصنف'), `${Number(p.price || 0)} ل.د`, inv.available > 0 ? `${inv.available} قطعة` : null].filter(Boolean).join(' • ');
+        return `<div class="row"><div><h4>${escHtml(p.name || 'بدون اسم')}</h4><p>${sub}</p><div style="margin-top:6px">${productCodeMarkup(p.productCode)}</div></div>${inv.outOfStock ? '<span class="badge off">نفد</span>' : inv.lowStock ? '<span class="badge soon">قارب النفاد</span>' : `<span class="badge ${hidden ? 'off' : 'ok'}">${hidden ? 'مخفي' : 'ظاهر'}</span>`}</div>`;
+      }).join('');
+    }
+
+    function renderLowStockAlerts() {
+      const box = document.getElementById('inventoryAlerts');
+      const alerts = allProducts
+        .map(p => ({ p, inv: inventoryState(p) }))
+        .filter(x => x.inv.outOfStock || x.inv.lowStock)
+        .sort((a, b) => a.inv.available - b.inv.available)
+        .slice(0, 8);
+
+      if (!alerts.length) {
+        box.innerHTML = '<div class="empty"><div class="icon">✅</div><div>لا توجد تنبيهات مخزون الآن.</div></div>';
+        return;
+      }
+
+      box.innerHTML = alerts.map(({ p, inv }) => {
+        const sizeHints = Object.entries(inv.sizeMap).filter(([, v]) => (parseInt(v, 10) || 0) <= Math.max(0, inv.threshold)).slice(0, 3).map(([k, v]) => `${escHtml(k)}:${v}`).join(' • ');
+        const colorHints = Object.entries(inv.colorMap).filter(([, v]) => (parseInt(v, 10) || 0) <= Math.max(0, inv.threshold)).slice(0, 3).map(([k, v]) => `${escHtml(k)}:${v}`).join(' • ');
+        const details = [sizeHints, colorHints].filter(Boolean).join(' — ');
+        return `<div class="row"><div><h4>${escHtml(p.name || 'بدون اسم')}</h4><p>${inv.outOfStock ? 'نفد المخزون بالكامل' : `متبقي ${inv.available} قطعة • حد التنبيه ${inv.threshold || 0}`}${details ? ` • ${details}` : ''}</p></div>${stockBadge(inv)}</div>`;
+      }).join('');
+    }
+
+    function renderProducts() {
+      const list = filteredProducts();
+      const cards = document.getElementById('productCards');
+      const tableBody = document.getElementById('tableBody');
+      if (!list.length) {
+        cards.innerHTML = '<div class="empty" style="grid-column:1/-1"><div class="icon">📦</div><div>لا توجد نتائج مطابقة.</div></div>';
+        tableBody.innerHTML = '<tr><td colspan="10" class="empty"><div class="icon">📭</div><div>لا توجد منتجات مطابقة.</div></td></tr>';
+        return;
+      }
+      cards.innerHTML = list.map(p => {
+        const hidden = Number(p.isHidden || 0) === 1;
+        const img = productImages(p)[0] || '';
+        const id = encodeURIComponent(String(p.id || ''));
+        const inv = inventoryState(p);
+        const colors = productColors(p);
+        return `<div class="product-card"><div class="product-top">${img ? `<img class="thumb" src="${escHtml(img)}" alt="">` : '<div class="thumb-ph">👗</div>'}<div class="product-meta" style="flex:1"><h4>${escHtml(p.name || 'بدون اسم')}</h4><div style="margin-top:6px">${productCodeMarkup(p.productCode)}</div><p>${escHtml(p.category || 'غير مصنف')}</p><div class="price">${Number(p.price || 0)} ل.د</div><p>${colors.length ? `الألوان: ${escHtml(colors.slice(0, 4).join('، '))}` : 'بدون ألوان محددة'}</p><p>${inv.available > 0 ? `المتوفر: ${inv.available}` : inv.outOfStock ? 'نفد المخزون' : 'المخزون غير محدد'}</p></div></div><div class="quick-row">${stockBadge(inv)}<span class="badge ${hidden ? 'off' : 'ok'}">${hidden ? 'مخفي' : 'ظاهر'}</span>${p.tags ? `<span class="pill">${escHtml(p.tags)}</span>` : ''}</div><div class="quick-row"><button class="btn btn-soft" onclick="openEditModalById('${id}')">تعديل</button><button class="btn btn-soft" onclick="toggleHiddenById('${id}')">${hidden ? 'إظهار' : 'إخفاء'}</button><button class="btn btn-danger" onclick="openDeleteModalById('${id}')">حذف</button></div></div>`;
+      }).join('');
+      tableBody.innerHTML = list.map(p => {
+        const hidden = Number(p.isHidden || 0) === 1;
+        const img = productImages(p)[0] || '';
+        const id = encodeURIComponent(String(p.id || ''));
+        const sizes = String(p.sizes || '').trim();
+        const lengths = String(p.lengths || '').trim();
+        const inv = inventoryState(p);
+        const colors = productColors(p);
+        return `<tr><td>${img ? `<img class="thumb" style="width:52px;height:52px" src="${escHtml(img)}" alt="">` : '<div class="thumb-ph" style="width:52px;height:52px">👗</div>'}</td><td><div style="font-weight:900">${escHtml(p.name || 'بدون اسم')}</div><div style="margin-top:6px">${productCodeMarkup(p.productCode)}</div>${p.tags ? `<div style="margin-top:4px;color:var(--muted);font-size:.76rem">${escHtml(p.tags)}</div>` : ''}</td><td><div style="font-weight:900;color:var(--gold2)">${Number(p.price || 0)} ل.د</div>${p.oldPrice ? `<div style="margin-top:4px;color:var(--muted);text-decoration:line-through">${escHtml(p.oldPrice)}</div>` : ''}</td><td>${escHtml(p.category || '—')}</td><td>${escHtml([sizes, lengths].filter(Boolean).join(' / ') || '—')}</td><td>${escHtml(colors.join('، ') || '—')}</td><td><div>${stockBadge(inv)}</div><div style="margin-top:4px;color:var(--muted);font-size:.76rem">${inv.available > 0 ? `${inv.available} قطعة` : '0 قطعة'}</div></td><td>${p.rating ? `⭐ ${escHtml(p.rating)}` : '—'}</td><td><span class="badge ${hidden ? 'off' : 'ok'}">${hidden ? 'مخفي' : 'ظاهر'}</span></td><td><div class="quick-row"><button class="btn btn-soft" onclick="openEditModalById('${id}')">تعديل</button><button class="btn btn-soft" onclick="toggleHiddenById('${id}')">${hidden ? 'إظهار' : 'إخفاء'}</button><button class="btn btn-danger" onclick="openDeleteModalById('${id}')">حذف</button></div></td></tr>`;
+      }).join('');
+    }
+
+    function productById(id) {
+      const pid = String(id || '').trim();
+      return allProducts.find(p => String(p.id || '').trim() === pid) || null;
+    }
+
+    function lookProducts(look) {
+      const ids = Array.isArray(look?.productIds) ? look.productIds : [];
+      return ids.map(productById).filter(Boolean);
+    }
+
+    function renderLooks() {
+      const box = document.getElementById('looksCards');
+      if (!box) return;
+      const total = allLooks.length;
+      const visible = allLooks.filter(x => Number(x.isHidden || 0) !== 1).length;
+      const hidden = total - visible;
+      const avg = total ? (allLooks.reduce((s, x) => s + (Array.isArray(x.productIds) ? x.productIds.length : 0), 0) / total) : 0;
+      document.getElementById('looksTotal').textContent = total;
+      document.getElementById('looksVisible').textContent = visible;
+      document.getElementById('looksHidden').textContent = hidden;
+      document.getElementById('looksAvgProducts').textContent = avg.toFixed(1);
+
+      if (!allLooks.length) {
+        box.innerHTML = '<div class="empty" style="grid-column:1/-1"><div class="icon">👗</div><div>لا توجد إطلالات كاملة بعد.</div></div>';
+        return;
+      }
+
+      box.innerHTML = allLooks.map(look => {
+        const hidden = Number(look.isHidden || 0) === 1;
+        const products = lookProducts(look);
+        const cover = String(look.coverImageUrl || look.imageUrl || productImages(products[0] || {})[0] || '').trim();
+        const price = products.reduce((sum, p) => sum + Number(p.price || 0), 0);
+        const discount = Math.max(0, Math.min(100, Number(look.discountPercent || 0)));
+        const finalPrice = discount > 0 ? price * (1 - discount / 100) : price;
+        const id = encodeURIComponent(String(look.id || ''));
+        return `<div class="product-card">
+          <div class="product-top">${cover ? `<img class="thumb" src="${escHtml(cover)}" alt="">` : '<div class="thumb-ph">👗</div>'}
+            <div class="product-meta" style="flex:1">
+              <h4>${escHtml(look.title || 'إطلالة بدون عنوان')}</h4>
+              <p>${escHtml(look.subtitle || look.description || 'إطلالة مكونة من منتجات مختارة')}</p>
+              <div class="price">${finalPrice.toFixed(2)} ل.د ${discount ? `<span style="font-size:.75rem;color:var(--muted);text-decoration:line-through">${price.toFixed(2)}</span>` : ''}</div>
+              <p>${products.length} منتجات • ${escHtml(look.badge || 'إطلالة كاملة')}</p>
+            </div>
+          </div>
+          <div class="quick-row"><span class="badge ${hidden ? 'off' : 'ok'}">${hidden ? 'مخفية' : 'ظاهرة'}</span>${discount ? `<span class="badge soon">خصم ${discount}%</span>` : ''}</div>
+          <div class="quick-row"><button class="btn btn-soft" onclick="openLookModalById('${id}')">تعديل</button><button class="btn btn-danger" onclick="deleteLookById('${id}')">حذف</button></div>
+        </div>`;
+      }).join('');
+    }
+
+    function resetLookForm() {
+      ['lookEditId', 'lookTitle', 'lookSubtitle', 'lookDescription', 'lookBadge', 'lookCtaLabel', 'lookDiscountPercent', 'lookSortOrder', 'lookCoverImageUrl', 'lookProductSearch'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+      });
+      document.getElementById('lookHidden').checked = false;
+      lookSelectedProductIds = [];
+      renderLookProductPicker();
+    }
+
+    function openLookModal() {
+      resetLookForm();
+      document.getElementById('lookModalTitle').textContent = 'إطلالة كاملة جديدة';
+      document.getElementById('lookBadge').value = 'إطلالة كاملة';
+      document.getElementById('lookCtaLabel').value = 'تسوقي الإطلالة';
+      document.getElementById('lookSortOrder').value = Date.now();
+      document.getElementById('deleteLookBtn').style.display = 'none';
+      document.getElementById('lookModal').classList.add('open');
+      renderLookProductPicker();
+    }
+
+    function getLookById(encodedId) {
+      const id = decodeURIComponent(String(encodedId || ''));
+      return allLooks.find(x => String(x.id || '') === id) || null;
+    }
+
+    function openLookModalById(encodedId) {
+      const look = getLookById(encodedId);
+      if (!look) return toast('تعذر العثور على الإطلالة', 'error');
+      resetLookForm();
+      document.getElementById('lookModalTitle').textContent = 'تعديل إطلالة كاملة';
+      document.getElementById('lookEditId').value = look.id || '';
+      document.getElementById('lookTitle').value = look.title || '';
+      document.getElementById('lookSubtitle').value = look.subtitle || '';
+      document.getElementById('lookDescription').value = look.description || '';
+      document.getElementById('lookBadge').value = look.badge || 'إطلالة كاملة';
+      document.getElementById('lookCtaLabel').value = look.ctaLabel || 'تسوقي الإطلالة';
+      document.getElementById('lookDiscountPercent').value = look.discountPercent || '';
+      document.getElementById('lookSortOrder').value = look.sortOrder || look.createdAt || Date.now();
+      document.getElementById('lookCoverImageUrl').value = look.coverImageUrl || look.imageUrl || '';
+      document.getElementById('lookHidden').checked = Number(look.isHidden || 0) === 1;
+      lookSelectedProductIds = Array.isArray(look.productIds) ? [...look.productIds] : [];
+      document.getElementById('deleteLookBtn').style.display = 'inline-flex';
+      document.getElementById('lookModal').classList.add('open');
+      renderLookProductPicker();
+    }
+
+    function closeLookModal() {
+      document.getElementById('lookModal').classList.remove('open');
+      resetLookForm();
+    }
+
+    function toggleLookProduct(id) {
+      const pid = String(id || '').trim();
+      if (!pid) return;
+      const ix = lookSelectedProductIds.indexOf(pid);
+      if (ix >= 0) lookSelectedProductIds.splice(ix, 1);
+      else lookSelectedProductIds.push(pid);
+      renderLookProductPicker();
+    }
+
+    function renderLookProductPicker() {
+      const box = document.getElementById('lookProductPicker');
+      if (!box) return;
+      const q = String(document.getElementById('lookProductSearch')?.value || '').trim().toLowerCase();
+      const list = allProducts.filter(p => {
+        if (Number(p.isHidden || 0) === 1) return false;
+        if (!q) return true;
+        return [p.name, p.productCode, p.category].some(v => String(v || '').toLowerCase().includes(q));
+      }).slice(0, 24);
+
+      if (!list.length) {
+        box.innerHTML = '<div class="empty" style="grid-column:1/-1">لا توجد منتجات مطابقة.</div>';
+      } else {
+        box.innerHTML = list.map(p => {
+          const id = String(p.id || '').trim();
+          const selected = lookSelectedProductIds.includes(id);
+          const img = productImages(p)[0] || '';
+          return `<div class="product-card" style="cursor:pointer;border-color:${selected ? 'var(--gold2)' : 'var(--line)'}" onclick="toggleLookProduct('${escHtml(id)}')">
+            <div class="product-top">${img ? `<img class="thumb" src="${escHtml(img)}" alt="">` : '<div class="thumb-ph">👗</div>'}
+              <div class="product-meta" style="flex:1"><h4>${escHtml(p.name || 'بدون اسم')}</h4><p>${escHtml(p.productCode || p.category || '')}</p><div class="price">${Number(p.price || 0)} ل.د</div></div>
+              <span class="badge ${selected ? 'ok' : ''}">${selected ? 'مختار' : 'اختيار'}</span>
+            </div>
+          </div>`;
+        }).join('');
+      }
+
+      const selectedProducts = lookSelectedProductIds.map(productById).filter(Boolean);
+      const total = selectedProducts.reduce((sum, p) => sum + Number(p.price || 0), 0);
+      const summary = selectedProducts.length
+        ? `${selectedProducts.length} منتجات مختارة • الإجمالي ${total.toFixed(2)} ل.د`
+        : 'لم يتم اختيار منتجات بعد.';
+      const el = document.getElementById('lookSelectedSummary');
+      if (el) el.textContent = summary;
+    }
+
+    function useFirstLookProductImage() {
+      const first = lookSelectedProductIds.map(productById).filter(Boolean)[0];
+      const img = productImages(first || {})[0] || '';
+      if (!img) return toast('لا توجد صورة في أول منتج مختار', 'error');
+      document.getElementById('lookCoverImageUrl').value = img;
+      toast('تم استخدام صورة أول منتج كغلاف', 'success');
+    }
+
+    async function saveLook() {
+      const title = document.getElementById('lookTitle').value.trim();
+      if (!title) return toast('عنوان الإطلالة مطلوب', 'error');
+      if (!lookSelectedProductIds.length) return toast('اختاري منتجًا واحدًا على الأقل', 'error');
+
+      const btn = document.getElementById('saveLookBtn');
+      const old = btn.textContent;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>';
+
+      const payload = {
+        title,
+        subtitle: document.getElementById('lookSubtitle').value.trim(),
+        description: document.getElementById('lookDescription').value.trim(),
+        badge: document.getElementById('lookBadge').value.trim() || 'إطلالة كاملة',
+        ctaLabel: document.getElementById('lookCtaLabel').value.trim() || 'تسوقي الإطلالة',
+        coverImageUrl: document.getElementById('lookCoverImageUrl').value.trim(),
+        discountPercent: Math.max(0, Math.min(100, parseFloat(document.getElementById('lookDiscountPercent').value || '0') || 0)),
+        sortOrder: parseInt(document.getElementById('lookSortOrder').value || `${Date.now()}`, 10) || Date.now(),
+        productIds: [...lookSelectedProductIds],
+        isHidden: document.getElementById('lookHidden').checked ? 1 : 0,
+      };
+      if (!payload.coverImageUrl) {
+        const first = lookSelectedProductIds.map(productById).filter(Boolean)[0];
+        payload.coverImageUrl = productImages(first || {})[0] || '';
+      }
+
+      try {
+        const id = document.getElementById('lookEditId').value.trim();
+        const data = id ? await api('PUT', `/looks/${id}`, payload) : await api('POST', '/looks', payload);
+        if (!data.ok) throw new Error(data.error || 'فشل حفظ الإطلالة');
+        toast(id ? 'تم تحديث الإطلالة ✓' : 'تمت إضافة الإطلالة ✓', 'success');
+        closeLookModal();
+        await loadLooks();
+      } catch (err) {
+        toast(String(err?.message || 'فشل حفظ الإطلالة'), 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = old;
+      }
+    }
+
+    async function deleteLookById(encodedId) {
+      const look = getLookById(encodedId);
+      if (!look) return toast('تعذر العثور على الإطلالة', 'error');
+      if (!confirm(`حذف الإطلالة: ${look.title || 'بدون عنوان'}؟`)) return;
+      try {
+        const data = await api('DELETE', `/looks/${look.id}`);
+        if (!data.ok) throw new Error(data.error || 'فشل الحذف');
+        toast('تم حذف الإطلالة', 'success');
+        await loadLooks();
+      } catch (err) {
+        toast(String(err?.message || 'فشل حذف الإطلالة'), 'error');
+      }
+    }
+
+    async function deleteLookFromModal() {
+      const id = document.getElementById('lookEditId').value.trim();
+      if (!id) return;
+      await deleteLookById(encodeURIComponent(id));
+      closeLookModal();
+    }
+
+    function getProductById(encodedId) {
+      const id = decodeURIComponent(String(encodedId || ''));
+      return allProducts.find(p => String(p.id || '') === id) || null;
+    }
+
+    function openAddModal() {
+      resetForm();
+      document.getElementById('modalTitle').textContent = 'منتج جديد';
+      document.getElementById('productModal').classList.add('open');
+    }
+
+    function openEditModalById(encodedId) {
+      const p = getProductById(encodedId);
+      if (!p) return toast('تعذر العثور على المنتج', 'error');
+      resetForm();
+      document.getElementById('modalTitle').textContent = 'تعديل المنتج';
+      document.getElementById('editId').value = p.id || '';
+      document.getElementById('fName').value = p.name || '';
+      document.getElementById('fProductCode').value = p.productCode || '';
+      document.getElementById('fPrice').value = p.price || '';
+      document.getElementById('fOldPrice').value = p.oldPrice || '';
+      document.getElementById('fCategory').value = CATEGORY_OPTIONS.includes(p.category) ? p.category : CATEGORY_OPTIONS[0];
+      document.getElementById('fTags').value = p.tags || '';
+      document.getElementById('fSizes').value = p.sizes || '';
+      document.getElementById('fLengths').value = p.lengths || '';
+      document.getElementById('fColors').value = p.colors || '';
+      document.getElementById('fStockQuantity').value = p.stockQuantity || '';
+      document.getElementById('fLowStockThreshold').value = p.lowStockThreshold || '';
+      document.getElementById('fSizeQuantities').value = quantityMapToText(p.sizeQuantities);
+      document.getElementById('fColorQuantities').value = quantityMapToText(p.colorQuantities);
+      document.getElementById('fRating').value = p.rating || '';
+      document.getElementById('fReviews').value = p.reviewsCount || '';
+      document.getElementById('fDesc').value = p.description || '';
+      document.getElementById('fHidden').checked = Number(p.isHidden || 0) === 1;
+      imageGallery = productImages(p);
+      renderGallery();
+      syncPresetStates();
+      document.getElementById('productModal').classList.add('open');
+    }
+
+    function closeModal() {
+      document.getElementById('productModal').classList.remove('open');
+      resetForm();
+    }
+
+    function resetForm() {
+      ['editId', 'fName', 'fProductCode', 'fPrice', 'fOldPrice', 'fTags', 'fSizes', 'fLengths', 'fColors', 'fStockQuantity', 'fLowStockThreshold', 'fSizeQuantities', 'fColorQuantities', 'fRating', 'fReviews', 'fDesc', 'fImageUrl'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+      });
+      document.getElementById('fCategory').value = CATEGORY_OPTIONS[0];
+      document.getElementById('fHidden').checked = false;
+      imageGallery = [];
+      clearSelectedFiles();
+      renderGallery();
+      syncPresetStates();
+    }
+
+    function addManualImageUrl() {
+      const input = document.getElementById('fImageUrl');
+      const url = String(input.value || '').trim();
+      if (!url) return toast('أدخلي رابط صورة أولاً', 'error');
+      if (!imageGallery.includes(url)) imageGallery.push(url);
+      input.value = '';
+      renderGallery();
+      toast('تمت إضافة الرابط إلى المعرض', 'success');
+    }
+
+    function renderGallery() {
+      const box = document.getElementById('galleryPreviews');
+      if (!imageGallery.length) {
+        box.innerHTML = '<div class="empty" style="padding:16px 0"><div>لا توجد صور مرفوعة بعد.</div></div>';
+        return;
+      }
+      box.innerHTML = imageGallery.map((url, idx) => `<div class="gallery-item"><button class="remove-btn" onclick="removeGalleryImage(${idx})">×</button><img class="gallery-thumb" src="${escHtml(url)}" alt="img"><div class="thumb-label">${idx === 0 ? 'الرئيسية' : 'إضافية'}</div></div>`).join('');
+    }
+
+    function removeGalleryImage(index) {
+      imageGallery.splice(index, 1);
+      renderGallery();
+    }
+
+    function renderPendingPreviews() {
+      const box = document.getElementById('pendingPreviews');
+      if (!previewUrls.length) {
+        box.innerHTML = '';
+        return;
+      }
+      box.innerHTML = previewUrls.map(url => `<div class="gallery-item"><img class="pending-thumb" src="${escHtml(url)}" alt="pending"><div class="thumb-label">قيد الرفع</div></div>`).join('');
+    }
+
+    function clearSelectedFiles() {
+      selectedFiles = [];
+      previewUrls.forEach(url => URL.revokeObjectURL(url));
+      previewUrls = [];
+      document.getElementById('fileInput').value = '';
+      renderPendingPreviews();
+    }
+
+    function setFiles(fileList) {
+      clearSelectedFiles();
+      selectedFiles = Array.from(fileList || []).filter(Boolean);
+      previewUrls = selectedFiles.map(file => URL.createObjectURL(file));
+      renderPendingPreviews();
+      if (selectedFiles.length) toast(`تم اختيار ${selectedFiles.length} صورة`, 'info');
+    }
+
+    function handleDragOver(e) { e.preventDefault(); document.getElementById('dropZone').classList.add('drag'); }
+    function handleDragLeave() { document.getElementById('dropZone').classList.remove('drag'); }
+    function handleDrop(e) { e.preventDefault(); document.getElementById('dropZone').classList.remove('drag'); if (e.dataTransfer?.files?.length) setFiles(e.dataTransfer.files); }
+    function handleFileSelect(e) { if (e.target.files?.length) setFiles(e.target.files); }
+
+    async function uploadImages() {
+      if (!selectedFiles.length) return toast('اختاري صورًا أولاً', 'error');
+      const btn = document.getElementById('uploadBtn');
+      const old = btn.textContent;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>';
+      try {
+        for (const file of selectedFiles) {
+          const fd = new FormData();
+          fd.append('image', file);
+          const res = await fetch(BASE_URL + '/products/upload', {
+            method: 'POST',
+            headers: authHeaders(),
+            body: fd,
+          });
+
+          let data = null;
+          let rawText = '';
+          try {
+            rawText = await res.text();
+            data = rawText ? JSON.parse(rawText) : null;
+          } catch (_) {
+            data = null;
+          }
+
+          if (!res.ok) {
+            const msg = data?.error || data?.message || rawText || `HTTP ${res.status}`;
+            if (res.status === 401) {
+              throw new Error('غير مصرح: تأكدي من API Token في تبويب الاتصال');
+            }
+            throw new Error(`فشل رفع الصورة "${file.name}" (${res.status}): ${msg}`);
+          }
+
+          if (!data || !data.ok || !data.url) {
+            throw new Error(data?.error || `فشل رفع الصورة "${file.name}": الرد من السيرفر غير مكتمل`);
+          }
+
+          if (!imageGallery.includes(data.url)) imageGallery.push(data.url);
+        }
+        clearSelectedFiles();
+        renderGallery();
+        toast('تم رفع الصور بنجاح', 'success');
+      } catch (err) {
+        toast(String(err?.message || 'فشل رفع الصور'), 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = old;
+      }
+    }
+
+    async function ensurePendingUploadsDone() {
+      if (!selectedFiles.length) return;
+      await uploadImages();
+      if (selectedFiles.length) {
+        throw new Error('تعذر رفع الصور المحددة، لذلك تم إيقاف الحفظ');
+      }
+    }
+
+    async function saveProduct() {
+      const name = document.getElementById('fName').value.trim();
+      if (!name) return toast('الاسم مطلوب', 'error');
+      const btn = document.getElementById('saveBtn');
+      const old = btn.textContent;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>';
+
+      const manualUrl = document.getElementById('fImageUrl').value.trim();
+      const gallery = [...imageGallery];
+      if (manualUrl && !gallery.includes(manualUrl)) gallery.push(manualUrl);
+
+      const payload = {
+        name,
+        productCode: document.getElementById('fProductCode').value.trim(),
+        price: parseFloat(document.getElementById('fPrice').value) || 0,
+        oldPrice: parseFloat(document.getElementById('fOldPrice').value) || 0,
+        category: document.getElementById('fCategory').value || CATEGORY_OPTIONS[0],
+        tags: joinList(parseList(document.getElementById('fTags').value, normalizePlain)),
+        sizes: joinList(parseList(document.getElementById('fSizes').value, normalizeSize)),
+        lengths: joinList(parseList(document.getElementById('fLengths').value, normalizePlain)),
+        colors: joinList(parseList(document.getElementById('fColors').value, normalizePlain)),
+        stockQuantity: Math.max(0, parseInt(document.getElementById('fStockQuantity').value || '0', 10) || 0),
+        lowStockThreshold: Math.max(0, parseInt(document.getElementById('fLowStockThreshold').value || '0', 10) || 0),
+        sizeQuantities: parseQuantityMap(document.getElementById('fSizeQuantities').value, normalizeSize),
+        colorQuantities: parseQuantityMap(document.getElementById('fColorQuantities').value, normalizePlain),
+        rating: parseFloat(document.getElementById('fRating').value) || 0,
+        reviewsCount: parseInt(document.getElementById('fReviews').value) || 0,
+        description: document.getElementById('fDesc').value.trim(),
+        imageUrl: gallery[0] || '',
+        imageUrls: gallery,
+        isHidden: document.getElementById('fHidden').checked ? 1 : 0,
+      };
+
+      try {
+        await ensurePendingUploadsDone();
+        payload.imageUrl = imageGallery[0] || payload.imageUrl;
+        payload.imageUrls = [...imageGallery];
+        const id = document.getElementById('editId').value;
+        const data = id ? await api('PUT', `/products/${id}`, payload) : await api('POST', '/products', payload);
+        if (!data.ok) throw new Error(data.error || 'فشل الحفظ');
+        toast(id ? 'تم تحديث المنتج ✓' : 'تمت إضافة المنتج ✓', 'success');
+        closeModal();
+        await loadProducts();
+        setView('products');
+      } catch (err) {
+        toast(String(err?.message || 'فشل الاتصال بالسيرفر'), 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = old;
+      }
+    }
+
+    function openDeleteModalById(encodedId) {
+      const p = getProductById(encodedId);
+      if (!p) return toast('تعذر العثور على المنتج', 'error');
+      deleteTargetId = String(p.id || '');
+      document.getElementById('deleteProductName').textContent = p.name || '—';
+      document.getElementById('deleteModal').classList.add('open');
+    }
+
+    function closeDeleteModal() {
+      document.getElementById('deleteModal').classList.remove('open');
+      deleteTargetId = null;
+    }
+
+    async function confirmDelete() {
+      if (!deleteTargetId) return;
+      const btn = document.getElementById('confirmDeleteBtn');
+      const old = btn.textContent;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>';
+      try {
+        const data = await api('DELETE', `/products/${deleteTargetId}`);
+        if (!data.ok) throw new Error(data.error || 'فشل الحذف');
+        toast('تم حذف المنتج', 'success');
+        closeDeleteModal();
+        await loadProducts();
+      } catch (err) {
+        toast(String(err?.message || 'فشل الاتصال بالسيرفر'), 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = old;
+      }
+    }
+
+    async function toggleHiddenById(encodedId) {
+      const p = getProductById(encodedId);
+      if (!p) return toast('تعذر العثور على المنتج', 'error');
+      const nextHidden = Number(p.isHidden || 0) === 1 ? 0 : 1;
+      try {
+        const data = await api('PUT', `/products/${p.id}`, { isHidden: nextHidden });
+        if (!data.ok) throw new Error(data.error || 'فشل التحديث');
+        toast(nextHidden === 1 ? 'تم إخفاء المنتج' : 'تم إظهار المنتج', 'success');
+        await loadProducts();
+      } catch (err) {
+        toast(String(err?.message || 'فشل الاتصال بالسيرفر'), 'error');
+      }
+    }
+
+    function init() {
+      document.body.dataset.view = 'overview';
+      document.getElementById('cfgBase').value = BASE_URL;
+      document.getElementById('cfgToken').value = API_TOKEN;
+      populateCategorySelect();
+      renderPresetGroup('tagsPreset', 'fTags', TAG_PRESETS, 'plain');
+      renderPresetGroup('sizesPreset', 'fSizes', SIZE_PRESETS, 'size');
+      renderPresetGroup('lengthsPreset', 'fLengths', LENGTH_PRESETS, 'plain');
+      renderPresetGroup('colorsPreset', 'fColors', COLOR_PRESETS, 'plain');
+      ['fTags', 'fSizes', 'fLengths', 'fColors'].forEach(id => document.getElementById(id).addEventListener('input', syncPresetStates));
+      syncPresetStates();
+      onNotificationAudienceChange();
+      checkHealth();
+      loadDashboardSummary();
+      loadProducts();
+      loadOrders();
+      loadAmbassadors();
+      loadDeviceStats();
+      loadMarketingConfig();
+
+      setInterval(() => {
+        loadDashboardSummary();
+      }, 45000);
+
+      // Live refresh for active operational views.
+      setInterval(() => {
+        const view = String(document.body.dataset.view || 'overview');
+        if (view === 'orders') loadOrders();
+        if (view === 'ambassadors') loadAmbassadors();
+        if (view === 'devices') loadDeviceStats();
+      }, 20000);
+    }
+
+    init();
+  </script>
 </body>
 </html>

@@ -58,6 +58,7 @@ DATA_DIR = STORAGE_ROOT / "data"
 UPLOAD_DIR = STORAGE_ROOT / "uploads"
 PRODUCTS_FILE = DATA_DIR / "products.json"
 PRODUCTS_BACKUP_DIR = DATA_DIR / "backups"
+LOOKS_FILE = DATA_DIR / "looks.json"
 NOTIFICATIONS_FILE = DATA_DIR / "notifications.json"
 DEVICES_FILE = DATA_DIR / "devices.json"
 ORDERS_FILE = DATA_DIR / "orders.json"
@@ -71,7 +72,15 @@ HOST = os.getenv("HOST", "0.0.0.0").strip() or "0.0.0.0"
 PORT = int((os.getenv("PORT", "8080") or "8080").strip())
 API_TOKEN = (os.getenv("API_TOKEN", "") or "").strip()
 CORS_ORIGIN = (os.getenv("CORS_ORIGIN", "") or "").strip()
+# Explicit public base URL used for image links (so phone can access them via LAN IP).
+# If not set, auto-detected from SERVER_HOST or machine's LAN IP.
 _SERVER_BASE_URL_ENV = (os.getenv("SERVER_BASE_URL", "") or "").strip().rstrip("/")
+_FIREBASE_SERVICE_ACCOUNT_FILE = (os.getenv("FIREBASE_SERVICE_ACCOUNT_FILE", "") or "").strip()
+_FIREBASE_SERVICE_ACCOUNT_JSON = (os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "") or "").strip()
+_FIREBASE_PROJECT_ID = (os.getenv("FIREBASE_PROJECT_ID", "") or "").strip()
+_PRODUCTS_STORAGE_MODE = (os.getenv("PRODUCTS_STORAGE_MODE", "auto") or "auto").strip().lower()
+_PRODUCTS_FIRESTORE_COLLECTION = (os.getenv("PRODUCTS_FIRESTORE_COLLECTION", "products_catalog") or "products_catalog").strip()
+_LOOKS_FIRESTORE_COLLECTION = (os.getenv("LOOKS_FIRESTORE_COLLECTION", "complete_looks") or "complete_looks").strip()
 try:
     _MAX_IMAGE_UPLOAD_MB = max(1, int(float((os.getenv("MAX_IMAGE_UPLOAD_MB", "10") or "10").strip())))
 except Exception:
@@ -89,53 +98,16 @@ ALLOWED_IMAGE_EXTENSIONS = {
     ".heif",
     ".avif",
 }
-_FIREBASE_SERVICE_ACCOUNT_FILE = (os.getenv("FIREBASE_SERVICE_ACCOUNT_FILE", "") or "").strip()
-_FIREBASE_SERVICE_ACCOUNT_JSON = (os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "") or "").strip()
-_FIREBASE_PROJECT_ID = (os.getenv("FIREBASE_PROJECT_ID", "") or "").strip()
 
 _FIRESTORE_DB = None
 _FIREBASE_INIT_ERROR = ""
 
 
-def _write_json_file_atomic(target: Path, value: Any) -> None:
-    tmp = target.with_suffix(target.suffix + ".tmp")
-    tmp.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
-    os.replace(tmp, target)
-
-
-def _latest_products_backup_path() -> Optional[Path]:
-    try:
-        backups = sorted(
-            PRODUCTS_BACKUP_DIR.glob("products_*.json"),
-            key=lambda p: p.stat().st_mtime,
-            reverse=True,
-        )
-        return backups[0] if backups else None
-    except Exception:
-        return None
-
-
-def _restore_products_from_latest_backup() -> List[Dict[str, Any]]:
-    backup = _latest_products_backup_path()
-    if backup is None:
-        return []
-    try:
-        raw = backup.read_text(encoding="utf-8")
-        data = json.loads(raw)
-        if not isinstance(data, list):
-            return []
-        items = [x for x in data if isinstance(x, dict)]
-        if not items:
-            return []
-        _write_json_file_atomic(PRODUCTS_FILE, items)
-        return items
-    except Exception:
-        return []
-
-
 def _resolve_public_base() -> str:
+    """Return the base URL the phone should use to reach this server."""
     if _SERVER_BASE_URL_ENV:
         return _SERVER_BASE_URL_ENV
+    # Try to find the LAN IP automatically (skip loopback/link-local).
     import socket
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -212,21 +184,274 @@ def _firestore_db() -> tuple[Optional[Any], str]:
     return None, (_FIREBASE_INIT_ERROR or "Failed to initialize Firestore")
 
 
+def _is_truthy(v: Any) -> bool:
+    return str(v or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _products_firestore_enabled() -> bool:
+    mode = _PRODUCTS_STORAGE_MODE
+    if mode not in {"auto", "local", "firestore"}:
+        mode = "auto"
+
+    if mode == "local":
+        return False
+
+    db, _ = _firestore_db()
+    if db is None:
+        return False
+
+    if mode == "firestore":
+        return True
+
+    # auto: Firestore is available => use it as source of truth.
+    return True
+
+
+def _products_backend_label() -> str:
+    return "firestore" if _products_firestore_enabled() else "local-file"
+
+
+def _products_collection_ref() -> Optional[Any]:
+    if not _products_firestore_enabled():
+        return None
+    db, _ = _firestore_db()
+    if db is None:
+        return None
+    return db.collection(_PRODUCTS_FIRESTORE_COLLECTION)
+
+
+def _looks_collection_ref() -> Optional[Any]:
+    db, _ = _firestore_db()
+    if db is None:
+        return None
+    return db.collection(_LOOKS_FIRESTORE_COLLECTION)
+
+
+def _write_json_file_atomic(target: Path, value: Any) -> None:
+    tmp = target.with_suffix(target.suffix + ".tmp")
+    tmp.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, target)
+
+
+def _latest_products_backup_path() -> Optional[Path]:
+    try:
+        backups = sorted(
+            PRODUCTS_BACKUP_DIR.glob("products_*.json"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        return backups[0] if backups else None
+    except Exception:
+        return None
+
+
+def _restore_products_from_latest_backup() -> List[Dict[str, Any]]:
+    backup = _latest_products_backup_path()
+    if backup is None:
+        return []
+    try:
+        raw = backup.read_text(encoding="utf-8")
+        data = json.loads(raw)
+        if not isinstance(data, list):
+            return []
+        items = [x for x in data if isinstance(x, dict)]
+        if not items:
+            return []
+        _write_json_file_atomic(PRODUCTS_FILE, items)
+        return items
+    except Exception:
+        return []
+
+
+def _read_products_local() -> List[Dict[str, Any]]:
+    try:
+        raw = PRODUCTS_FILE.read_text(encoding="utf-8")
+        data = json.loads(raw)
+        if isinstance(data, list):
+            items = [x for x in data if isinstance(x, dict)]
+            auto_restore = _is_truthy(os.getenv("AUTO_RESTORE_EMPTY_PRODUCTS", "1"))
+            if auto_restore and not items:
+                restored = _restore_products_from_latest_backup()
+                if restored:
+                    return restored
+            return items
+        return []
+    except Exception:
+        return []
+
+
+def _write_products_local(products: List[Dict[str, Any]]) -> None:
+    # Keep a rolling backup history for safety against accidental truncation.
+    try:
+        if PRODUCTS_FILE.exists():
+            stamp = int(time.time() * 1000)
+            backup = PRODUCTS_BACKUP_DIR / f"products_{stamp}.json"
+            backup.write_text(PRODUCTS_FILE.read_text(encoding="utf-8"), encoding="utf-8")
+
+            backups = sorted(PRODUCTS_BACKUP_DIR.glob("products_*.json"), key=lambda p: p.stat().st_mtime)
+            if len(backups) > 20:
+                for old in backups[:-20]:
+                    try:
+                        old.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+    except Exception:
+        # Backup is best-effort; never block writes.
+        pass
+
+    _write_json_file_atomic(PRODUCTS_FILE, products)
+
+
+def _read_products_firestore() -> Optional[List[Dict[str, Any]]]:
+    ref = _products_collection_ref()
+    if ref is None:
+        return None
+
+    try:
+        out: List[Dict[str, Any]] = []
+        for d in ref.stream():
+            data = d.to_dict() if hasattr(d, "to_dict") else {}
+            if not isinstance(data, dict):
+                continue
+            row = dict(data)
+            row["id"] = str(row.get("id") or d.id).strip()
+            if not row["id"]:
+                continue
+            out.append(row)
+        return out
+    except Exception:
+        return None
+
+
+def _commit_batched_writes(ops: List[Any]) -> None:
+    if not ops:
+        return
+    chunk = 350
+    for i in range(0, len(ops), chunk):
+        bops = ops[i:i + chunk]
+        batch = _FIRESTORE_DB.batch()
+        for op in bops:
+            if op["type"] == "set":
+                batch.set(op["ref"], op["data"], merge=True)
+            elif op["type"] == "delete":
+                batch.delete(op["ref"])
+        batch.commit()
+
+
+def _write_products_firestore(products: List[Dict[str, Any]]) -> bool:
+    ref = _products_collection_ref()
+    if ref is None:
+        return False
+
+    try:
+        rows: Dict[str, Dict[str, Any]] = {}
+        for p in products:
+            if not isinstance(p, dict):
+                continue
+            pid = str(p.get("id") or "").strip()
+            if not pid:
+                continue
+            row = dict(p)
+            row["id"] = pid
+            rows[pid] = row
+
+        existing_ids = set()
+        for d in ref.stream():
+            existing_ids.add(str(d.id).strip())
+
+        ops: List[Any] = []
+        for pid, row in rows.items():
+            ops.append({"type": "set", "ref": ref.document(pid), "data": row})
+
+        for stale_id in sorted(existing_ids - set(rows.keys())):
+            if stale_id:
+                ops.append({"type": "delete", "ref": ref.document(stale_id)})
+
+        _commit_batched_writes(ops)
+        return True
+    except Exception:
+        return False
+
+
+def _read_looks_local() -> List[Dict[str, Any]]:
+    try:
+        raw = LOOKS_FILE.read_text(encoding="utf-8")
+        data = json.loads(raw)
+        if isinstance(data, list):
+            return [x for x in data if isinstance(x, dict)]
+        return []
+    except Exception:
+        return []
+
+
+def _write_looks_local(items: List[Dict[str, Any]]) -> None:
+    _write_json_file_atomic(LOOKS_FILE, items)
+
+
+def _read_looks_firestore() -> Optional[List[Dict[str, Any]]]:
+    ref = _looks_collection_ref()
+    if ref is None:
+        return None
+    try:
+        out: List[Dict[str, Any]] = []
+        for d in ref.stream():
+            data = d.to_dict() if hasattr(d, "to_dict") else {}
+            if not isinstance(data, dict):
+                continue
+            row = dict(data)
+            row["id"] = str(row.get("id") or d.id).strip()
+            if row["id"]:
+                out.append(row)
+        return out
+    except Exception:
+        return None
+
+
+def _write_looks_firestore(items: List[Dict[str, Any]]) -> bool:
+    ref = _looks_collection_ref()
+    if ref is None:
+        return False
+    try:
+        rows: Dict[str, Dict[str, Any]] = {}
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            item_id = str(item.get("id") or "").strip()
+            if not item_id:
+                continue
+            row = dict(item)
+            row["id"] = item_id
+            rows[item_id] = row
+
+        existing_ids = set()
+        for d in ref.stream():
+            existing_ids.add(str(d.id).strip())
+
+        ops: List[Any] = []
+        for item_id, row in rows.items():
+            ops.append({"type": "set", "ref": ref.document(item_id), "data": row})
+        for stale_id in sorted(existing_ids - set(rows.keys())):
+            if stale_id:
+                ops.append({"type": "delete", "ref": ref.document(stale_id)})
+        _commit_batched_writes(ops)
+        return True
+    except Exception:
+        return False
+
 PUBLIC_BASE = _resolve_public_base()
 
 if not PRODUCTS_FILE.exists():
     PRODUCTS_FILE.write_text("[]", encoding="utf-8")
 else:
-    _restore_enabled = str(os.getenv("AUTO_RESTORE_EMPTY_PRODUCTS", "1") or "1").strip().lower() in {"1", "true", "yes", "on"}
+    # On boot, recover automatically from latest backup if file was emptied unexpectedly.
+    _restore_enabled = _is_truthy(os.getenv("AUTO_RESTORE_EMPTY_PRODUCTS", "1"))
     if _restore_enabled:
-        try:
-            _raw = PRODUCTS_FILE.read_text(encoding="utf-8")
-            _data = json.loads(_raw)
-            _items = [x for x in _data if isinstance(x, dict)] if isinstance(_data, list) else []
-        except Exception:
-            _items = []
-        if not _items:
+        _current_items = _read_products_local()
+        if not _current_items:
             _restore_products_from_latest_backup()
+
+if not LOOKS_FILE.exists():
+    LOOKS_FILE.write_text("[]", encoding="utf-8")
 
 if not NOTIFICATIONS_FILE.exists():
     NOTIFICATIONS_FILE.write_text("[]", encoding="utf-8")
@@ -245,9 +470,42 @@ def default_marketing_config() -> Dict[str, Any]:
             "perProductEnabled": True,
         },
         "coupons": [
-            {"code": "CK10", "type": "percent", "value": 10.0, "minSubtotal": 0.0, "maxDiscount": 50.0, "freeShipping": 0, "enabled": 1, "startAt": None, "endAt": None, "createdAt": int(time.time() * 1000) - 3},
-            {"code": "CK20", "type": "percent", "value": 20.0, "minSubtotal": 200.0, "maxDiscount": 80.0, "freeShipping": 0, "enabled": 1, "startAt": None, "endAt": None, "createdAt": int(time.time() * 1000) - 2},
-            {"code": "FREESHIP", "type": "freeShipping", "value": 0.0, "minSubtotal": 0.0, "maxDiscount": 0.0, "freeShipping": 1, "enabled": 1, "startAt": None, "endAt": None, "createdAt": int(time.time() * 1000) - 1},
+            {
+                "code": "CK10",
+                "type": "percent",
+                "value": 10.0,
+                "minSubtotal": 0.0,
+                "maxDiscount": 50.0,
+                "freeShipping": 0,
+                "enabled": 1,
+                "startAt": None,
+                "endAt": None,
+                "createdAt": int(time.time() * 1000) - 3,
+            },
+            {
+                "code": "CK20",
+                "type": "percent",
+                "value": 20.0,
+                "minSubtotal": 200.0,
+                "maxDiscount": 80.0,
+                "freeShipping": 0,
+                "enabled": 1,
+                "startAt": None,
+                "endAt": None,
+                "createdAt": int(time.time() * 1000) - 2,
+            },
+            {
+                "code": "FREESHIP",
+                "type": "freeShipping",
+                "value": 0.0,
+                "minSubtotal": 0.0,
+                "maxDiscount": 0.0,
+                "freeShipping": 1,
+                "enabled": 1,
+                "startAt": None,
+                "endAt": None,
+                "createdAt": int(time.time() * 1000) - 1,
+            },
         ],
         "offers": {
             "title": "💎 عروض لفترة محدودة",
@@ -261,10 +519,30 @@ def default_marketing_config() -> Dict[str, Any]:
             ],
         },
         "gifts": [
-            {"id": "gift_welcome", "title": "هدية الترحيب", "description": "أول طلب مؤهل يحصل على هدية رمزية أو تغليف مجاني.", "enabled": True, "badge": "جديد", "ctaLabel": "تسوقي الآن", "giftType": "welcome", "giftValue": "تغليف مجاني", "minOrderTotal": 0.0, "imageUrl": ""}
+            {
+                "id": "gift_welcome",
+                "title": "هدية الترحيب",
+                "description": "أول طلب مؤهل يحصل على هدية رمزية أو تغليف مجاني.",
+                "enabled": True,
+                "badge": "جديد",
+                "ctaLabel": "تسوقي الآن",
+                "giftType": "welcome",
+                "giftValue": "تغليف مجاني",
+                "minOrderTotal": 0.0,
+                "imageUrl": "",
+            }
         ],
         "competitions": [
-            {"id": "comp_monthly", "title": "مسابقة الشهر", "description": "كل عملية شراء مؤهلة تمنح فرصة دخول السحب الشهري.", "enabled": True, "prize": "قسيمة شراء", "ctaLabel": "شاركي الآن", "endAt": None, "imageUrl": ""}
+            {
+                "id": "comp_monthly",
+                "title": "مسابقة الشهر",
+                "description": "كل عملية شراء مؤهلة تمنح فرصة دخول السحب الشهري.",
+                "enabled": True,
+                "prize": "قسيمة شراء",
+                "ctaLabel": "شاركي الآن",
+                "endAt": None,
+                "imageUrl": "",
+            }
         ],
         "updatedAt": int(time.time() * 1000),
     }
@@ -272,25 +550,6 @@ def default_marketing_config() -> Dict[str, Any]:
 
 if not MARKETING_FILE.exists():
     _write_json_file_atomic(MARKETING_FILE, default_marketing_config())
-
-
-def read_marketing_config() -> Dict[str, Any]:
-    try:
-        raw = MARKETING_FILE.read_text(encoding="utf-8")
-        data = json.loads(raw)
-        if isinstance(data, dict):
-            base = default_marketing_config()
-            base.update(data)
-            return normalize_marketing_config(base)
-    except Exception:
-        pass
-    return normalize_marketing_config(default_marketing_config())
-
-
-def write_marketing_config(config: Dict[str, Any]) -> None:
-    normalized = normalize_marketing_config(config)
-    normalized["updatedAt"] = int(time.time() * 1000)
-    _write_json_file_atomic(MARKETING_FILE, normalized)
 
 app = Flask(__name__)
 
@@ -301,41 +560,33 @@ else:
 
 
 def read_products() -> List[Dict[str, Any]]:
-    try:
-        raw = PRODUCTS_FILE.read_text(encoding="utf-8")
-        data = json.loads(raw)
-        if isinstance(data, list):
-            items = [x for x in data if isinstance(x, dict)]
-            auto_restore = str(os.getenv("AUTO_RESTORE_EMPTY_PRODUCTS", "1") or "1").strip().lower() in {"1", "true", "yes", "on"}
-            if auto_restore and not items:
-                restored = _restore_products_from_latest_backup()
-                if restored:
-                    items = restored
-            normalized, changed = ensure_products_have_codes(items)
-            if changed:
-                write_products(normalized)
-            return normalized
-        return []
-    except Exception:
-        return []
+    fs_items = _read_products_firestore()
+    products = fs_items if fs_items is not None else _read_products_local()
+    normalized, changed = ensure_products_have_codes(products)
+    if changed:
+        write_products(normalized)
+    return normalized
 
 
 def write_products(products: List[Dict[str, Any]]) -> None:
-    try:
-        if PRODUCTS_FILE.exists():
-            stamp = int(time.time() * 1000)
-            backup = PRODUCTS_BACKUP_DIR / f"products_{stamp}.json"
-            backup.write_text(PRODUCTS_FILE.read_text(encoding="utf-8"), encoding="utf-8")
-            backups = sorted(PRODUCTS_BACKUP_DIR.glob("products_*.json"), key=lambda p: p.stat().st_mtime)
-            if len(backups) > 20:
-                for old in backups[:-20]:
-                    try:
-                        old.unlink(missing_ok=True)
-                    except Exception:
-                        pass
-    except Exception:
-        pass
-    _write_json_file_atomic(PRODUCTS_FILE, products)
+    # Always keep local file copy + backups.
+    _write_products_local(products)
+
+    # If Firestore catalog backend is available, mirror changes there as well.
+    _write_products_firestore(products)
+
+
+def read_looks() -> List[Dict[str, Any]]:
+    fs_items = _read_looks_firestore()
+    items = fs_items if fs_items is not None else _read_looks_local()
+    normalized = [normalize_look_item(x) for x in items if isinstance(x, dict)]
+    normalized.sort(key=lambda x: as_int(x.get("sortOrder", x.get("createdAt", 0)), 0), reverse=True)
+    return normalized
+
+
+def write_looks(items: List[Dict[str, Any]]) -> None:
+    _write_looks_local(items)
+    _write_looks_firestore(items)
 
 
 def read_notifications() -> List[Dict[str, Any]]:
@@ -383,6 +634,25 @@ def write_orders(items: List[Dict[str, Any]]) -> None:
     _write_json_file_atomic(ORDERS_FILE, items)
 
 
+def read_marketing_config() -> Dict[str, Any]:
+    try:
+        raw = MARKETING_FILE.read_text(encoding="utf-8")
+        data = json.loads(raw)
+        if isinstance(data, dict):
+            base = default_marketing_config()
+            base.update(data)
+            return normalize_marketing_config(base)
+    except Exception:
+        pass
+    return normalize_marketing_config(default_marketing_config())
+
+
+def write_marketing_config(config: Dict[str, Any]) -> None:
+    normalized = normalize_marketing_config(config)
+    normalized["updatedAt"] = int(time.time() * 1000)
+    _write_json_file_atomic(MARKETING_FILE, normalized)
+
+
 def normalize_coupon_item(payload: Dict[str, Any], current: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     cur = current or {}
     code = str(payload.get("code") or cur.get("code") or "").strip().upper()
@@ -391,13 +661,17 @@ def normalize_coupon_item(payload: Dict[str, Any], current: Optional[Dict[str, A
     ctype = str(payload.get("type") or cur.get("type") or "percent").strip()
     if ctype not in {"percent", "fixed", "freeShipping"}:
         ctype = "percent"
+    value = max(0.0, as_number(payload.get("value", cur.get("value", 0.0)), 0.0))
+    min_sub = max(0.0, as_number(payload.get("minSubtotal", cur.get("minSubtotal", 0.0)), 0.0))
+    max_disc = max(0.0, as_number(payload.get("maxDiscount", cur.get("maxDiscount", 0.0)), 0.0))
+    free_shipping = 1 if (as_hidden_int(payload.get("freeShipping", cur.get("freeShipping", 0))) == 1 or ctype == "freeShipping") else 0
     return {
         "code": code,
         "type": ctype,
-        "value": max(0.0, as_number(payload.get("value", cur.get("value", 0.0)), 0.0)),
-        "minSubtotal": max(0.0, as_number(payload.get("minSubtotal", cur.get("minSubtotal", 0.0)), 0.0)),
-        "maxDiscount": max(0.0, as_number(payload.get("maxDiscount", cur.get("maxDiscount", 0.0)), 0.0)),
-        "freeShipping": 1 if (as_hidden_int(payload.get("freeShipping", cur.get("freeShipping", 0))) == 1 or ctype == "freeShipping") else 0,
+        "value": value,
+        "minSubtotal": min_sub,
+        "maxDiscount": max_disc,
+        "freeShipping": free_shipping,
         "enabled": as_hidden_int(payload.get("enabled", cur.get("enabled", 1))),
         "startAt": payload.get("startAt", cur.get("startAt")),
         "endAt": payload.get("endAt", cur.get("endAt")),
@@ -450,11 +724,19 @@ def normalize_marketing_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     commission_default = max(0.0, min(100.0, commission_default))
     commission_per_product = bool(commission_src.get("perProductEnabled", True))
 
+    raw_coupons = payload.get("coupons") if isinstance(payload.get("coupons"), list) else []
+    coupons = [x for x in (normalize_coupon_item(i if isinstance(i, dict) else {}) for i in raw_coupons) if x]
+
     offers_src = payload.get("offers") if isinstance(payload.get("offers"), dict) else {}
-    coupons = [x for x in (normalize_coupon_item(i if isinstance(i, dict) else {}) for i in (payload.get("coupons") if isinstance(payload.get("coupons"), list) else [])) if x]
-    offers = [x for x in (normalize_offer_item(i if isinstance(i, dict) else {}) for i in (offers_src.get("items") if isinstance(offers_src.get("items"), list) else [])) if x]
-    gifts = [x for x in (normalize_campaign_item(i if isinstance(i, dict) else {}, fallback_id_prefix="gift") for i in (payload.get("gifts") if isinstance(payload.get("gifts"), list) else [])) if x]
-    competitions = [x for x in (normalize_campaign_item(i if isinstance(i, dict) else {}, fallback_id_prefix="competition") for i in (payload.get("competitions") if isinstance(payload.get("competitions"), list) else [])) if x]
+    raw_offers = offers_src.get("items") if isinstance(offers_src.get("items"), list) else []
+    offers = [x for x in (normalize_offer_item(i if isinstance(i, dict) else {}) for i in raw_offers) if x]
+
+    raw_gifts = payload.get("gifts") if isinstance(payload.get("gifts"), list) else []
+    gifts = [x for x in (normalize_campaign_item(i if isinstance(i, dict) else {}, fallback_id_prefix="gift") for i in raw_gifts) if x]
+
+    raw_competitions = payload.get("competitions") if isinstance(payload.get("competitions"), list) else []
+    competitions = [x for x in (normalize_campaign_item(i if isinstance(i, dict) else {}, fallback_id_prefix="competition") for i in raw_competitions) if x]
+
     return {
         "commission": {
             "defaultPercent": commission_default,
@@ -476,6 +758,7 @@ def normalize_marketing_config(payload: Dict[str, Any]) -> Dict[str, Any]:
 def public_app_content() -> Dict[str, Any]:
     cfg = read_marketing_config()
     now_ms = int(time.time() * 1000)
+
     public_coupons = []
     for row in cfg.get("coupons", []):
         if as_hidden_int(row.get("enabled", 1)) != 1:
@@ -487,12 +770,16 @@ def public_app_content() -> Dict[str, Any]:
         if end_at is not None and as_int(end_at, now_ms) < now_ms:
             continue
         public_coupons.append(row)
+
     public_offers = cfg.get("offers", {})
     public_offers["items"] = [x for x in public_offers.get("items", []) if bool(x.get("enabled", True))]
+    public_gifts = [x for x in cfg.get("gifts", []) if bool(x.get("enabled", True))]
+    public_competitions = [x for x in cfg.get("competitions", []) if bool(x.get("enabled", True))]
     commission_cfg = cfg.get("commission") if isinstance(cfg.get("commission"), dict) else {}
     commission_default = as_number(commission_cfg.get("defaultPercent", 7.0), 7.0)
     commission_default = max(0.0, min(100.0, commission_default))
     commission_per_product = bool(commission_cfg.get("perProductEnabled", True))
+
     return {
         "ok": True,
         "updatedAt": cfg.get("updatedAt", now_ms),
@@ -502,8 +789,8 @@ def public_app_content() -> Dict[str, Any]:
         },
         "coupons": public_coupons,
         "offers": public_offers,
-        "gifts": [x for x in cfg.get("gifts", []) if bool(x.get("enabled", True))],
-        "competitions": [x for x in cfg.get("competitions", []) if bool(x.get("enabled", True))],
+        "gifts": public_gifts,
+        "competitions": public_competitions,
     }
 
 
@@ -579,6 +866,11 @@ def normalize_device_item(payload: Dict[str, Any], current: Optional[Dict[str, A
         "timezoneOffsetMinutes": as_int(payload.get("timezoneOffsetMinutes", cur.get("timezoneOffsetMinutes", 0)), 0),
         "lastEvent": str(payload.get("event") or cur.get("lastEvent") or "heartbeat").strip(),
         "uid": str(payload.get("uid") or cur.get("uid") or "").strip(),
+        "accountRole": str(payload.get("accountRole") or cur.get("accountRole") or "customer").strip().lower(),
+        "isAmbassador": bool(payload.get("isAmbassador", cur.get("isAmbassador", False))),
+        "ambassadorName": str(payload.get("ambassadorName") or cur.get("ambassadorName") or "").strip(),
+        "ambassadorPhone": str(payload.get("ambassadorPhone") or cur.get("ambassadorPhone") or "").strip(),
+        "ambassadorAddress": str(payload.get("ambassadorAddress") or cur.get("ambassadorAddress") or "").strip(),
         "firstSeenMs": first_seen,
         "lastSeenMs": last_seen,
         "seenCount": seen_count,
@@ -779,6 +1071,54 @@ def normalize_string_list(value: Any) -> List[str]:
     return [x.strip() for x in re.split(r"[,\n\r\t]+", s) if x.strip()]
 
 
+def normalize_look_item(payload: Dict[str, Any], current: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    cur = current or {}
+    now_ms = int(time.time() * 1000)
+    look_id = str(payload.get("id") or cur.get("id") or f"look_{now_ms}_{uuid.uuid4().hex[:8]}").strip()
+    title = str(payload.get("title") or cur.get("title") or "").strip()
+    subtitle = str(payload.get("subtitle") or cur.get("subtitle") or "").strip()
+    description = str(payload.get("description") or cur.get("description") or "").strip()
+    badge = str(payload.get("badge") or cur.get("badge") or "إطلالة كاملة").strip()
+    cta_label = str(payload.get("ctaLabel") or cur.get("ctaLabel") or "تسوقي الإطلالة").strip()
+    cover = str(
+        payload.get("coverImageUrl")
+        or cur.get("coverImageUrl")
+        or payload.get("imageUrl")
+        or cur.get("imageUrl")
+        or ""
+    ).strip()
+    product_ids = normalize_string_list(payload.get("productIds", cur.get("productIds", [])))
+    image_urls = normalize_image_urls(payload.get("imageUrls", cur.get("imageUrls", [])))
+    if cover and cover not in image_urls:
+        image_urls = [cover, *image_urls]
+    if not cover and image_urls:
+        cover = image_urls[0]
+
+    discount_percent = as_number(payload.get("discountPercent", cur.get("discountPercent", 0)), 0.0)
+    discount_percent = max(0.0, min(100.0, discount_percent))
+    is_hidden = as_hidden_int(payload.get("isHidden", cur.get("isHidden", 0)))
+    sort_order = as_int(payload.get("sortOrder", cur.get("sortOrder", now_ms)), now_ms)
+    created_at = as_int(payload.get("createdAt", cur.get("createdAt", now_ms)), now_ms)
+
+    return {
+        "id": look_id,
+        "title": title,
+        "subtitle": subtitle,
+        "description": description,
+        "badge": badge,
+        "ctaLabel": cta_label,
+        "coverImageUrl": cover,
+        "imageUrl": cover,
+        "imageUrls": image_urls,
+        "productIds": product_ids,
+        "discountPercent": discount_percent,
+        "isHidden": is_hidden,
+        "sortOrder": sort_order,
+        "createdAt": created_at,
+        "updatedAt": now_ms,
+    }
+
+
 def normalize_quantity_map(value: Any) -> Dict[str, int]:
     if isinstance(value, dict):
         src = value
@@ -852,11 +1192,11 @@ def ensure_products_have_codes(products: List[Dict[str, Any]]) -> tuple[List[Dic
         row = dict(p)
         code = str(row.get("productCode") or "").strip().upper()
         if not code:
-            created_at = as_int(row.get("createdAt", int(time.time() * 1000)), int(time.time() * 1000))
-            code = generate_product_code(created_at=created_at, existing_codes=existing_codes)
-            row["productCode"] = code
-            existing_codes.add(code)
-            changed = True
+          created_at = as_int(row.get("createdAt", int(time.time() * 1000)), int(time.time() * 1000))
+          code = generate_product_code(created_at=created_at, existing_codes=existing_codes)
+          row["productCode"] = code
+          existing_codes.add(code)
+          changed = True
         out.append(row)
     return out, changed
 
@@ -964,7 +1304,7 @@ def _is_valid_api_token_from_request() -> bool:
 
 @app.get("/admin")
 def admin_panel():
-    return send_from_directory(ROOT.parent, "admin_panel_v2.html")
+    return send_from_directory(ROOT, "admin_panel_v2.html")
 
 
 @app.get("/uploads/<path:filename>")
@@ -974,15 +1314,16 @@ def uploads(filename: str):
 
 @app.get("/health")
 def health():
+    backend = _products_backend_label()
     storage_mode = "persistent" if (str(STORAGE_ROOT).startswith("/var/data") or str(STORAGE_ROOT).startswith("/data") or _STORAGE_ROOT_ENV) else "local"
-    production_ready = storage_mode == "persistent"
+    production_ready = backend == "firestore" or storage_mode == "persistent"
     return jsonify({
         "ok": True,
         "service": "carmenkarla-local-python-server",
         "ts": int(time.time() * 1000),
         "storageMode": storage_mode,
         "storageRoot": str(STORAGE_ROOT),
-        "catalogBackend": "local-file",
+        "catalogBackend": backend,
         "productionReady": production_ready,
         "publicBase": _request_public_base(),
     })
@@ -1129,6 +1470,11 @@ def devices_stats():
             "osVersion": str(d.get("osVersion") or ""),
             "locale": str(d.get("locale") or ""),
             "uid": str(d.get("uid") or ""),
+            "accountRole": str(d.get("accountRole") or "customer"),
+            "isAmbassador": bool(d.get("isAmbassador", False)),
+            "ambassadorName": str(d.get("ambassadorName") or ""),
+            "ambassadorPhone": str(d.get("ambassadorPhone") or ""),
+            "ambassadorAddress": str(d.get("ambassadorAddress") or ""),
             "appVersion": str(d.get("appVersion") or ""),
             "appBuild": str(d.get("appBuild") or ""),
             "lastIp": str(d.get("lastIp") or ""),
@@ -1167,6 +1513,7 @@ def dashboard_summary():
     cutoff_30d = now_ms - (30 * 24 * 60 * 60 * 1000)
 
     products = read_products()
+    looks = read_looks()
     total_products = len(products)
     visible_products = len([p for p in products if as_hidden_int(p.get("isHidden", 0)) == 0])
     hidden_products = total_products - visible_products
@@ -1175,6 +1522,7 @@ def dashboard_summary():
     out_of_stock_count = len([p for p in products if as_hidden_int(p.get("outOfStock", 0)) == 1])
 
     orders = [normalize_order_item(x) for x in read_orders() if isinstance(x, dict)]
+    orders_total = len(orders)
     status_counts = {
         "pending": 0,
         "processing": 0,
@@ -1194,6 +1542,7 @@ def dashboard_summary():
     devices = read_devices()
     total_installed = len(devices)
     registered_users = {str(d.get("uid") or "").strip() for d in devices if str(d.get("uid") or "").strip()}
+
     active_users_1d = {
         str(d.get("uid") or "").strip()
         for d in devices
@@ -1220,9 +1569,10 @@ def dashboard_summary():
             "categories": categories,
             "lowStock": low_stock_count,
             "outOfStock": out_of_stock_count,
+            "completeLooks": len(looks),
         },
         "orders": {
-            "total": len(orders),
+            "total": orders_total,
             "pending": status_counts["pending"],
             "processing": status_counts["processing"],
             "shipped": status_counts["shipped"],
@@ -1251,6 +1601,94 @@ def list_products():
 
     products.sort(key=lambda p: as_int(p.get("createdAt", 0)), reverse=True)
     return jsonify({"ok": True, "count": len(products), "items": products})
+
+
+@app.get("/looks")
+def list_complete_looks():
+    include_hidden = str(request.args.get("includeHidden", "")).strip() == "1"
+    looks = read_looks()
+    if not include_hidden:
+        looks = [x for x in looks if as_hidden_int(x.get("isHidden", 0)) == 0]
+
+    product_map = {str(p.get("id") or "").strip(): p for p in read_products()}
+    items = []
+    for look in looks:
+        row = dict(look)
+        row["products"] = [
+            product_map[pid]
+            for pid in row.get("productIds", [])
+            if isinstance(pid, str) and pid in product_map
+        ]
+        row["productsCount"] = len(row["products"])
+        items.append(row)
+
+    items.sort(key=lambda p: as_int(p.get("sortOrder", p.get("createdAt", 0)), 0), reverse=True)
+    return jsonify({"ok": True, "count": len(items), "items": items})
+
+
+@app.post("/looks")
+def add_complete_look():
+    ok, err = require_admin()
+    if not ok:
+        return err
+
+    payload = request.get_json(silent=True) or {}
+    looks = read_looks()
+    item = normalize_look_item(payload)
+    if not item["title"]:
+        return jsonify({"ok": False, "error": "title is required"}), 400
+    if not item["productIds"]:
+        return jsonify({"ok": False, "error": "productIds is required"}), 400
+    if any(str(x.get("id", "")).strip() == item["id"] for x in looks):
+        return jsonify({"ok": False, "error": "Look id already exists"}), 409
+
+    looks.append(item)
+    write_looks(looks)
+    return jsonify({"ok": True, "item": item}), 201
+
+
+@app.put("/looks/<look_id>")
+def update_complete_look(look_id: str):
+    ok, err = require_admin()
+    if not ok:
+        return err
+
+    payload = request.get_json(silent=True) or {}
+    look_id = str(look_id or "").strip()
+    looks = read_looks()
+    idx = next((i for i, x in enumerate(looks) if str(x.get("id", "")).strip() == look_id), -1)
+    if idx < 0:
+        return jsonify({"ok": False, "error": "Look not found"}), 404
+
+    merged = dict(looks[idx])
+    merged.update(payload)
+    merged["id"] = look_id
+    item = normalize_look_item(merged, looks[idx])
+    if not item["title"]:
+        return jsonify({"ok": False, "error": "title is required"}), 400
+    if not item["productIds"]:
+        return jsonify({"ok": False, "error": "productIds is required"}), 400
+
+    looks[idx] = item
+    write_looks(looks)
+    return jsonify({"ok": True, "item": item})
+
+
+@app.delete("/looks/<look_id>")
+def delete_complete_look(look_id: str):
+    ok, err = require_admin()
+    if not ok:
+        return err
+
+    look_id = str(look_id or "").strip()
+    looks = read_looks()
+    idx = next((i for i, x in enumerate(looks) if str(x.get("id", "")).strip() == look_id), -1)
+    if idx < 0:
+        return jsonify({"ok": False, "error": "Look not found"}), 404
+
+    deleted = looks.pop(idx)
+    write_looks(looks)
+    return jsonify({"ok": True, "deleted": deleted})
 
 
 @app.post("/orders")
