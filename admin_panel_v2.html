@@ -35,7 +35,7 @@
       color: var(--text);
       min-height: 100vh;
     }
-    .shell { max-width: 1540px; margin: 0 auto; padding: 22px 18px 42px; }
+    .shell { max-width: 1540px; margin: 0 auto; padding: 14px 18px 42px; }
     .topbar, .card, .panel, .modal {
       background: var(--card);
       border: 1px solid var(--line);
@@ -53,6 +53,8 @@
       top: 12px;
       z-index: 20;
     }
+    /* Requested: hide top header card entirely (brand + connection shortcuts). */
+    .topbar { display: none !important; }
     .brand { display: flex; align-items: center; gap: 14px; }
     .mark {
       width: 52px;
@@ -67,6 +69,7 @@
     .brand h1 { font-size: 1.1rem; font-weight: 900; letter-spacing: .2px; }
     .brand p { color: var(--muted); margin-top: 4px; font-size: .83rem; }
     .top-actions, .hero-actions, .toolbar, .quick-row, .chips, .thumbs, .tabs { display: flex; gap: 10px; flex-wrap: wrap; }
+    .top-actions { align-items: center; }
     .pill {
       display: inline-flex;
       align-items: center;
@@ -95,6 +98,11 @@
     .btn:disabled { opacity: .6; cursor: not-allowed; transform: none; }
     .btn-primary { background: linear-gradient(135deg, var(--gold), var(--gold2)); color: #17120c; box-shadow: 0 10px 30px rgba(212,176,123,.22); }
     .btn-soft { background: rgba(255,255,255,.035); color: var(--text); border: 1px solid var(--line); }
+    .btn.top-link {
+      padding: 8px 10px;
+      border-radius: 10px;
+      font-size: .82rem;
+    }
     .btn-danger { background: linear-gradient(135deg, #d75d5d, #f07878); color: #fff; }
     .dashboard-strip {
       margin-top: 18px;
@@ -156,6 +164,30 @@
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 16px;
+    }
+    .campaign-sections {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: 1fr;
+    }
+    .campaign-section {
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 18px;
+      padding: 14px;
+      background: rgba(255,255,255,.018);
+    }
+    .campaign-index {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 28px;
+      height: 28px;
+      border-radius: 999px;
+      font-size: .76rem;
+      font-weight: 900;
+      background: rgba(212,176,123,.16);
+      border: 1px solid rgba(212,176,123,.34);
+      color: var(--gold2);
     }
     .campaign-item {
       border: 1px solid rgba(255,255,255,.06);
@@ -342,9 +374,57 @@
       .campaign-grid, .split-2 { grid-template-columns: 1fr; }
     }
     @media (max-width: 760px) {
-      .topbar, .switcher, .panel-head, .toolbar, .row, .product-top { flex-direction: column; align-items: stretch; }
+      .switcher, .panel-head, .toolbar, .row, .product-top { flex-direction: column; align-items: stretch; }
       .products-grid, .form-grid, .dashboard-strip, .modules-grid { grid-template-columns: 1fr; }
       .btn { width: 100%; }
+
+      .topbar {
+        padding: 12px;
+        border-radius: 18px;
+      }
+      .brand {
+        gap: 10px;
+      }
+      .mark {
+        width: 42px;
+        height: 42px;
+        border-radius: 14px;
+        font-size: 18px;
+      }
+      .brand h1 {
+        font-size: .98rem;
+      }
+      .brand p {
+        display: none;
+      }
+      .top-actions {
+        width: 100%;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        gap: 6px;
+        padding-bottom: 2px;
+        scrollbar-width: thin;
+      }
+      .top-actions .pill {
+        flex: 0 0 auto;
+        padding: 6px 8px;
+        font-size: .72rem;
+        background: transparent;
+        border-color: transparent;
+      }
+      .top-actions .btn.top-link {
+        width: auto !important;
+        flex: 0 0 auto;
+        background: transparent;
+        border: none;
+        color: var(--muted);
+        padding: 6px 4px;
+        font-weight: 900;
+      }
+      .top-actions .btn.top-link:hover {
+        transform: none;
+        color: var(--text);
+      }
     }
   </style>
 </head>
@@ -360,9 +440,9 @@
       </div>
       <div class="top-actions">
         <span class="pill"><span class="dot" id="statusDot"></span><span id="statusText">جاري الاتصال...</span></span>
-        <button class="btn btn-soft top-home-btn" onclick="setView('overview')">الرئيسية</button>
-        <button class="btn btn-soft" onclick="setView('settings')">الاتصال</button>
-        <button class="btn btn-soft" onclick="checkHealth()">فحص الاتصال</button>
+        <button class="btn btn-soft btn-text top-link top-home-btn" onclick="setView('overview')">الرئيسية</button>
+        <button class="btn btn-soft btn-text top-link" onclick="setView('settings')">الاتصال</button>
+        <button class="btn btn-soft btn-text top-link" onclick="checkHealth()">فحص الاتصال</button>
       </div>
     </header>
 
@@ -422,7 +502,7 @@
               <div>
                 <div class="module-icon">📣</div>
                 <div class="module-copy">
-                  <h3>مندوبات التسويق</h3>
+                  <h3>مندوبات المبيعات</h3>
                   <p>لوحة متزامنة مع الطلبات لحساب العمولة الفعلية والأهداف والتحفيز.</p>
                 </div>
               </div>
@@ -538,7 +618,7 @@
 
       <div class="panel" id="panel-ambassadors">
         <div class="panel-head">
-          <div><h3>مركز مندوبات التسويق</h3><p>لوحة متزامنة مع كل الطلبات الخاصة بالمندوبات: العمولة الفعلية، المعلقة، الأهداف، وآخر النشاطات.</p></div>
+          <div><h3>مركز مندوبات المبيعات</h3><p>لوحة متزامنة مع كل الطلبات الخاصة بالمندوبات: العمولة الفعلية، المعلقة، الأهداف، وآخر النشاطات.</p></div>
           <div class="quick-row">
             <button class="btn btn-soft" onclick="loadAmbassadors(true)">تحديث</button>
             <button class="btn btn-soft" onclick="setView('orders')">فتح الطلبات</button>
@@ -695,27 +775,78 @@
             <button class="btn btn-soft" onclick="loadMarketingConfig(true)">تحديث</button>
           </div>
         </div>
-        <div class="campaign-grid">
-          <div class="card">
-            <div class="panel-head"><div><h3>أكواد الخصم</h3><p>مرتبطة بالدفع داخل التطبيق.</p></div></div>
+        <div class="card" style="margin-bottom:16px">
+          <div class="panel-head"><div><h3>إعدادات العمولة (متزامنة مع التطبيق)</h3><p>أي تعديل هنا يصل للتطبيق عبر <code>/app/content</code> تلقائيًا.</p></div></div>
+          <div class="split-2">
+            <div class="field">
+              <label>النسبة الافتراضية للعمولة (%)</label>
+              <input id="commissionDefaultPercent" type="number" min="0" max="100" step="0.1" placeholder="7" />
+            </div>
+            <div class="field">
+              <label>تفعيل عمولة لكل منتج</label>
+              <select id="commissionPerProductEnabled">
+                <option value="1">مفعّل</option>
+                <option value="0">متوقف (استخدام الافتراضي)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="campaign-sections">
+          <div class="card campaign-section">
+            <div class="panel-head">
+              <div>
+                <h3><span class="campaign-index">1</span> أكواد الخصم</h3>
+                <p>قسم مستقل لأكواد الخصم فقط (بدون اختلاط مع العروض أو الهدايا).</p>
+              </div>
+              <div class="quick-row">
+                <button class="btn btn-primary" onclick="saveMarketingConfig()">حفظ القسم</button>
+              </div>
+            </div>
             <div class="list" id="couponList"></div>
             <div class="hero-actions"><button class="btn btn-soft" onclick="addCouponItem()">+ إضافة كود</button></div>
           </div>
-          <div class="card">
-            <div class="panel-head"><div><h3>العروض الرئيسية</h3><p>مرتبطة ببانر العروض داخل التطبيق.</p></div></div>
+
+          <div class="card campaign-section">
+            <div class="panel-head">
+              <div>
+                <h3><span class="campaign-index">2</span> العروض الرئيسية</h3>
+                <p>قسم مستقل للبانر والعروض المرتبطة بواجهة العميل.</p>
+              </div>
+              <div class="quick-row">
+                <button class="btn btn-primary" onclick="saveMarketingConfig()">حفظ القسم</button>
+              </div>
+            </div>
             <div class="field" style="margin-bottom:10px"><label>عنوان البانر</label><input id="offersTitle" type="text" placeholder="💎 عروض لفترة محدودة" /></div>
             <div class="field" style="margin-bottom:10px"><label>الوصف</label><textarea id="offersSubtitle" placeholder="وصف مختصر"></textarea></div>
             <div class="field" style="margin-bottom:10px"><label>نص الزر</label><input id="offersCtaLabel" type="text" placeholder="تسوقي العروض" /></div>
             <div class="list" id="offersItemsList"></div>
             <div class="hero-actions"><button class="btn btn-soft" onclick="addOfferItem()">+ إضافة عرض</button></div>
           </div>
-          <div class="card">
-            <div class="panel-head"><div><h3>الهدايا</h3><p>حوافز إضافية تظهر للعميل.</p></div></div>
+
+          <div class="card campaign-section">
+            <div class="panel-head">
+              <div>
+                <h3><span class="campaign-index">3</span> الهدايا</h3>
+                <p>قسم مستقل للهدايا والحوافز فقط.</p>
+              </div>
+              <div class="quick-row">
+                <button class="btn btn-primary" onclick="saveMarketingConfig()">حفظ القسم</button>
+              </div>
+            </div>
             <div class="list" id="giftsList"></div>
             <div class="hero-actions"><button class="btn btn-soft" onclick="addGiftItem()">+ إضافة هدية</button></div>
           </div>
-          <div class="card">
-            <div class="panel-head"><div><h3>المسابقات</h3><p>حملات تفاعلية وربطها بالتطبيق.</p></div></div>
+
+          <div class="card campaign-section">
+            <div class="panel-head">
+              <div>
+                <h3><span class="campaign-index">4</span> المسابقات</h3>
+                <p>قسم مستقل للمسابقات التفاعلية وربطها بالتطبيق.</p>
+              </div>
+              <div class="quick-row">
+                <button class="btn btn-primary" onclick="saveMarketingConfig()">حفظ القسم</button>
+              </div>
+            </div>
             <div class="list" id="competitionsList"></div>
             <div class="hero-actions"><button class="btn btn-soft" onclick="addCompetitionItem()">+ إضافة مسابقة</button></div>
           </div>
@@ -839,6 +970,10 @@
     let ambassadorOrders = [];
     let dashboardSummary = null;
     let marketingConfig = {
+      commission: {
+        defaultPercent: 7,
+        perProductEnabled: true,
+      },
       coupons: [],
       offers: { title: '', subtitle: '', ctaLabel: '', items: [] },
       gifts: [],
@@ -982,7 +1117,7 @@
                 <div class="field"><label>سقف الخصم</label><input type="number" value="${escHtml(item.maxDiscount ?? 0)}" onchange="updateCouponField(${idx}, 'maxDiscount', this.value)" /></div>
                 <div class="field"><label>الحالة</label><select onchange="updateCouponField(${idx}, 'enabled', this.value)"><option value="1" ${Number(item.enabled || 0) === 1 ? 'selected' : ''}>مفعّل</option><option value="0" ${Number(item.enabled || 0) !== 1 ? 'selected' : ''}>متوقف</option></select></div>
               </div>
-              <div class="quick-row"><button class="btn btn-danger" onclick="removeCouponItem(${idx})">حذف</button></div>
+              <div class="quick-row"><button class="btn btn-primary" onclick="saveCouponItem(${idx})">حفظ</button><button class="btn btn-danger" onclick="removeCouponItem(${idx})">حذف</button></div>
             </div>`;
         }
 
@@ -1009,6 +1144,9 @@
 
     function renderMarketingConfig() {
       const offers = marketingConfig.offers || { title: '', subtitle: '', ctaLabel: '', items: [] };
+      const commission = marketingConfig.commission || { defaultPercent: 7, perProductEnabled: true };
+      document.getElementById('commissionDefaultPercent').value = Number(commission.defaultPercent ?? 7);
+      document.getElementById('commissionPerProductEnabled').value = commission.perProductEnabled ? '1' : '0';
       document.getElementById('offersTitle').value = offers.title || '';
       document.getElementById('offersSubtitle').value = offers.subtitle || '';
       document.getElementById('offersCtaLabel').value = offers.ctaLabel || '';
@@ -1032,6 +1170,13 @@
 
     async function saveMarketingConfig() {
       try {
+        marketingConfig.commission = marketingConfig.commission || {};
+        marketingConfig.commission.defaultPercent = Math.max(
+          0,
+          Math.min(100, parseFloat(document.getElementById('commissionDefaultPercent').value || '7') || 7),
+        );
+        marketingConfig.commission.perProductEnabled = document.getElementById('commissionPerProductEnabled').value === '1';
+
         marketingConfig.offers = marketingConfig.offers || {};
         marketingConfig.offers.title = document.getElementById('offersTitle').value.trim();
         marketingConfig.offers.subtitle = document.getElementById('offersSubtitle').value.trim();
@@ -1098,6 +1243,19 @@
     function removeCouponItem(index) {
       marketingConfig.coupons.splice(index, 1);
       renderMarketingConfig();
+    }
+
+    async function saveCouponItem(index) {
+      const item = marketingConfig?.coupons?.[index];
+      if (!item) return;
+      const code = String(item.code || '').trim().toUpperCase();
+      if (!code) {
+        toast('اكتبي كود الكوبون أولاً', 'error');
+        return;
+      }
+      item.code = code;
+      item.createdAt = Number(item.createdAt || Date.now());
+      await saveMarketingConfig();
     }
 
     function addOfferItem() {

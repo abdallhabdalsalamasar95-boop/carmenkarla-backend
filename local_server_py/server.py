@@ -240,6 +240,10 @@ if not ORDERS_FILE.exists():
 
 def default_marketing_config() -> Dict[str, Any]:
     return {
+        "commission": {
+            "defaultPercent": 7.0,
+            "perProductEnabled": True,
+        },
         "coupons": [
             {"code": "CK10", "type": "percent", "value": 10.0, "minSubtotal": 0.0, "maxDiscount": 50.0, "freeShipping": 0, "enabled": 1, "startAt": None, "endAt": None, "createdAt": int(time.time() * 1000) - 3},
             {"code": "CK20", "type": "percent", "value": 20.0, "minSubtotal": 200.0, "maxDiscount": 80.0, "freeShipping": 0, "enabled": 1, "startAt": None, "endAt": None, "createdAt": int(time.time() * 1000) - 2},
@@ -441,12 +445,21 @@ def normalize_campaign_item(payload: Dict[str, Any], *, fallback_id_prefix: str,
 
 def normalize_marketing_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     now_ms = int(time.time() * 1000)
+    commission_src = payload.get("commission") if isinstance(payload.get("commission"), dict) else {}
+    commission_default = as_number(commission_src.get("defaultPercent", 7.0), 7.0)
+    commission_default = max(0.0, min(100.0, commission_default))
+    commission_per_product = bool(commission_src.get("perProductEnabled", True))
+
     offers_src = payload.get("offers") if isinstance(payload.get("offers"), dict) else {}
     coupons = [x for x in (normalize_coupon_item(i if isinstance(i, dict) else {}) for i in (payload.get("coupons") if isinstance(payload.get("coupons"), list) else [])) if x]
     offers = [x for x in (normalize_offer_item(i if isinstance(i, dict) else {}) for i in (offers_src.get("items") if isinstance(offers_src.get("items"), list) else [])) if x]
     gifts = [x for x in (normalize_campaign_item(i if isinstance(i, dict) else {}, fallback_id_prefix="gift") for i in (payload.get("gifts") if isinstance(payload.get("gifts"), list) else [])) if x]
     competitions = [x for x in (normalize_campaign_item(i if isinstance(i, dict) else {}, fallback_id_prefix="competition") for i in (payload.get("competitions") if isinstance(payload.get("competitions"), list) else [])) if x]
     return {
+        "commission": {
+            "defaultPercent": commission_default,
+            "perProductEnabled": commission_per_product,
+        },
         "coupons": coupons,
         "offers": {
             "title": str(offers_src.get("title") or "💎 عروض لفترة محدودة").strip() or "💎 عروض لفترة محدودة",
@@ -476,9 +489,17 @@ def public_app_content() -> Dict[str, Any]:
         public_coupons.append(row)
     public_offers = cfg.get("offers", {})
     public_offers["items"] = [x for x in public_offers.get("items", []) if bool(x.get("enabled", True))]
+    commission_cfg = cfg.get("commission") if isinstance(cfg.get("commission"), dict) else {}
+    commission_default = as_number(commission_cfg.get("defaultPercent", 7.0), 7.0)
+    commission_default = max(0.0, min(100.0, commission_default))
+    commission_per_product = bool(commission_cfg.get("perProductEnabled", True))
     return {
         "ok": True,
         "updatedAt": cfg.get("updatedAt", now_ms),
+        "commission": {
+            "defaultPercent": commission_default,
+            "perProductEnabled": commission_per_product,
+        },
         "coupons": public_coupons,
         "offers": public_offers,
         "gifts": [x for x in cfg.get("gifts", []) if bool(x.get("enabled", True))],

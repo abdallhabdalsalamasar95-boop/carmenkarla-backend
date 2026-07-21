@@ -387,6 +387,10 @@ if not ORDERS_FILE.exists():
 
 def default_marketing_config() -> Dict[str, Any]:
     return {
+        "commission": {
+            "defaultPercent": 7.0,
+            "perProductEnabled": True,
+        },
         "coupons": [
             {
                 "code": "CK10",
@@ -624,6 +628,11 @@ def normalize_campaign_item(payload: Dict[str, Any], *, fallback_id_prefix: str,
 
 def normalize_marketing_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     now_ms = int(time.time() * 1000)
+    commission_src = payload.get("commission") if isinstance(payload.get("commission"), dict) else {}
+    commission_default = as_number(commission_src.get("defaultPercent", 7.0), 7.0)
+    commission_default = max(0.0, min(100.0, commission_default))
+    commission_per_product = bool(commission_src.get("perProductEnabled", True))
+
     raw_coupons = payload.get("coupons") if isinstance(payload.get("coupons"), list) else []
     coupons = [x for x in (normalize_coupon_item(i if isinstance(i, dict) else {}) for i in raw_coupons) if x]
 
@@ -638,6 +647,10 @@ def normalize_marketing_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     competitions = [x for x in (normalize_campaign_item(i if isinstance(i, dict) else {}, fallback_id_prefix="competition") for i in raw_competitions) if x]
 
     return {
+        "commission": {
+            "defaultPercent": commission_default,
+            "perProductEnabled": commission_per_product,
+        },
         "coupons": coupons,
         "offers": {
             "title": str(offers_src.get("title") or "💎 عروض لفترة محدودة").strip() or "💎 عروض لفترة محدودة",
@@ -671,10 +684,18 @@ def public_app_content() -> Dict[str, Any]:
     public_offers["items"] = [x for x in public_offers.get("items", []) if bool(x.get("enabled", True))]
     public_gifts = [x for x in cfg.get("gifts", []) if bool(x.get("enabled", True))]
     public_competitions = [x for x in cfg.get("competitions", []) if bool(x.get("enabled", True))]
+    commission_cfg = cfg.get("commission") if isinstance(cfg.get("commission"), dict) else {}
+    commission_default = as_number(commission_cfg.get("defaultPercent", 7.0), 7.0)
+    commission_default = max(0.0, min(100.0, commission_default))
+    commission_per_product = bool(commission_cfg.get("perProductEnabled", True))
 
     return {
         "ok": True,
         "updatedAt": cfg.get("updatedAt", now_ms),
+        "commission": {
+            "defaultPercent": commission_default,
+            "perProductEnabled": commission_per_product,
+        },
         "coupons": public_coupons,
         "offers": public_offers,
         "gifts": public_gifts,
