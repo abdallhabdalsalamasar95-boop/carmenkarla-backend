@@ -1852,7 +1852,8 @@
           email: customer.submitterEmail || customer.email,
           phone: customer.phone,
           role: customer.accountRole,
-          name: customer.submitterName || customer.accountName || customer.displayName || customer.fullName || customer.name || item.customerName,
+          // IMPORTANT: ambassador name must come from account identity, not shipping/order form name.
+          name: customer.submitterName || customer.accountName || customer.displayName || customer.fullName,
           submitterName: customer.submitterName,
           accountName: customer.accountName,
           displayName: customer.displayName,
@@ -1955,7 +1956,8 @@
       return resolveUserName({
         uid: String(customer.submitterUid || customer.uid || '').trim(),
         email: String(customer.submitterEmail || customer.email || '').trim(),
-        fallback: String(customer.name || customer.phone || 'مندوبة غير محددة').trim() || 'مندوبة غير محددة',
+        // Do NOT fallback to customer.name because it may be shipping name, not account owner name.
+        fallback: emailToDisplayName(String(customer.submitterEmail || customer.email || '').trim()) || 'مندوبة غير محددة',
       });
     }
 
