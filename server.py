@@ -58,6 +58,7 @@ DATA_DIR = STORAGE_ROOT / "data"
 UPLOAD_DIR = STORAGE_ROOT / "uploads"
 PRODUCTS_FILE = DATA_DIR / "products.json"
 PRODUCTS_BACKUP_DIR = DATA_DIR / "backups"
+LOOKS_FILE = DATA_DIR / "looks.json"
 NOTIFICATIONS_FILE = DATA_DIR / "notifications.json"
 DEVICES_FILE = DATA_DIR / "devices.json"
 ORDERS_FILE = DATA_DIR / "orders.json"
@@ -79,6 +80,7 @@ _FIREBASE_SERVICE_ACCOUNT_JSON = (os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "")
 _FIREBASE_PROJECT_ID = (os.getenv("FIREBASE_PROJECT_ID", "") or "").strip()
 _PRODUCTS_STORAGE_MODE = (os.getenv("PRODUCTS_STORAGE_MODE", "auto") or "auto").strip().lower()
 _PRODUCTS_FIRESTORE_COLLECTION = (os.getenv("PRODUCTS_FIRESTORE_COLLECTION", "products_catalog") or "products_catalog").strip()
+_LOOKS_FIRESTORE_COLLECTION = (os.getenv("LOOKS_FIRESTORE_COLLECTION", "complete_looks") or "complete_looks").strip()
 try:
     _MAX_IMAGE_UPLOAD_MB = max(1, int(float((os.getenv("MAX_IMAGE_UPLOAD_MB", "10") or "10").strip())))
 except Exception:
@@ -216,6 +218,13 @@ def _products_collection_ref() -> Optional[Any]:
     if db is None:
         return None
     return db.collection(_PRODUCTS_FIRESTORE_COLLECTION)
+
+
+def _looks_collection_ref() -> Optional[Any]:
+    db, _ = _firestore_db()
+    if db is None:
+        return None
+    return db.collection(_LOOKS_FIRESTORE_COLLECTION)
 
 
 def _write_json_file_atomic(target: Path, value: Any) -> None:
@@ -363,6 +372,72 @@ def _write_products_firestore(products: List[Dict[str, Any]]) -> bool:
     except Exception:
         return False
 
+
+def _read_looks_local() -> List[Dict[str, Any]]:
+    try:
+        raw = LOOKS_FILE.read_text(encoding="utf-8")
+        data = json.loads(raw)
+        if isinstance(data, list):
+            return [x for x in data if isinstance(x, dict)]
+        return []
+    except Exception:
+        return []
+
+
+def _write_looks_local(items: List[Dict[str, Any]]) -> None:
+    _write_json_file_atomic(LOOKS_FILE, items)
+
+
+def _read_looks_firestore() -> Optional[List[Dict[str, Any]]]:
+    ref = _looks_collection_ref()
+    if ref is None:
+        return None
+    try:
+        out: List[Dict[str, Any]] = []
+        for d in ref.stream():
+            data = d.to_dict() if hasattr(d, "to_dict") else {}
+            if not isinstance(data, dict):
+                continue
+            row = dict(data)
+            row["id"] = str(row.get("id") or d.id).strip()
+            if row["id"]:
+                out.append(row)
+        return out
+    except Exception:
+        return None
+
+
+def _write_looks_firestore(items: List[Dict[str, Any]]) -> bool:
+    ref = _looks_collection_ref()
+    if ref is None:
+        return False
+    try:
+        rows: Dict[str, Dict[str, Any]] = {}
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            item_id = str(item.get("id") or "").strip()
+            if not item_id:
+                continue
+            row = dict(item)
+            row["id"] = item_id
+            rows[item_id] = row
+
+        existing_ids = set()
+        for d in ref.stream():
+            existing_ids.add(str(d.id).strip())
+
+        ops: List[Any] = []
+        for item_id, row in rows.items():
+            ops.append({"type": "set", "ref": ref.document(item_id), "data": row})
+        for stale_id in sorted(existing_ids - set(rows.keys())):
+            if stale_id:
+                ops.append({"type": "delete", "ref": ref.document(stale_id)})
+        _commit_batched_writes(ops)
+        return True
+    except Exception:
+        return False
+
 PUBLIC_BASE = _resolve_public_base()
 
 if not PRODUCTS_FILE.exists():
@@ -374,6 +449,9 @@ else:
         _current_items = _read_products_local()
         if not _current_items:
             _restore_products_from_latest_backup()
+
+if not LOOKS_FILE.exists():
+    LOOKS_FILE.write_text("[]", encoding="utf-8")
 
 if not NOTIFICATIONS_FILE.exists():
     NOTIFICATIONS_FILE.write_text("[]", encoding="utf-8")
@@ -496,6 +574,19 @@ def write_products(products: List[Dict[str, Any]]) -> None:
 
     # If Firestore catalog backend is available, mirror changes there as well.
     _write_products_firestore(products)
+
+
+def read_looks() -> List[Dict[str, Any]]:
+    fs_items = _read_looks_firestore()
+    items = fs_items if fs_items is not None else _read_looks_local()
+    normalized = [normalize_look_item(x) for x in items if isinstance(x, dict)]
+    normalized.sort(key=lambda x: as_int(x.get("sortOrder", x.get("createdAt", 0)), 0), reverse=True)
+    return normalized
+
+
+def write_looks(items: List[Dict[str, Any]]) -> None:
+    _write_looks_local(items)
+    _write_looks_firestore(items)
 
 
 def read_notifications() -> List[Dict[str, Any]]:
@@ -980,6 +1071,54 @@ def normalize_string_list(value: Any) -> List[str]:
     return [x.strip() for x in re.split(r"[,\n\r\t]+", s) if x.strip()]
 
 
+def normalize_look_item(payload: Dict[str, Any], current: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    cur = current or {}
+    now_ms = int(time.time() * 1000)
+    look_id = str(payload.get("id") or cur.get("id") or f"look_{now_ms}_{uuid.uuid4().hex[:8]}").strip()
+    title = str(payload.get("title") or cur.get("title") or "").strip()
+    subtitle = str(payload.get("subtitle") or cur.get("subtitle") or "").strip()
+    description = str(payload.get("description") or cur.get("description") or "").strip()
+    badge = str(payload.get("badge") or cur.get("badge") or "إطلالة كاملة").strip()
+    cta_label = str(payload.get("ctaLabel") or cur.get("ctaLabel") or "تسوقي الإطلالة").strip()
+    cover = str(
+        payload.get("coverImageUrl")
+        or cur.get("coverImageUrl")
+        or payload.get("imageUrl")
+        or cur.get("imageUrl")
+        or ""
+    ).strip()
+    product_ids = normalize_string_list(payload.get("productIds", cur.get("productIds", [])))
+    image_urls = normalize_image_urls(payload.get("imageUrls", cur.get("imageUrls", [])))
+    if cover and cover not in image_urls:
+        image_urls = [cover, *image_urls]
+    if not cover and image_urls:
+        cover = image_urls[0]
+
+    discount_percent = as_number(payload.get("discountPercent", cur.get("discountPercent", 0)), 0.0)
+    discount_percent = max(0.0, min(100.0, discount_percent))
+    is_hidden = as_hidden_int(payload.get("isHidden", cur.get("isHidden", 0)))
+    sort_order = as_int(payload.get("sortOrder", cur.get("sortOrder", now_ms)), now_ms)
+    created_at = as_int(payload.get("createdAt", cur.get("createdAt", now_ms)), now_ms)
+
+    return {
+        "id": look_id,
+        "title": title,
+        "subtitle": subtitle,
+        "description": description,
+        "badge": badge,
+        "ctaLabel": cta_label,
+        "coverImageUrl": cover,
+        "imageUrl": cover,
+        "imageUrls": image_urls,
+        "productIds": product_ids,
+        "discountPercent": discount_percent,
+        "isHidden": is_hidden,
+        "sortOrder": sort_order,
+        "createdAt": created_at,
+        "updatedAt": now_ms,
+    }
+
+
 def normalize_quantity_map(value: Any) -> Dict[str, int]:
     if isinstance(value, dict):
         src = value
@@ -1374,6 +1513,7 @@ def dashboard_summary():
     cutoff_30d = now_ms - (30 * 24 * 60 * 60 * 1000)
 
     products = read_products()
+    looks = read_looks()
     total_products = len(products)
     visible_products = len([p for p in products if as_hidden_int(p.get("isHidden", 0)) == 0])
     hidden_products = total_products - visible_products
@@ -1429,6 +1569,7 @@ def dashboard_summary():
             "categories": categories,
             "lowStock": low_stock_count,
             "outOfStock": out_of_stock_count,
+            "completeLooks": len(looks),
         },
         "orders": {
             "total": orders_total,
@@ -1460,6 +1601,94 @@ def list_products():
 
     products.sort(key=lambda p: as_int(p.get("createdAt", 0)), reverse=True)
     return jsonify({"ok": True, "count": len(products), "items": products})
+
+
+@app.get("/looks")
+def list_complete_looks():
+    include_hidden = str(request.args.get("includeHidden", "")).strip() == "1"
+    looks = read_looks()
+    if not include_hidden:
+        looks = [x for x in looks if as_hidden_int(x.get("isHidden", 0)) == 0]
+
+    product_map = {str(p.get("id") or "").strip(): p for p in read_products()}
+    items = []
+    for look in looks:
+        row = dict(look)
+        row["products"] = [
+            product_map[pid]
+            for pid in row.get("productIds", [])
+            if isinstance(pid, str) and pid in product_map
+        ]
+        row["productsCount"] = len(row["products"])
+        items.append(row)
+
+    items.sort(key=lambda p: as_int(p.get("sortOrder", p.get("createdAt", 0)), 0), reverse=True)
+    return jsonify({"ok": True, "count": len(items), "items": items})
+
+
+@app.post("/looks")
+def add_complete_look():
+    ok, err = require_admin()
+    if not ok:
+        return err
+
+    payload = request.get_json(silent=True) or {}
+    looks = read_looks()
+    item = normalize_look_item(payload)
+    if not item["title"]:
+        return jsonify({"ok": False, "error": "title is required"}), 400
+    if not item["productIds"]:
+        return jsonify({"ok": False, "error": "productIds is required"}), 400
+    if any(str(x.get("id", "")).strip() == item["id"] for x in looks):
+        return jsonify({"ok": False, "error": "Look id already exists"}), 409
+
+    looks.append(item)
+    write_looks(looks)
+    return jsonify({"ok": True, "item": item}), 201
+
+
+@app.put("/looks/<look_id>")
+def update_complete_look(look_id: str):
+    ok, err = require_admin()
+    if not ok:
+        return err
+
+    payload = request.get_json(silent=True) or {}
+    look_id = str(look_id or "").strip()
+    looks = read_looks()
+    idx = next((i for i, x in enumerate(looks) if str(x.get("id", "")).strip() == look_id), -1)
+    if idx < 0:
+        return jsonify({"ok": False, "error": "Look not found"}), 404
+
+    merged = dict(looks[idx])
+    merged.update(payload)
+    merged["id"] = look_id
+    item = normalize_look_item(merged, looks[idx])
+    if not item["title"]:
+        return jsonify({"ok": False, "error": "title is required"}), 400
+    if not item["productIds"]:
+        return jsonify({"ok": False, "error": "productIds is required"}), 400
+
+    looks[idx] = item
+    write_looks(looks)
+    return jsonify({"ok": True, "item": item})
+
+
+@app.delete("/looks/<look_id>")
+def delete_complete_look(look_id: str):
+    ok, err = require_admin()
+    if not ok:
+        return err
+
+    look_id = str(look_id or "").strip()
+    looks = read_looks()
+    idx = next((i for i, x in enumerate(looks) if str(x.get("id", "")).strip() == look_id), -1)
+    if idx < 0:
+        return jsonify({"ok": False, "error": "Look not found"}), 404
+
+    deleted = looks.pop(idx)
+    write_looks(looks)
+    return jsonify({"ok": True, "deleted": deleted})
 
 
 @app.post("/orders")

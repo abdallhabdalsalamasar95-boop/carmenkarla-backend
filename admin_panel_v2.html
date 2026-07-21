@@ -760,6 +760,25 @@
           <div style="flex:1; min-width:260px"><input class="search" id="searchBox" type="text" placeholder="ابحث بالاسم أو الكود أو التصنيف..." oninput="renderProducts()" /></div>
           <div class="quick-row"><label class="pill"><input type="checkbox" id="showHidden" onchange="renderProducts()" /> إظهار المخفية</label></div>
         </div>
+        <div class="card" style="margin-bottom:16px">
+          <div class="panel-head">
+            <div>
+              <h3>إدارة الإطلالات الكاملة</h3>
+              <p>كوّني إطلالة من عدة منتجات مرتبطة؛ تظهر كحزمة منسقة ومتزامنة مع المنتجات.</p>
+            </div>
+            <div class="quick-row">
+              <button class="btn btn-primary" onclick="openLookModal()">+ إطلالة كاملة</button>
+              <button class="btn btn-soft" onclick="loadLooks(true)">تحديث الإطلالات</button>
+            </div>
+          </div>
+          <div class="stats" style="margin-bottom:12px">
+            <div class="stat"><div class="label">كل الإطلالات</div><div class="num" id="looksTotal">0</div></div>
+            <div class="stat"><div class="label">الظاهرة</div><div class="num" id="looksVisible">0</div></div>
+            <div class="stat"><div class="label">المخفية</div><div class="num" id="looksHidden">0</div></div>
+            <div class="stat"><div class="label">متوسط المنتجات</div><div class="num" id="looksAvgProducts">0</div></div>
+          </div>
+          <div class="products-grid" id="looksCards"></div>
+        </div>
         <div class="products-grid" id="productCards"></div>
         <div class="table-wrap">
           <table>
@@ -1159,6 +1178,43 @@
     </div>
   </div>
 
+  <div class="modal-overlay" id="lookModal">
+    <div class="modal">
+      <div class="modal-header">
+        <div><h3 id="lookModalTitle">إطلالة كاملة جديدة</h3><p>اختاري المنتجات المرتبطة وحددي صورة الغلاف والنص الظاهر.</p></div>
+        <button class="btn btn-soft" onclick="closeLookModal()">إغلاق</button>
+      </div>
+      <input type="hidden" id="lookEditId" />
+      <div class="form-grid">
+        <div class="form-block form-full">
+          <h4>بيانات الإطلالة</h4>
+          <div class="form-grid">
+            <div class="field form-full"><label>عنوان الإطلالة *</label><input id="lookTitle" type="text" placeholder="مثال: إطلالة سهرة ذهبية" /></div>
+            <div class="field"><label>شارة قصيرة</label><input id="lookBadge" type="text" placeholder="إطلالة كاملة" /></div>
+            <div class="field"><label>نص الزر</label><input id="lookCtaLabel" type="text" placeholder="تسوقي الإطلالة" /></div>
+            <div class="field"><label>خصم الإطلالة (%)</label><input id="lookDiscountPercent" type="number" min="0" max="100" step="0.1" placeholder="0" /></div>
+            <div class="field"><label>ترتيب الظهور</label><input id="lookSortOrder" type="number" placeholder="الأحدث يظهر أولاً" /></div>
+            <div class="field form-full"><label>وصف مختصر</label><textarea id="lookSubtitle" placeholder="نص قصير يظهر تحت العنوان..."></textarea></div>
+            <div class="field form-full"><label>وصف تفصيلي</label><textarea id="lookDescription" placeholder="تفاصيل الإطلالة، المناسبة، الألوان..."></textarea></div>
+            <div class="field form-full"><label>رابط صورة الغلاف</label><div class="quick-row"><input id="lookCoverImageUrl" type="text" placeholder="https://..." /><button class="btn btn-soft" onclick="useFirstLookProductImage()">استخدام أول صورة منتج</button></div></div>
+            <div class="field form-full"><label class="toggle"><span>مخفية من التطبيق</span><span class="switch"><input type="checkbox" id="lookHidden" /><span class="slider"></span></span></label></div>
+          </div>
+        </div>
+        <div class="form-block form-full">
+          <h4>منتجات الإطلالة</h4>
+          <div class="field form-full"><label>بحث سريع</label><input id="lookProductSearch" type="text" placeholder="ابحثي بالاسم أو الكود..." oninput="renderLookProductPicker()" /></div>
+          <div class="products-grid" id="lookProductPicker"></div>
+          <div class="minimal-note" id="lookSelectedSummary">لم يتم اختيار منتجات بعد.</div>
+        </div>
+      </div>
+      <div class="hero-actions" style="justify-content:flex-end">
+        <button class="btn btn-soft" onclick="closeLookModal()">إلغاء</button>
+        <button class="btn btn-danger" id="deleteLookBtn" onclick="deleteLookFromModal()" style="display:none">حذف الإطلالة</button>
+        <button class="btn btn-primary" id="saveLookBtn" onclick="saveLook()">حفظ الإطلالة</button>
+      </div>
+    </div>
+  </div>
+
   <div class="toast-wrap" id="toastContainer"></div>
 
   <script>
@@ -1177,6 +1233,8 @@
     }
     let API_TOKEN = localStorage.getItem('ck_token') || 'ck_9f6e3b42d14a4c4f8ea8a4fb6f6f0e11';
     let allProducts = [];
+    let allLooks = [];
+    let lookSelectedProductIds = [];
     let deleteTargetId = null;
     let selectedFiles = [];
     let previewUrls = [];
@@ -1624,6 +1682,9 @@
       if (view === 'orders') {
         loadOrders();
       }
+      if (view === 'products') {
+        loadProducts();
+      }
       if (view === 'ambassadors') {
         loadAmbassadors();
       }
@@ -1730,10 +1791,26 @@
         allProducts = [];
         toast('فشل تحميل المنتجات', 'error');
       }
+      await loadLooks(false);
       updateStats();
       renderRecentProducts();
       renderLowStockAlerts();
       renderProducts();
+    }
+
+    async function loadLooks(forceToast = false) {
+      try {
+        const data = await api('GET', '/looks?includeHidden=1');
+        if (!data.ok) throw new Error(data.error || 'فشل تحميل الإطلالات');
+        allLooks = Array.isArray(data.items) ? data.items : [];
+        allLooks.sort((a, b) => Number(b.sortOrder || b.createdAt || 0) - Number(a.sortOrder || a.createdAt || 0));
+        renderLooks();
+        if (forceToast) toast('تم تحديث الإطلالات الكاملة', 'success');
+      } catch (err) {
+        allLooks = [];
+        renderLooks();
+        if (forceToast) toast(String(err?.message || 'فشل تحميل الإطلالات'), 'error');
+      }
     }
 
     function renderDashboardSummary() {
@@ -2658,6 +2735,223 @@
         const colors = productColors(p);
         return `<tr><td>${img ? `<img class="thumb" style="width:52px;height:52px" src="${escHtml(img)}" alt="">` : '<div class="thumb-ph" style="width:52px;height:52px">👗</div>'}</td><td><div style="font-weight:900">${escHtml(p.name || 'بدون اسم')}</div><div style="margin-top:6px">${productCodeMarkup(p.productCode)}</div>${p.tags ? `<div style="margin-top:4px;color:var(--muted);font-size:.76rem">${escHtml(p.tags)}</div>` : ''}</td><td><div style="font-weight:900;color:var(--gold2)">${Number(p.price || 0)} ل.د</div>${p.oldPrice ? `<div style="margin-top:4px;color:var(--muted);text-decoration:line-through">${escHtml(p.oldPrice)}</div>` : ''}</td><td>${escHtml(p.category || '—')}</td><td>${escHtml([sizes, lengths].filter(Boolean).join(' / ') || '—')}</td><td>${escHtml(colors.join('، ') || '—')}</td><td><div>${stockBadge(inv)}</div><div style="margin-top:4px;color:var(--muted);font-size:.76rem">${inv.available > 0 ? `${inv.available} قطعة` : '0 قطعة'}</div></td><td>${p.rating ? `⭐ ${escHtml(p.rating)}` : '—'}</td><td><span class="badge ${hidden ? 'off' : 'ok'}">${hidden ? 'مخفي' : 'ظاهر'}</span></td><td><div class="quick-row"><button class="btn btn-soft" onclick="openEditModalById('${id}')">تعديل</button><button class="btn btn-soft" onclick="toggleHiddenById('${id}')">${hidden ? 'إظهار' : 'إخفاء'}</button><button class="btn btn-danger" onclick="openDeleteModalById('${id}')">حذف</button></div></td></tr>`;
       }).join('');
+    }
+
+    function productById(id) {
+      const pid = String(id || '').trim();
+      return allProducts.find(p => String(p.id || '').trim() === pid) || null;
+    }
+
+    function lookProducts(look) {
+      const ids = Array.isArray(look?.productIds) ? look.productIds : [];
+      return ids.map(productById).filter(Boolean);
+    }
+
+    function renderLooks() {
+      const box = document.getElementById('looksCards');
+      if (!box) return;
+      const total = allLooks.length;
+      const visible = allLooks.filter(x => Number(x.isHidden || 0) !== 1).length;
+      const hidden = total - visible;
+      const avg = total ? (allLooks.reduce((s, x) => s + (Array.isArray(x.productIds) ? x.productIds.length : 0), 0) / total) : 0;
+      document.getElementById('looksTotal').textContent = total;
+      document.getElementById('looksVisible').textContent = visible;
+      document.getElementById('looksHidden').textContent = hidden;
+      document.getElementById('looksAvgProducts').textContent = avg.toFixed(1);
+
+      if (!allLooks.length) {
+        box.innerHTML = '<div class="empty" style="grid-column:1/-1"><div class="icon">👗</div><div>لا توجد إطلالات كاملة بعد.</div></div>';
+        return;
+      }
+
+      box.innerHTML = allLooks.map(look => {
+        const hidden = Number(look.isHidden || 0) === 1;
+        const products = lookProducts(look);
+        const cover = String(look.coverImageUrl || look.imageUrl || productImages(products[0] || {})[0] || '').trim();
+        const price = products.reduce((sum, p) => sum + Number(p.price || 0), 0);
+        const discount = Math.max(0, Math.min(100, Number(look.discountPercent || 0)));
+        const finalPrice = discount > 0 ? price * (1 - discount / 100) : price;
+        const id = encodeURIComponent(String(look.id || ''));
+        return `<div class="product-card">
+          <div class="product-top">${cover ? `<img class="thumb" src="${escHtml(cover)}" alt="">` : '<div class="thumb-ph">👗</div>'}
+            <div class="product-meta" style="flex:1">
+              <h4>${escHtml(look.title || 'إطلالة بدون عنوان')}</h4>
+              <p>${escHtml(look.subtitle || look.description || 'إطلالة مكونة من منتجات مختارة')}</p>
+              <div class="price">${finalPrice.toFixed(2)} ل.د ${discount ? `<span style="font-size:.75rem;color:var(--muted);text-decoration:line-through">${price.toFixed(2)}</span>` : ''}</div>
+              <p>${products.length} منتجات • ${escHtml(look.badge || 'إطلالة كاملة')}</p>
+            </div>
+          </div>
+          <div class="quick-row"><span class="badge ${hidden ? 'off' : 'ok'}">${hidden ? 'مخفية' : 'ظاهرة'}</span>${discount ? `<span class="badge soon">خصم ${discount}%</span>` : ''}</div>
+          <div class="quick-row"><button class="btn btn-soft" onclick="openLookModalById('${id}')">تعديل</button><button class="btn btn-danger" onclick="deleteLookById('${id}')">حذف</button></div>
+        </div>`;
+      }).join('');
+    }
+
+    function resetLookForm() {
+      ['lookEditId', 'lookTitle', 'lookSubtitle', 'lookDescription', 'lookBadge', 'lookCtaLabel', 'lookDiscountPercent', 'lookSortOrder', 'lookCoverImageUrl', 'lookProductSearch'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+      });
+      document.getElementById('lookHidden').checked = false;
+      lookSelectedProductIds = [];
+      renderLookProductPicker();
+    }
+
+    function openLookModal() {
+      resetLookForm();
+      document.getElementById('lookModalTitle').textContent = 'إطلالة كاملة جديدة';
+      document.getElementById('lookBadge').value = 'إطلالة كاملة';
+      document.getElementById('lookCtaLabel').value = 'تسوقي الإطلالة';
+      document.getElementById('lookSortOrder').value = Date.now();
+      document.getElementById('deleteLookBtn').style.display = 'none';
+      document.getElementById('lookModal').classList.add('open');
+      renderLookProductPicker();
+    }
+
+    function getLookById(encodedId) {
+      const id = decodeURIComponent(String(encodedId || ''));
+      return allLooks.find(x => String(x.id || '') === id) || null;
+    }
+
+    function openLookModalById(encodedId) {
+      const look = getLookById(encodedId);
+      if (!look) return toast('تعذر العثور على الإطلالة', 'error');
+      resetLookForm();
+      document.getElementById('lookModalTitle').textContent = 'تعديل إطلالة كاملة';
+      document.getElementById('lookEditId').value = look.id || '';
+      document.getElementById('lookTitle').value = look.title || '';
+      document.getElementById('lookSubtitle').value = look.subtitle || '';
+      document.getElementById('lookDescription').value = look.description || '';
+      document.getElementById('lookBadge').value = look.badge || 'إطلالة كاملة';
+      document.getElementById('lookCtaLabel').value = look.ctaLabel || 'تسوقي الإطلالة';
+      document.getElementById('lookDiscountPercent').value = look.discountPercent || '';
+      document.getElementById('lookSortOrder').value = look.sortOrder || look.createdAt || Date.now();
+      document.getElementById('lookCoverImageUrl').value = look.coverImageUrl || look.imageUrl || '';
+      document.getElementById('lookHidden').checked = Number(look.isHidden || 0) === 1;
+      lookSelectedProductIds = Array.isArray(look.productIds) ? [...look.productIds] : [];
+      document.getElementById('deleteLookBtn').style.display = 'inline-flex';
+      document.getElementById('lookModal').classList.add('open');
+      renderLookProductPicker();
+    }
+
+    function closeLookModal() {
+      document.getElementById('lookModal').classList.remove('open');
+      resetLookForm();
+    }
+
+    function toggleLookProduct(id) {
+      const pid = String(id || '').trim();
+      if (!pid) return;
+      const ix = lookSelectedProductIds.indexOf(pid);
+      if (ix >= 0) lookSelectedProductIds.splice(ix, 1);
+      else lookSelectedProductIds.push(pid);
+      renderLookProductPicker();
+    }
+
+    function renderLookProductPicker() {
+      const box = document.getElementById('lookProductPicker');
+      if (!box) return;
+      const q = String(document.getElementById('lookProductSearch')?.value || '').trim().toLowerCase();
+      const list = allProducts.filter(p => {
+        if (Number(p.isHidden || 0) === 1) return false;
+        if (!q) return true;
+        return [p.name, p.productCode, p.category].some(v => String(v || '').toLowerCase().includes(q));
+      }).slice(0, 24);
+
+      if (!list.length) {
+        box.innerHTML = '<div class="empty" style="grid-column:1/-1">لا توجد منتجات مطابقة.</div>';
+      } else {
+        box.innerHTML = list.map(p => {
+          const id = String(p.id || '').trim();
+          const selected = lookSelectedProductIds.includes(id);
+          const img = productImages(p)[0] || '';
+          return `<div class="product-card" style="cursor:pointer;border-color:${selected ? 'var(--gold2)' : 'var(--line)'}" onclick="toggleLookProduct('${escHtml(id)}')">
+            <div class="product-top">${img ? `<img class="thumb" src="${escHtml(img)}" alt="">` : '<div class="thumb-ph">👗</div>'}
+              <div class="product-meta" style="flex:1"><h4>${escHtml(p.name || 'بدون اسم')}</h4><p>${escHtml(p.productCode || p.category || '')}</p><div class="price">${Number(p.price || 0)} ل.د</div></div>
+              <span class="badge ${selected ? 'ok' : ''}">${selected ? 'مختار' : 'اختيار'}</span>
+            </div>
+          </div>`;
+        }).join('');
+      }
+
+      const selectedProducts = lookSelectedProductIds.map(productById).filter(Boolean);
+      const total = selectedProducts.reduce((sum, p) => sum + Number(p.price || 0), 0);
+      const summary = selectedProducts.length
+        ? `${selectedProducts.length} منتجات مختارة • الإجمالي ${total.toFixed(2)} ل.د`
+        : 'لم يتم اختيار منتجات بعد.';
+      const el = document.getElementById('lookSelectedSummary');
+      if (el) el.textContent = summary;
+    }
+
+    function useFirstLookProductImage() {
+      const first = lookSelectedProductIds.map(productById).filter(Boolean)[0];
+      const img = productImages(first || {})[0] || '';
+      if (!img) return toast('لا توجد صورة في أول منتج مختار', 'error');
+      document.getElementById('lookCoverImageUrl').value = img;
+      toast('تم استخدام صورة أول منتج كغلاف', 'success');
+    }
+
+    async function saveLook() {
+      const title = document.getElementById('lookTitle').value.trim();
+      if (!title) return toast('عنوان الإطلالة مطلوب', 'error');
+      if (!lookSelectedProductIds.length) return toast('اختاري منتجًا واحدًا على الأقل', 'error');
+
+      const btn = document.getElementById('saveLookBtn');
+      const old = btn.textContent;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>';
+
+      const payload = {
+        title,
+        subtitle: document.getElementById('lookSubtitle').value.trim(),
+        description: document.getElementById('lookDescription').value.trim(),
+        badge: document.getElementById('lookBadge').value.trim() || 'إطلالة كاملة',
+        ctaLabel: document.getElementById('lookCtaLabel').value.trim() || 'تسوقي الإطلالة',
+        coverImageUrl: document.getElementById('lookCoverImageUrl').value.trim(),
+        discountPercent: Math.max(0, Math.min(100, parseFloat(document.getElementById('lookDiscountPercent').value || '0') || 0)),
+        sortOrder: parseInt(document.getElementById('lookSortOrder').value || `${Date.now()}`, 10) || Date.now(),
+        productIds: [...lookSelectedProductIds],
+        isHidden: document.getElementById('lookHidden').checked ? 1 : 0,
+      };
+      if (!payload.coverImageUrl) {
+        const first = lookSelectedProductIds.map(productById).filter(Boolean)[0];
+        payload.coverImageUrl = productImages(first || {})[0] || '';
+      }
+
+      try {
+        const id = document.getElementById('lookEditId').value.trim();
+        const data = id ? await api('PUT', `/looks/${id}`, payload) : await api('POST', '/looks', payload);
+        if (!data.ok) throw new Error(data.error || 'فشل حفظ الإطلالة');
+        toast(id ? 'تم تحديث الإطلالة ✓' : 'تمت إضافة الإطلالة ✓', 'success');
+        closeLookModal();
+        await loadLooks();
+      } catch (err) {
+        toast(String(err?.message || 'فشل حفظ الإطلالة'), 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = old;
+      }
+    }
+
+    async function deleteLookById(encodedId) {
+      const look = getLookById(encodedId);
+      if (!look) return toast('تعذر العثور على الإطلالة', 'error');
+      if (!confirm(`حذف الإطلالة: ${look.title || 'بدون عنوان'}؟`)) return;
+      try {
+        const data = await api('DELETE', `/looks/${look.id}`);
+        if (!data.ok) throw new Error(data.error || 'فشل الحذف');
+        toast('تم حذف الإطلالة', 'success');
+        await loadLooks();
+      } catch (err) {
+        toast(String(err?.message || 'فشل حذف الإطلالة'), 'error');
+      }
+    }
+
+    async function deleteLookFromModal() {
+      const id = document.getElementById('lookEditId').value.trim();
+      if (!id) return;
+      await deleteLookById(encodeURIComponent(id));
+      closeLookModal();
     }
 
     function getProductById(encodedId) {
