@@ -313,6 +313,32 @@
     .product-meta p { color: var(--muted); margin-top: 5px; font-size: .82rem; }
     .price { color: var(--text); font-weight: 900; margin-top: 8px; }
     .table-wrap { overflow: auto; border: 1px solid var(--line); border-radius: var(--radius); background: rgba(255,255,255,.015); }
+    .mobile-only-block { display: none; }
+    .mobile-list { display: grid; gap: 10px; }
+    .mobile-data-card {
+      background: rgba(255,255,255,.03);
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 16px;
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+    }
+    .mobile-data-card h4 {
+      font-size: .96rem;
+      font-weight: 900;
+      line-height: 1.5;
+    }
+    .mobile-meta {
+      color: var(--muted);
+      font-size: .84rem;
+      line-height: 1.7;
+      display: grid;
+      gap: 3px;
+    }
+    .mobile-actions {
+      display: grid;
+      gap: 8px;
+    }
     table { width: 100%; border-collapse: collapse; min-width: 980px; }
     th, td { padding: 14px 12px; text-align: right; }
     th { background: rgba(255,255,255,.03); color: var(--muted); font-size: .78rem; font-weight: 900; text-transform: none; }
@@ -448,6 +474,14 @@
       }
       #panel-products .table-wrap {
         display: none;
+      }
+      #panel-orders .table-wrap,
+      #panel-ambassadors .table-wrap,
+      #panel-devices .table-wrap {
+        display: none;
+      }
+      .mobile-only-block {
+        display: block;
       }
       .campaign-subnav {
         flex-wrap: nowrap;
@@ -713,6 +747,7 @@
             <tbody id="ordersTableBody"><tr><td colspan="8" class="empty">لا توجد طلبات بعد.</td></tr></tbody>
           </table>
         </div>
+        <div class="mobile-only-block mobile-list" id="ordersMobileList"></div>
       </div>
 
       <div class="panel" id="panel-ambassadors">
@@ -758,6 +793,7 @@
               <tbody id="ambOrdersTableBody"><tr><td colspan="6" class="empty">لا توجد بيانات مندوبات بعد.</td></tr></tbody>
             </table>
           </div>
+          <div class="mobile-only-block mobile-list" id="ambOrdersMobileList"></div>
         </div>
       </div>
 
@@ -850,6 +886,7 @@
             <tbody id="devicesTableBody"><tr><td colspan="10" class="empty">لا توجد بيانات أجهزة بعد.</td></tr></tbody>
           </table>
         </div>
+        <div class="mobile-only-block mobile-list" id="devicesMobileList" style="margin-top:12px"></div>
       </div>
 
       <div class="panel" id="panel-settings">
@@ -1858,8 +1895,10 @@
       ].join('');
 
       const recentBody = document.getElementById('ambOrdersTableBody');
+      const recentMobile = document.getElementById('ambOrdersMobileList');
       if (!model.recent.length) {
         recentBody.innerHTML = '<tr><td colspan="6" class="empty">لا توجد بيانات مندوبات بعد.</td></tr>';
+        if (recentMobile) recentMobile.innerHTML = '<div class="empty">لا توجد بيانات مندوبات بعد.</div>';
       } else {
         recentBody.innerHTML = model.recent.map(o => `
           <tr>
@@ -1871,6 +1910,20 @@
             <td>${escHtml(fmtTime(o.createdAtMs))}</td>
           </tr>
         `).join('');
+        if (recentMobile) {
+          recentMobile.innerHTML = model.recent.map(o => `
+            <div class="mobile-data-card">
+              <h4>#${escHtml(o.orderId || '')}</h4>
+              <div class="mobile-meta">
+                <div>المندوبة: ${escHtml(o.ambassadorName || 'مندوبة غير محددة')}</div>
+                <div>الحالة: <span class="badge ${statusBadgeClass(o.status)}">${escHtml(statusLabel(o.status))}</span></div>
+                <div>المبيعات: ${o.total.toFixed(2)} ل.د</div>
+                <div>العمولة: ${o.estimated.toFixed(2)} ل.د</div>
+                <div>التاريخ: ${escHtml(fmtTime(o.createdAtMs))}</div>
+              </div>
+            </div>
+          `).join('');
+        }
       }
     }
 
@@ -1883,14 +1936,17 @@
         if (forceToast) toast('تم تحديث مركز المندوبات', 'success');
       } catch (err) {
         const body = document.getElementById('ambOrdersTableBody');
+        const mobile = document.getElementById('ambOrdersMobileList');
         if (body) body.innerHTML = '<tr><td colspan="6" class="empty">تعذر تحميل بيانات المندوبات.</td></tr>';
+        if (mobile) mobile.innerHTML = '<div class="empty">تعذر تحميل بيانات المندوبات.</div>';
         if (forceToast) toast(String(err?.message || 'فشل تحميل بيانات المندوبات'), 'error');
       }
     }
 
     function renderOrders() {
       const body = document.getElementById('ordersTableBody');
-      if (!body) return;
+      const mobileList = document.getElementById('ordersMobileList');
+      if (!body && !mobileList) return;
 
       const statusCounter = {
         pending: 0,
@@ -1913,11 +1969,13 @@
       document.getElementById('ordCanceled').textContent = statusCounter.canceled;
 
       if (!allOrders.length) {
-        body.innerHTML = '<tr><td colspan="8" class="empty">لا توجد طلبات بعد.</td></tr>';
+        if (body) body.innerHTML = '<tr><td colspan="8" class="empty">لا توجد طلبات بعد.</td></tr>';
+        if (mobileList) mobileList.innerHTML = '<div class="empty">لا توجد طلبات بعد.</div>';
         return;
       }
 
-      body.innerHTML = allOrders.map(o => {
+      if (body) {
+        body.innerHTML = allOrders.map(o => {
         const id = String(o.orderId || '');
         const status = String(o.status || 'pending').toLowerCase();
         const total = Number(o.grandTotal || 0);
@@ -1938,12 +1996,43 @@
             <td>
               <div class="quick-row" style="min-width:200px">
                 <select id="ordStatus_${escHtml(id)}" style="min-width:140px">${options}</select>
-                <button class="btn btn-soft" onclick="updateOrderStatus('${escHtml(id)}')">حفظ</button>
+                <button class="btn btn-soft" onclick="updateOrderStatus('${escHtml(id)}', 'table')">حفظ</button>
               </div>
             </td>
           </tr>
         `;
-      }).join('');
+        }).join('');
+      }
+
+      if (mobileList) {
+        mobileList.innerHTML = allOrders.map(o => {
+          const id = String(o.orderId || '');
+          const status = String(o.status || 'pending').toLowerCase();
+          const total = Number(o.grandTotal || 0);
+          const createdAt = fmtTime(o.createdAtMs);
+          const options = ['pending', 'processing', 'shipped', 'delivered', 'canceled']
+            .map(s => `<option value="${s}" ${s === status ? 'selected' : ''}>${statusLabel(s)}</option>`)
+            .join('');
+
+          return `
+            <div class="mobile-data-card">
+              <h4>#${escHtml(id)}</h4>
+              <div class="mobile-meta">
+                <div>العميل: ${escHtml(o.customerName || '—')}</div>
+                <div>الهاتف: ${escHtml(o.customerPhone || '—')}</div>
+                <div>الإجمالي: ${Number.isFinite(total) ? total.toFixed(2) : '0.00'} ل.د</div>
+                <div>العناصر: ${Number(o.itemsCount || 0)}</div>
+                <div>الحالة: <span class="badge ${statusBadgeClass(status)}">${escHtml(statusLabel(status))}</span></div>
+                <div>التاريخ: ${escHtml(createdAt)}</div>
+              </div>
+              <div class="mobile-actions">
+                <select id="ordStatusMobile_${escHtml(id)}">${options}</select>
+                <button class="btn btn-soft" onclick="updateOrderStatus('${escHtml(id)}', 'mobile')">حفظ الحالة</button>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
     }
 
     async function loadOrders(forceToast = false) {
@@ -1956,12 +2045,15 @@
         renderOrders();
         if (forceToast) toast('تم تحديث الطلبات', 'success');
       } catch (err) {
+        const mobile = document.getElementById('ordersMobileList');
+        if (mobile) mobile.innerHTML = '<div class="empty">تعذر تحميل الطلبات.</div>';
         if (forceToast) toast(String(err?.message || 'فشل تحميل الطلبات'), 'error');
       }
     }
 
-    async function updateOrderStatus(orderId) {
-      const sel = document.getElementById(`ordStatus_${orderId}`);
+    async function updateOrderStatus(orderId, source = 'table') {
+      const key = source === 'mobile' ? `ordStatusMobile_${orderId}` : `ordStatus_${orderId}`;
+      const sel = document.getElementById(key);
       if (!sel) return;
       const status = String(sel.value || '').trim().toLowerCase();
       try {
@@ -2039,8 +2131,10 @@
       }
 
       const body = document.getElementById('devicesTableBody');
+      const mobileList = document.getElementById('devicesMobileList');
       if (!recentItems.length) {
         body.innerHTML = '<tr><td colspan="10" class="empty">لا توجد بيانات أجهزة بعد.</td></tr>';
+        if (mobileList) mobileList.innerHTML = '<div class="empty">لا توجد بيانات أجهزة بعد.</div>';
         return;
       }
 
@@ -2063,6 +2157,30 @@
           </tr>
         `;
       }).join('');
+
+      if (mobileList) {
+        mobileList.innerHTML = recentItems.map(d => {
+          const brand = String(d.brand || '').trim();
+          const model = String(d.model || '').trim();
+          const name = `${brand} ${model}`.trim() || 'غير محدد';
+          return `
+            <div class="mobile-data-card">
+              <h4>${escHtml(name)}</h4>
+              <div class="mobile-meta">
+                <div>النظام: ${escHtml(d.platform || 'unknown')} ${escHtml(d.osVersion || '')}</div>
+                <div>المستخدم: ${escHtml(d.uid || '—')}</div>
+                <div>اللغة: ${escHtml(d.locale || '—')}</div>
+                <div>نسخة التطبيق: ${escHtml(d.appVersion || '—')} (Build ${escHtml(d.appBuild || '—')})</div>
+                <div>آخر ظهور: ${escHtml(fmtTime(d.lastSeenMs))}</div>
+                <div>آخر حدث: ${escHtml(d.lastEvent || 'heartbeat')}</div>
+                <div>IP: ${escHtml(d.lastIp || '—')}</div>
+                <div>مرات الظهور: ${Number(d.seenCount || 1)}</div>
+                <div>المعرّف: ${escHtml(toShortDeviceId(d.installationId || ''))}</div>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
     }
 
     async function loadDeviceStats(forceToast = false) {
