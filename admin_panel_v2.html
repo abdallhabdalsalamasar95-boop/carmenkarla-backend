@@ -2,7 +2,7 @@
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>CarmenKarla Admin</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -34,6 +34,9 @@
         linear-gradient(180deg, #07090d, #0d131b 38%, #0b1118 100%);
       color: var(--text);
       min-height: 100vh;
+      overscroll-behavior: none;
+      touch-action: pan-x pan-y;
+      -webkit-text-size-adjust: 100%;
     }
     .shell { max-width: 1540px; margin: 0 auto; padding: 14px 18px 42px; }
     .topbar, .card, .panel, .modal {
@@ -287,6 +290,8 @@
     body:not([data-view="overview"]) .landing-panel {
       display: none;
     }
+    body.native-admin .switcher { display: none; }
+    body.native-admin .workspace { margin-top: 8px; }
     .panel { display: none; border-radius: 24px; padding: 22px; }
     .panel.active { display: block; }
     .panel-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
@@ -413,6 +418,18 @@
     .modal-overlay { position: fixed; inset: 0; background: rgba(3,6,12,.72); display: none; align-items: center; justify-content: center; padding: 16px; z-index: 100; }
     .modal-overlay.open { display: flex; }
     .modal { width: min(1080px, 100%); max-height: 92vh; overflow: auto; border-radius: 28px; padding: 22px; }
+    .product-modal-card { display: flex; flex-direction: column; overflow: hidden; }
+    .product-modal-card .modal-header { flex: 0 0 auto; }
+    .product-form-scroll { overflow-y: auto; overscroll-behavior: contain; padding: 2px 4px 18px; }
+    .modal-save-bar {
+      position: sticky;
+      bottom: 0;
+      z-index: 4;
+      flex: 0 0 auto;
+      margin: 8px -4px -4px;
+      padding: 12px 4px 4px;
+      background: linear-gradient(180deg, transparent, rgba(18,23,33,.98) 28%);
+    }
     .modal-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 18px; }
     .modal-header h3 { font-size: 1.1rem; font-weight: 950; }
     .modal-header p { color: var(--muted); margin-top: 4px; font-size: .84rem; }
@@ -424,6 +441,46 @@
     .field label { color: var(--muted); font-size: .8rem; font-weight: 700; }
     .preset { border: 1px solid var(--line); background: rgba(255,255,255,.04); color: var(--muted); border-radius: 999px; padding: 8px 12px; font-size: .8rem; font-weight: 800; cursor: pointer; }
     .preset.active { background: rgba(255,255,255,.08); color: var(--text); border-color: rgba(255,255,255,.12); }
+    .size-type-tabs { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+    .size-type-tab {
+      flex: 0 0 auto;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.035);
+      color: var(--muted);
+      border-radius: 12px;
+      padding: 10px 13px;
+      font: inherit;
+      font-size: .82rem;
+      font-weight: 900;
+      cursor: pointer;
+    }
+    .size-type-tab.active { color: #17120c; background: var(--gold2); border-color: var(--gold2); }
+    .size-choice-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
+    .size-choice {
+      min-height: 44px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(255,255,255,.035);
+      color: var(--text);
+      font: inherit;
+      font-weight: 900;
+      cursor: pointer;
+    }
+    .size-choice.active { color: #17120c; background: var(--gold2); border-color: var(--gold2); }
+    .size-quantity-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .size-quantity-item {
+      display: grid;
+      grid-template-columns: auto minmax(70px, 1fr);
+      align-items: center;
+      gap: 8px;
+      padding: 9px;
+      border-radius: 13px;
+      background: rgba(255,255,255,.025);
+      border: 1px solid var(--line);
+    }
+    .size-quantity-item strong { min-width: 42px; text-align: center; color: var(--gold2); }
+    .size-quantity-item input { min-width: 0; text-align: center; }
+    .inventory-summary { padding: 11px 13px; border-radius: 13px; color: var(--gold2); background: rgba(212,176,123,.08); border: 1px solid rgba(212,176,123,.18); font-weight: 900; }
     .drop-zone { border: 1px dashed rgba(255,255,255,.16); border-radius: 18px; padding: 24px; background: rgba(255,255,255,.018); text-align: center; cursor: pointer; }
     .drop-zone:hover, .drop-zone.drag { border-color: rgba(213,176,122,.45); background: rgba(213,176,122,.05); }
     .drop-zone strong { display: block; margin-bottom: 8px; }
@@ -432,6 +489,10 @@
     .gallery-thumb, .pending-thumb { width: 84px; height: 84px; }
     .remove-btn { position: absolute; top: -6px; left: -6px; width: 24px; height: 24px; border: none; border-radius: 50%; background: var(--err); color: #fff; font-weight: 900; cursor: pointer; }
     .thumb-label { color: var(--muted); text-align: center; margin-top: 6px; font-size: .72rem; }
+    .primary-image-btn { width: 100%; border: 0; background: transparent; color: var(--gold2); font-size: .7rem; cursor: pointer; margin-top: 4px; }
+    .upload-status { margin-top: 10px; color: var(--muted); font-size: .8rem; min-height: 20px; }
+    .amb-detail-identity { display: grid; gap: 8px; padding: 14px; border-radius: 16px; background: rgba(255,255,255,.025); border: 1px solid var(--line); }
+    .amb-detail-orders { display: grid; gap: 10px; margin-top: 14px; }
     .toggle { display: inline-flex; align-items: center; gap: 10px; color: var(--muted); font-size: .86rem; font-weight: 700; }
     .switch { position: relative; width: 48px; height: 28px; }
     .switch input { opacity: 0; width: 0; height: 0; }
@@ -576,6 +637,27 @@
       textarea {
         min-height: 100px;
       }
+      .modal-overlay { padding: 0; align-items: stretch; }
+      .modal {
+        width: 100%;
+        max-height: 100dvh;
+        height: 100dvh;
+        border-radius: 0;
+        border: 0;
+        padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
+      }
+      .modal-header {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        padding: 4px 0 12px;
+        background: rgba(18,23,33,.98);
+      }
+      .product-form-scroll { padding-inline: 0; }
+      .form-block { padding: 13px; border-radius: 16px; }
+      .size-choice-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .size-quantity-grid { grid-template-columns: 1fr; }
+      .modal-save-bar .btn { flex: 1; }
 
       .topbar {
         padding: 12px;
@@ -1091,13 +1173,13 @@
   </div>
 
   <div class="modal-overlay" id="productModal">
-    <div class="modal">
+    <div class="modal product-modal-card">
       <div class="modal-header">
-        <div><h3 id="modalTitle">منتج جديد</h3><p>إدخال مختصر ومنظم لحفظ المنتج.</p></div>
+        <div><h3 id="modalTitle">منتج جديد</h3><p>كل الحقول مرتبة للهاتف، والكمية تُحسب من المقاسات تلقائيًا.</p></div>
         <button class="btn btn-soft" onclick="closeModal()">إغلاق</button>
       </div>
       <input type="hidden" id="editId" />
-      <div class="form-grid">
+      <div class="form-grid product-form-scroll">
         <div class="form-block form-full">
           <h4>المعلومات الأساسية</h4>
           <div class="form-grid">
@@ -1119,17 +1201,21 @@
         <div class="form-block">
           <h4>المقاسات والأطوال</h4>
           <div class="form-grid">
-            <div class="field form-full"><label>المقاسات</label><input id="fSizes" type="text" placeholder="XS,S,M,L,XL" /><div class="chips" id="sizesPreset"></div></div>
+            <input id="fSizes" type="hidden" />
+            <input id="fSizeType" type="hidden" value="clothing" />
+            <div class="field form-full"><label>نوع المقاسات</label><div class="size-type-tabs" id="sizeTypeTabs"></div></div>
+            <div class="field form-full"><label>اختاري المقاسات المتوفرة</label><div class="size-choice-grid" id="sizeChoices"></div><div class="minimal-note">اضغطي على المقاس لإضافته أو إزالته، بدون كتابة يدوية.</div></div>
             <div class="field form-full"><label>الأطوال</label><input id="fLengths" type="text" placeholder="قصير,عادي,طويل أو 150,152..." /><div class="chips" id="lengthsPreset"></div></div>
           </div>
         </div>
         <div class="form-block">
           <h4>المخزون والألوان</h4>
           <div class="form-grid">
-            <div class="field"><label>إجمالي الكمية</label><input id="fStockQuantity" type="number" min="0" placeholder="مثال: 25" /></div>
+            <div class="field"><label>إجمالي الكمية (تلقائي)</label><input id="fStockQuantity" type="number" min="0" value="0" readonly /></div>
             <div class="field"><label>حد التنبيه قبل النفاد</label><input id="fLowStockThreshold" type="number" min="0" placeholder="مثال: 3" /></div>
             <div class="field form-full"><label>ألوان المنتج</label><input id="fColors" type="text" placeholder="أسود,أبيض,سكري" /><div class="chips" id="colorsPreset"></div></div>
-            <div class="field form-full"><label>كمية كل مقاس</label><textarea id="fSizeQuantities" placeholder="S:5, M:3, L:0"></textarea></div>
+            <input id="fSizeQuantities" type="hidden" />
+            <div class="field form-full"><label>كمية كل مقاس</label><div class="size-quantity-grid" id="sizeQuantityEditor"></div><div class="inventory-summary" id="inventorySummary">إجمالي المخزون: 0 قطعة</div></div>
             <div class="field form-full"><label>كمية كل لون</label><textarea id="fColorQuantities" placeholder="أسود:8, أبيض:4"></textarea></div>
           </div>
         </div>
@@ -1146,6 +1232,7 @@
           </div>
           <input type="file" id="fileInput" accept="image/*,.heic,.heif,.avif,.jfif" multiple style="display:none" onchange="handleFileSelect(event)" />
           <div class="thumbs" id="pendingPreviews"></div>
+          <div class="upload-status" id="uploadStatus"></div>
           <div class="hero-actions">
             <button class="btn btn-soft" id="uploadBtn" onclick="uploadImages()">رفع الصور المحددة</button>
             <button class="btn btn-soft" onclick="clearSelectedFiles()">مسح المحدد</button>
@@ -1157,7 +1244,7 @@
           </div>
         </div>
       </div>
-      <div class="hero-actions" style="justify-content:flex-end">
+      <div class="hero-actions modal-save-bar" style="justify-content:flex-end">
         <button class="btn btn-soft" onclick="closeModal()">إلغاء</button>
         <button class="btn btn-primary" id="saveBtn" onclick="saveProduct()">حفظ المنتج</button>
       </div>
@@ -1215,12 +1302,31 @@
     </div>
   </div>
 
+  <div class="modal-overlay" id="ambassadorDetailModal">
+    <div class="modal" style="max-width:820px">
+      <div class="modal-header">
+        <div><h3 id="ambDetailName">تفاصيل المندوبة</h3><p>ملف مستقل للمبيعات والعمولات والطلبات.</p></div>
+        <button class="btn btn-soft" onclick="closeAmbassadorDetails()">إغلاق</button>
+      </div>
+      <div class="amb-detail-identity" id="ambDetailIdentity"></div>
+      <div class="stats" id="ambDetailStats" style="margin-top:14px"></div>
+      <div class="panel-head" style="margin-top:18px"><div><h3>طلبات هذه المندوبة</h3><p>تفاصيل كل طلب وحالته وقيمته وعمولته.</p></div></div>
+      <div class="amb-detail-orders" id="ambDetailOrders"></div>
+      <div class="hero-actions modal-save-bar"><button class="btn btn-soft" onclick="closeAmbassadorDetails()">إغلاق الملف</button></div>
+    </div>
+  </div>
+
   <div class="toast-wrap" id="toastContainer"></div>
 
   <script>
     const CATEGORY_OPTIONS = ['قسم السهرة', 'قسم ناعمة وانيقة', 'قسم رمضان', 'قسم الاكثر طلبا', 'قسم جمبسوت', 'قسم الحوامل', 'قسم العيد'];
     const TAG_PRESETS = ['ذهبي', 'جديد', 'عرض', 'مميز'];
-    const SIZE_PRESETS = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL', '50', '52', '54', '56', '58', '60'];
+    const SIZE_PRESET_GROUPS = {
+      clothing: { label: 'ملابس', values: ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'] },
+      abaya: { label: 'عبايات وأرقام', values: ['48', '50', '52', '54', '56', '58', '60', '62'] },
+      shoes: { label: 'أحذية', values: ['35', '36', '37', '38', '39', '40', '41', '42', '43'] },
+      oneSize: { label: 'مقاس موحد', values: ['موحد'] },
+    };
     const LENGTH_PRESETS = ['قصير', 'عادي', 'طويل', '150', '152', '154', '156', '158', '160'];
     const COLOR_PRESETS = ['أسود', 'أبيض', 'سكري', 'بيج', 'ذهبي', 'فضي', 'أحمر', 'أخضر', 'أزرق', 'وردي'];
 
@@ -1243,6 +1349,7 @@
     let ambassadorPresenceItems = [];
     let allOrders = [];
     let ambassadorOrders = [];
+    let currentAmbassadorModel = null;
     let dashboardSummary = null;
     const userProfiles = new Map();
     let marketingConfig = {
@@ -1598,6 +1705,97 @@
           syncPresetStates();
         });
       });
+    }
+
+    function inferSizeType(sizes) {
+      const values = parseList(sizes, normalizeSize);
+      if (values.includes('موحد')) return 'oneSize';
+      if (values.some(v => ['35', '36', '37', '38', '39', '40', '41', '42', '43'].includes(v))) return 'shoes';
+      if (values.some(v => ['48', '50', '52', '54', '56', '58', '60', '62'].includes(v))) return 'abaya';
+      return 'clothing';
+    }
+
+    function renderSizeControls() {
+      const typeInput = document.getElementById('fSizeType');
+      const type = Object.prototype.hasOwnProperty.call(SIZE_PRESET_GROUPS, typeInput.value)
+        ? typeInput.value
+        : 'clothing';
+      typeInput.value = type;
+      const selected = parseList(document.getElementById('fSizes').value, normalizeSize);
+      const tabs = document.getElementById('sizeTypeTabs');
+      tabs.innerHTML = Object.entries(SIZE_PRESET_GROUPS).map(([key, group]) => `
+        <button type="button" class="size-type-tab ${key === type ? 'active' : ''}" onclick="setSizeType('${key}')">${escHtml(group.label)}</button>
+      `).join('');
+
+      const groupValues = SIZE_PRESET_GROUPS[type].values;
+      const values = [...groupValues, ...selected.filter(v => !groupValues.includes(v))];
+      document.getElementById('sizeChoices').innerHTML = values.map(size => `
+        <button type="button" class="size-choice ${selected.includes(size) ? 'active' : ''}" onclick="toggleProductSize('${escHtml(size)}')">${escHtml(size)}</button>
+      `).join('');
+      syncSizeInventoryEditor();
+    }
+
+    function setSizeType(type) {
+      if (!Object.prototype.hasOwnProperty.call(SIZE_PRESET_GROUPS, type)) return;
+      document.getElementById('fSizeType').value = type;
+      renderSizeControls();
+    }
+
+    function toggleProductSize(rawSize) {
+      const size = normalizeSize(rawSize);
+      if (!size) return;
+      const input = document.getElementById('fSizes');
+      const sizes = parseList(input.value, normalizeSize);
+      const index = sizes.indexOf(size);
+      if (index >= 0) sizes.splice(index, 1);
+      else sizes.push(size);
+      input.value = joinList(sizes);
+      renderSizeControls();
+    }
+
+    function syncSizeInventoryEditor() {
+      const sizes = parseList(document.getElementById('fSizes').value, normalizeSize);
+      const map = parseQuantityMap(document.getElementById('fSizeQuantities').value, normalizeSize);
+      const editor = document.getElementById('sizeQuantityEditor');
+      const stock = document.getElementById('fStockQuantity');
+      if (!sizes.length) {
+        editor.innerHTML = '<div class="minimal-note" style="grid-column:1/-1">اختاري مقاسًا واحدًا أو أكثر لتحديد كمية كل مقاس. إذا كان المنتج بلا مقاس يمكنك إدخال الإجمالي مباشرة.</div>';
+        stock.readOnly = false;
+        updateInventorySummary();
+        return;
+      }
+      stock.readOnly = true;
+      const normalized = {};
+      for (const size of sizes) normalized[size] = Math.max(0, parseInt(map[size] || 0, 10) || 0);
+      document.getElementById('fSizeQuantities').value = quantityMapToText(normalized);
+      editor.innerHTML = sizes.map(size => `
+        <label class="size-quantity-item">
+          <strong>${escHtml(size)}</strong>
+          <input type="number" min="0" step="1" inputmode="numeric" value="${normalized[size]}" aria-label="كمية مقاس ${escHtml(size)}" oninput="setSizeQuantity('${escHtml(size)}', this.value)" />
+        </label>
+      `).join('');
+      updateInventorySummary();
+    }
+
+    function setSizeQuantity(rawSize, rawQuantity) {
+      const size = normalizeSize(rawSize);
+      const map = parseQuantityMap(document.getElementById('fSizeQuantities').value, normalizeSize);
+      map[size] = Math.max(0, parseInt(rawQuantity || '0', 10) || 0);
+      document.getElementById('fSizeQuantities').value = quantityMapToText(map);
+      updateInventorySummary();
+    }
+
+    function updateInventorySummary() {
+      const sizes = parseList(document.getElementById('fSizes').value, normalizeSize);
+      const map = parseQuantityMap(document.getElementById('fSizeQuantities').value, normalizeSize);
+      const stock = document.getElementById('fStockQuantity');
+      const total = sizes.length
+        ? sizes.reduce((sum, size) => sum + Math.max(0, parseInt(map[size] || 0, 10) || 0), 0)
+        : Math.max(0, parseInt(stock.value || '0', 10) || 0);
+      if (sizes.length) stock.value = String(total);
+      document.getElementById('inventorySummary').textContent = sizes.length
+        ? `إجمالي المخزون: ${total} قطعة موزعة على ${sizes.length} مقاس`
+        : `إجمالي المخزون: ${total} قطعة`;
     }
 
     function onNotificationAudienceChange() {
@@ -2266,6 +2464,7 @@
 
     function renderAmbassadors() {
       const model = buildAmbassadorModel(ambassadorOrders);
+      currentAmbassadorModel = model;
       document.getElementById('ambCount').textContent = model.ambassadorCount;
       document.getElementById('ambOrders').textContent = model.ambassadorOrdersCount;
       document.getElementById('ambSales').textContent = model.salesTotal.toFixed(2);
@@ -2329,6 +2528,7 @@
                   <div class="amb-progress-track"><div class="amb-progress-fill" style="width:${Math.max(0, Math.min(conversion, 100)).toFixed(1)}%"></div></div>
                 </div>
                 <div class="subtle">فعلية: ${a.deliveredCommission.toFixed(2)} ل.د • معلقة: ${a.pendingCommission.toFixed(2)} ل.د • ملغية: ${a.canceledOrdersCount}</div>
+                <button class="btn btn-primary" onclick="openAmbassadorDetails('${encodeURIComponent(a.key)}')">عرض الملف والمبيعات</button>
               </div>
             `;
           }).join('');
@@ -2429,6 +2629,74 @@
           `).join('');
         }
       }
+    }
+
+    function closeAmbassadorDetails() {
+      document.getElementById('ambassadorDetailModal').classList.remove('open');
+    }
+
+    function openAmbassadorDetails(encodedKey) {
+      const key = decodeURIComponent(String(encodedKey || ''));
+      const model = currentAmbassadorModel || buildAmbassadorModel(ambassadorOrders);
+      const ambassador = model.leaders.find(item => item.key === key);
+      if (!ambassador) return toast('تعذر العثور على بيانات المندوبة', 'error');
+
+      const orders = ambassadorOrders.filter(order => {
+        if (!isAmbassadorOrder(order)) return false;
+        const payload = order && typeof order.payload === 'object' ? order.payload : {};
+        const customer = payload && typeof payload.customer === 'object' ? payload.customer : {};
+        return ambassadorKeyFromCustomer(customer) === key;
+      }).sort((a, b) => coerceNumber(b.createdAtMs, 0) - coerceNumber(a.createdAtMs, 0));
+
+      const conversion = ambassador.ordersCount > 0 ? (ambassador.deliveredOrdersCount / ambassador.ordersCount) * 100 : 0;
+      const avgOrder = ambassador.ordersCount > 0 ? ambassador.totalSales / ambassador.ordersCount : 0;
+      const presence = ambassadorPresenceItems
+        .filter(item => String(item?.uid || '').trim() === ambassador.uid)
+        .sort((a, b) => coerceNumber(b.lastSeenMs, 0) - coerceNumber(a.lastSeenMs, 0))[0] || {};
+      const phone = ambassador.phone || presence.ambassadorPhone || '—';
+      const address = presence.ambassadorAddress || '—';
+
+      document.getElementById('ambDetailName').textContent = ambassador.name || 'مندوبة غير محددة';
+      document.getElementById('ambDetailIdentity').innerHTML = `
+        <strong>${escHtml(ambassador.name || 'مندوبة غير محددة')}</strong>
+        <span>الهاتف: ${escHtml(phone)}</span>
+        <span>البريد: ${escHtml(ambassador.email || '—')}</span>
+        <span>العنوان: ${escHtml(address)}</span>
+        <span>آخر طلب: ${escHtml(fmtTime(ambassador.lastOrderMs))}</span>
+      `;
+      document.getElementById('ambDetailStats').innerHTML = `
+        <div class="stat"><div class="label">إجمالي المبيعات</div><div class="num">${ambassador.totalSales.toFixed(2)}</div></div>
+        <div class="stat"><div class="label">كل الطلبات</div><div class="num">${ambassador.ordersCount}</div></div>
+        <div class="stat"><div class="label">طلبات موصلة</div><div class="num">${ambassador.deliveredOrdersCount}</div></div>
+        <div class="stat"><div class="label">نسبة نجاح التوصيل</div><div class="num">${conversion.toFixed(1)}%</div></div>
+        <div class="stat"><div class="label">متوسط الطلب</div><div class="num">${avgOrder.toFixed(2)}</div></div>
+        <div class="stat"><div class="label">عمولة فعلية</div><div class="num">${ambassador.deliveredCommission.toFixed(2)}</div></div>
+        <div class="stat"><div class="label">عمولة معلقة</div><div class="num">${ambassador.pendingCommission.toFixed(2)}</div></div>
+        <div class="stat"><div class="label">طلبات ملغية</div><div class="num">${ambassador.canceledOrdersCount}</div></div>
+      `;
+
+      const commissionCfg = marketingConfig?.commission || {};
+      const defaultPercent = coerceNumber(commissionCfg.defaultPercent, 7);
+      const perProductEnabled = commissionCfg.perProductEnabled !== false;
+      document.getElementById('ambDetailOrders').innerHTML = orders.length ? orders.map(order => {
+        const payload = order && typeof order.payload === 'object' ? order.payload : {};
+        const summary = order && typeof order.ambassadorSummary === 'object'
+          ? order.ambassadorSummary
+          : (payload && typeof payload.ambassadorSummary === 'object' ? payload.ambassadorSummary : {});
+        const total = coerceNumber(order.grandTotal, 0) || coerceNumber(summary.grandTotal, 0) || coerceNumber(payload?.pricing?.grandTotal, 0);
+        const commission = resolveCommissionFromOrder({ payload, summary, defaultPercent, perProductEnabled });
+        return `<div class="mobile-data-card">
+          <h4>طلب #${escHtml(order.orderId || '—')}</h4>
+          <div class="mobile-meta">
+            <div>الحالة: <span class="badge ${statusBadgeClass(order.status)}">${escHtml(statusLabel(order.status))}</span></div>
+            <div>قيمة المبيعات: ${total.toFixed(2)} ل.د</div>
+            <div>العمولة: ${commission.toFixed(2)} ل.د</div>
+            <div>عدد القطع: ${Number(order.itemsCount || 0)}</div>
+            <div>التاريخ: ${escHtml(fmtTime(order.createdAtMs))}</div>
+          </div>
+        </div>`;
+      }).join('') : '<div class="empty">لا توجد طلبات لهذه المندوبة.</div>';
+      document.getElementById('ambassadorDetailModal').classList.add('open');
     }
 
     async function loadAmbassadors(forceToast = false) {
@@ -3045,6 +3313,7 @@
       document.getElementById('fCategory').value = CATEGORY_OPTIONS.includes(p.category) ? p.category : CATEGORY_OPTIONS[0];
       document.getElementById('fTags').value = p.tags || '';
       document.getElementById('fSizes').value = p.sizes || '';
+      document.getElementById('fSizeType').value = p.sizeType || inferSizeType(p.sizes || '');
       document.getElementById('fLengths').value = p.lengths || '';
       document.getElementById('fColors').value = p.colors || '';
       document.getElementById('fStockQuantity').value = p.stockQuantity || '';
@@ -3058,6 +3327,7 @@
       imageGallery = productImages(p);
       renderGallery();
       syncPresetStates();
+      renderSizeControls();
       document.getElementById('productModal').classList.add('open');
     }
 
@@ -3072,11 +3342,14 @@
         if (el) el.value = '';
       });
       document.getElementById('fCategory').value = CATEGORY_OPTIONS[0];
+      document.getElementById('fSizeType').value = 'clothing';
       document.getElementById('fHidden').checked = false;
       imageGallery = [];
       clearSelectedFiles();
       renderGallery();
       syncPresetStates();
+      renderSizeControls();
+      document.getElementById('uploadStatus').textContent = '';
     }
 
     function addManualImageUrl() {
@@ -3095,7 +3368,14 @@
         box.innerHTML = '<div class="empty" style="padding:16px 0"><div>لا توجد صور مرفوعة بعد.</div></div>';
         return;
       }
-      box.innerHTML = imageGallery.map((url, idx) => `<div class="gallery-item"><button class="remove-btn" onclick="removeGalleryImage(${idx})">×</button><img class="gallery-thumb" src="${escHtml(url)}" alt="img"><div class="thumb-label">${idx === 0 ? 'الرئيسية' : 'إضافية'}</div></div>`).join('');
+      box.innerHTML = imageGallery.map((url, idx) => `<div class="gallery-item"><button class="remove-btn" onclick="removeGalleryImage(${idx})">×</button><img class="gallery-thumb" src="${escHtml(url)}" alt="img"><div class="thumb-label">${idx === 0 ? 'الصورة الرئيسية' : `صورة ${idx + 1}`}</div>${idx > 0 ? `<button type="button" class="primary-image-btn" onclick="makePrimaryImage(${idx})">اجعليها الرئيسية</button>` : ''}</div>`).join('');
+    }
+
+    function makePrimaryImage(index) {
+      if (index <= 0 || index >= imageGallery.length) return;
+      const [image] = imageGallery.splice(index, 1);
+      imageGallery.unshift(image);
+      renderGallery();
     }
 
     function removeGalleryImage(index) {
@@ -3109,7 +3389,7 @@
         box.innerHTML = '';
         return;
       }
-      box.innerHTML = previewUrls.map(url => `<div class="gallery-item"><img class="pending-thumb" src="${escHtml(url)}" alt="pending"><div class="thumb-label">قيد الرفع</div></div>`).join('');
+      box.innerHTML = previewUrls.map((url, index) => `<div class="gallery-item"><img class="pending-thumb" src="${escHtml(url)}" alt="pending"><div class="thumb-label">${escHtml(selectedFiles[index]?.name || 'قيد الرفع')}</div></div>`).join('');
     }
 
     function clearSelectedFiles() {
@@ -3118,14 +3398,28 @@
       previewUrls = [];
       document.getElementById('fileInput').value = '';
       renderPendingPreviews();
+      const status = document.getElementById('uploadStatus');
+      if (status) status.textContent = '';
     }
 
     function setFiles(fileList) {
-      clearSelectedFiles();
-      selectedFiles = Array.from(fileList || []).filter(Boolean);
+      const additions = Array.from(fileList || []).filter(Boolean);
+      const keys = new Set(selectedFiles.map(file => `${file.name}:${file.size}:${file.lastModified}`));
+      for (const file of additions) {
+        const key = `${file.name}:${file.size}:${file.lastModified}`;
+        if (!keys.has(key)) {
+          keys.add(key);
+          selectedFiles.push(file);
+        }
+      }
+      previewUrls.forEach(url => URL.revokeObjectURL(url));
       previewUrls = selectedFiles.map(file => URL.createObjectURL(file));
       renderPendingPreviews();
-      if (selectedFiles.length) toast(`تم اختيار ${selectedFiles.length} صورة`, 'info');
+      document.getElementById('fileInput').value = '';
+      if (selectedFiles.length) {
+        document.getElementById('uploadStatus').textContent = `${selectedFiles.length} صورة جاهزة للرفع`;
+        toast(`تم تجهيز ${selectedFiles.length} صورة`, 'info');
+      }
     }
 
     function handleDragOver(e) { e.preventDefault(); document.getElementById('dropZone').classList.add('drag'); }
@@ -3139,8 +3433,14 @@
       const old = btn.textContent;
       btn.disabled = true;
       btn.innerHTML = '<span class="spinner"></span>';
+      const pending = [...selectedFiles];
+      const failed = [];
+      const uploadedFileKeys = new Set();
+      let uploaded = 0;
       try {
-        for (const file of selectedFiles) {
+        for (let index = 0; index < pending.length; index += 1) {
+          const file = pending[index];
+          document.getElementById('uploadStatus').textContent = `جارٍ رفع الصورة ${index + 1} من ${pending.length}: ${file.name}`;
           const fd = new FormData();
           fd.append('image', file);
           const res = await fetch(BASE_URL + '/products/upload', {
@@ -3163,19 +3463,39 @@
             if (res.status === 401) {
               throw new Error('غير مصرح: تأكدي من API Token في تبويب الاتصال');
             }
-            throw new Error(`فشل رفع الصورة "${file.name}" (${res.status}): ${msg}`);
+            failed.push(file);
+            console.warn(`Upload failed for ${file.name}: ${msg}`);
+            continue;
           }
 
           if (!data || !data.ok || !data.url) {
-            throw new Error(data?.error || `فشل رفع الصورة "${file.name}": الرد من السيرفر غير مكتمل`);
+            failed.push(file);
+            continue;
           }
 
           if (!imageGallery.includes(data.url)) imageGallery.push(data.url);
+          uploadedFileKeys.add(`${file.name}:${file.size}:${file.lastModified}`);
+          uploaded += 1;
         }
-        clearSelectedFiles();
+        previewUrls.forEach(url => URL.revokeObjectURL(url));
+        selectedFiles = failed;
+        previewUrls = selectedFiles.map(file => URL.createObjectURL(file));
+        document.getElementById('fileInput').value = '';
+        renderPendingPreviews();
         renderGallery();
-        toast('تم رفع الصور بنجاح', 'success');
+        if (failed.length) {
+          document.getElementById('uploadStatus').textContent = `تم رفع ${uploaded}، وتعذر رفع ${failed.length}. الصور الفاشلة ما زالت محددة لإعادة المحاولة.`;
+          toast(`تم رفع ${uploaded} صورة وفشل ${failed.length}`, 'error');
+        } else {
+          document.getElementById('uploadStatus').textContent = `تم رفع ${uploaded} صورة بنجاح`;
+          toast('تم رفع كل الصور بنجاح', 'success');
+        }
       } catch (err) {
+        selectedFiles = pending.filter(file => !uploadedFileKeys.has(`${file.name}:${file.size}:${file.lastModified}`));
+        previewUrls.forEach(url => URL.revokeObjectURL(url));
+        previewUrls = selectedFiles.map(file => URL.createObjectURL(file));
+        renderPendingPreviews();
+        document.getElementById('uploadStatus').textContent = String(err?.message || 'فشل رفع الصور');
         toast(String(err?.message || 'فشل رفع الصور'), 'error');
       } finally {
         btn.disabled = false;
@@ -3211,6 +3531,7 @@
         category: document.getElementById('fCategory').value || CATEGORY_OPTIONS[0],
         tags: joinList(parseList(document.getElementById('fTags').value, normalizePlain)),
         sizes: joinList(parseList(document.getElementById('fSizes').value, normalizeSize)),
+        sizeType: document.getElementById('fSizeType').value || 'clothing',
         lengths: joinList(parseList(document.getElementById('fLengths').value, normalizePlain)),
         colors: joinList(parseList(document.getElementById('fColors').value, normalizePlain)),
         stockQuantity: Math.max(0, parseInt(document.getElementById('fStockQuantity').value || '0', 10) || 0),
@@ -3293,15 +3614,19 @@
 
     function init() {
       document.body.dataset.view = 'overview';
+      if (window.FlutterAdminBridge && typeof window.FlutterAdminBridge.postMessage === 'function') {
+        document.body.classList.add('native-admin');
+      }
       document.getElementById('cfgBase').value = BASE_URL;
       document.getElementById('cfgToken').value = API_TOKEN;
       populateCategorySelect();
       renderPresetGroup('tagsPreset', 'fTags', TAG_PRESETS, 'plain');
-      renderPresetGroup('sizesPreset', 'fSizes', SIZE_PRESETS, 'size');
       renderPresetGroup('lengthsPreset', 'fLengths', LENGTH_PRESETS, 'plain');
       renderPresetGroup('colorsPreset', 'fColors', COLOR_PRESETS, 'plain');
       ['fTags', 'fSizes', 'fLengths', 'fColors'].forEach(id => document.getElementById(id).addEventListener('input', syncPresetStates));
       syncPresetStates();
+      renderSizeControls();
+      document.getElementById('fStockQuantity').addEventListener('input', updateInventorySummary);
       onNotificationAudienceChange();
       checkHealth();
       loadDashboardSummary();

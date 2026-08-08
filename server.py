@@ -809,6 +809,13 @@ def normalize_order_item(payload: Dict[str, Any], current: Optional[Dict[str, An
 
     customer = payload_map.get("customer") if isinstance(payload_map.get("customer"), dict) else {}
     pricing = payload_map.get("pricing") if isinstance(payload_map.get("pricing"), dict) else {}
+    ambassador_summary = payload.get("ambassadorSummary")
+    if not isinstance(ambassador_summary, dict):
+        ambassador_summary = payload_map.get("ambassadorSummary")
+    if not isinstance(ambassador_summary, dict):
+        ambassador_summary = cur.get("ambassadorSummary")
+    if not isinstance(ambassador_summary, dict):
+        ambassador_summary = {}
 
     return {
         "orderId": order_id,
@@ -817,6 +824,7 @@ def normalize_order_item(payload: Dict[str, Any], current: Optional[Dict[str, An
         "createdAtMs": as_int(payload.get("createdAtMs", cur.get("createdAtMs", now_ms)), now_ms),
         "updatedAtMs": as_int(payload.get("updatedAtMs", now_ms), now_ms),
         "payload": payload_map,
+        "ambassadorSummary": ambassador_summary,
         "customerName": str(customer.get("name") or cur.get("customerName") or "").strip(),
         "customerPhone": str(customer.get("phone") or cur.get("customerPhone") or "").strip(),
         "customerAddress": str(customer.get("address") or cur.get("customerAddress") or "").strip(),
@@ -1217,8 +1225,17 @@ def normalize_product(payload: Dict[str, Any], current: Optional[Dict[str, Any]]
 
     image_url = str(payload.get("imageUrl") or cur.get("imageUrl") or "").strip()
     image_urls = normalize_image_urls(payload.get("imageUrls", cur.get("imageUrls", [])))
+    image_urls = list(dict.fromkeys(image_urls))
+    if image_url:
+        image_urls = [image_url, *[url for url in image_urls if url != image_url]]
     colors = normalize_string_list(payload.get("colors", cur.get("colors", [])))
+    sizes = normalize_string_list(payload.get("sizes", cur.get("sizes", [])))
+    size_type = str(payload.get("sizeType") or cur.get("sizeType") or "clothing").strip()
+    if size_type not in {"clothing", "abaya", "shoes", "oneSize"}:
+        size_type = "clothing"
     size_quantities = normalize_quantity_map(payload.get("sizeQuantities", cur.get("sizeQuantities", {})))
+    if sizes:
+        size_quantities = {size: max(0, as_int(size_quantities.get(size, 0), 0)) for size in sizes}
     color_quantities = normalize_quantity_map(payload.get("colorQuantities", cur.get("colorQuantities", {})))
     stock_quantity = max(0, as_int(payload.get("stockQuantity", cur.get("stockQuantity", 0)), 0))
     low_stock_threshold = max(0, as_int(payload.get("lowStockThreshold", cur.get("lowStockThreshold", 0)), 0))
@@ -1226,9 +1243,12 @@ def normalize_product(payload: Dict[str, Any], current: Optional[Dict[str, Any]]
     if not image_url and image_urls:
         image_url = image_urls[0]
 
+    size_total = _quantity_map_total(size_quantities)
+    if size_quantities:
+        stock_quantity = size_total
+
     available_stock = stock_quantity
     if available_stock <= 0:
-        size_total = _quantity_map_total(size_quantities)
         color_total = _quantity_map_total(color_quantities)
         available_stock = size_total if size_total > 0 else color_total
 
@@ -1257,7 +1277,8 @@ def normalize_product(payload: Dict[str, Any], current: Optional[Dict[str, Any]]
         "rating": as_number(payload.get("rating", cur.get("rating", 0))),
         "reviewsCount": max(0, as_int(payload.get("reviewsCount", cur.get("reviewsCount", 0)))),
         "isHidden": as_hidden_int(payload.get("isHidden", cur.get("isHidden", 0))),
-        "sizes": str(payload.get("sizes") if payload.get("sizes") is not None else cur.get("sizes", "")).strip(),
+        "sizes": ",".join(sizes),
+        "sizeType": size_type,
         "lengths": str(payload.get("lengths") if payload.get("lengths") is not None else cur.get("lengths", "")).strip(),
         "colors": ",".join(colors),
         "stockQuantity": stock_quantity,
