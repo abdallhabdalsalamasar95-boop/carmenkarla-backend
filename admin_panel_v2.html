@@ -1671,42 +1671,109 @@
       });
     }
 
-    function setView(view) {
-      document.body.dataset.view = view;
+    const ADMIN_VIEWS = ['overview', 'products', 'orders', 'ambassadors', 'notifications', 'devices', 'campaigns', 'settings'];
+    const CAMPAIGN_VIEWS = ['coupons', 'offers', 'gifts', 'competitions'];
+
+    function notifyAdminHost(type, payload = {}) {
+      try {
+        if (window.FlutterAdminBridge && typeof window.FlutterAdminBridge.postMessage === 'function') {
+          window.FlutterAdminBridge.postMessage(JSON.stringify({ type, payload }));
+        }
+      } catch (err) {
+        console.warn('Admin host bridge unavailable', err);
+      }
+    }
+
+    function adminRoute(view, campaignView = '') {
+      const safeView = ADMIN_VIEWS.includes(view) ? view : 'overview';
+      if (safeView === 'campaigns' && CAMPAIGN_VIEWS.includes(campaignView)) {
+        return `#/${safeView}/${campaignView}`;
+      }
+      return `#/${safeView}`;
+    }
+
+    function syncAdminRoute(view, campaignView = '') {
+      const nextHash = adminRoute(view, campaignView);
+      if (window.location.hash !== nextHash) {
+        window.history.pushState({ adminView: view, campaignView }, '', nextHash);
+      }
+    }
+
+    function adminRouteState() {
+      const parts = String(window.location.hash || '')
+        .replace(/^#\/?/, '')
+        .split('/')
+        .filter(Boolean);
+      const storedView = sessionStorage.getItem('ck_admin_view') || 'overview';
+      const view = ADMIN_VIEWS.includes(parts[0])
+        ? parts[0]
+        : (ADMIN_VIEWS.includes(storedView) ? storedView : 'overview');
+      const storedCampaignView = sessionStorage.getItem('ck_admin_campaign_view') || 'coupons';
+      const campaignView = CAMPAIGN_VIEWS.includes(parts[1])
+        ? parts[1]
+        : (CAMPAIGN_VIEWS.includes(storedCampaignView) ? storedCampaignView : 'coupons');
+      return { view, campaignView };
+    }
+
+    function setView(view, syncRoute = true, loadData = true) {
+      const next = ADMIN_VIEWS.includes(String(view || '').trim()) ? view : 'overview';
+      document.body.dataset.view = next;
       document.querySelectorAll('.panel').forEach(el => el.classList.remove('active'));
       document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
-      const panel = document.getElementById(`panel-${view}`);
+      const panel = document.getElementById(`panel-${next}`);
       if (panel) panel.classList.add('active');
-      const tab = document.querySelector(`[data-tab="${view}"]`);
+      const tab = document.querySelector(`[data-tab="${next}"]`);
       if (tab) tab.classList.add('active');
-      if (view === 'orders') {
+      sessionStorage.setItem('ck_admin_view', next);
+      if (syncRoute) syncAdminRoute(next);
+      notifyAdminHost('viewChanged', { view: next, route: adminRoute(next) });
+      if (!loadData) return;
+      if (next === 'orders') {
         loadOrders();
       }
-      if (view === 'products') {
+      if (next === 'products') {
         loadProducts();
       }
-      if (view === 'ambassadors') {
+      if (next === 'ambassadors') {
         loadAmbassadors();
       }
-      if (view === 'devices') {
+      if (next === 'devices') {
         loadDeviceStats();
       }
-      if (view === 'campaigns') {
-        setCampaignSubView('coupons');
+      if (next === 'campaigns') {
+        setCampaignSubView('coupons', false);
         loadMarketingConfig();
       }
     }
 
-    function setCampaignSubView(view) {
-      const allowed = ['coupons', 'offers', 'gifts', 'competitions'];
-      const next = allowed.includes(String(view || '').trim()) ? view : 'coupons';
+    function setCampaignSubView(view, syncRoute = true) {
+      const next = CAMPAIGN_VIEWS.includes(String(view || '').trim()) ? view : 'coupons';
       document.querySelectorAll('.campaign-subtab').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.campaignTab === next);
       });
       document.querySelectorAll('.campaign-section-panel').forEach(panel => panel.classList.remove('active'));
       const target = document.getElementById(`campaignSection-${next}`);
       if (target) target.classList.add('active');
+      sessionStorage.setItem('ck_admin_campaign_view', next);
+      if (syncRoute) syncAdminRoute('campaigns', next);
+      notifyAdminHost('campaignViewChanged', { view: next, route: adminRoute('campaigns', next) });
     }
+
+    function adminNavigate(view, campaignView = '') {
+      const next = ADMIN_VIEWS.includes(String(view || '').trim()) ? view : 'overview';
+      setView(next);
+      if (next === 'campaigns' && CAMPAIGN_VIEWS.includes(campaignView)) {
+        setCampaignSubView(campaignView);
+      }
+    }
+
+    function applyAdminRoute(loadData = true) {
+      const state = adminRouteState();
+      setView(state.view, false, loadData);
+      if (state.view === 'campaigns') setCampaignSubView(state.campaignView, false);
+    }
+
+    window.addEventListener('hashchange', () => applyAdminRoute(true));
 
     function notifyUnavailable(name) {
       toast(`${name} جاهزة كقسم في لوحة الويب، لكن ربطها الخلفي ما زال داخل نسخة الهاتف فقط حالياً.`, 'info');
@@ -3243,6 +3310,7 @@
       loadAmbassadors();
       loadDeviceStats();
       loadMarketingConfig();
+      applyAdminRoute(false);
 
       setInterval(() => {
         loadDashboardSummary();

@@ -1304,7 +1304,11 @@ def _is_valid_api_token_from_request() -> bool:
 
 @app.get("/admin")
 def admin_panel():
-    return send_from_directory(ROOT, "admin_panel_v2.html")
+    response = send_from_directory(ROOT, "admin_panel_v2.html")
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 
 @app.get("/uploads/<path:filename>")
