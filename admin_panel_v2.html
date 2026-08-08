@@ -477,21 +477,50 @@
     .size-quantity-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
     .size-quantity-item {
       display: grid;
-      grid-template-columns: auto minmax(70px, 1fr);
-      align-items: center;
-      gap: 8px;
-      padding: 9px;
-      border-radius: 13px;
+      gap: 10px;
+      padding: 12px;
+      border-radius: 15px;
       background: rgba(255,255,255,.025);
       border: 1px solid var(--line);
     }
-    .size-quantity-item strong { min-width: 42px; text-align: center; color: var(--gold2); }
-    .size-quantity-item input { min-width: 0; text-align: center; }
+    .size-quantity-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .size-quantity-head strong { color: var(--gold2); font-size: 1rem; }
+    .size-quantity-head span { color: var(--muted); font-size: .75rem; }
+    .quantity-stepper { display: grid; grid-template-columns: 46px minmax(58px, 1fr) 46px; gap: 8px; align-items: center; }
+    .quantity-stepper button {
+      min-width: 46px;
+      min-height: 46px;
+      border: 1px solid var(--line-strong);
+      border-radius: 13px;
+      background: rgba(255,255,255,.07);
+      color: var(--text);
+      font: inherit;
+      font-size: 1.35rem;
+      font-weight: 900;
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+    .quantity-stepper button:active { transform: scale(.96); background: rgba(212,176,123,.18); }
+    .quantity-stepper input { min-width: 0; min-height: 46px; text-align: center; color: var(--gold2); font-size: 1rem; font-weight: 950; }
+    .quantity-presets { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+    .quantity-preset {
+      min-height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(255,255,255,.035);
+      color: var(--muted);
+      font: inherit;
+      font-size: .78rem;
+      font-weight: 900;
+      cursor: pointer;
+    }
+    .quantity-preset.active { background: rgba(212,176,123,.18); border-color: rgba(212,176,123,.42); color: var(--gold2); }
     .inventory-summary { padding: 11px 13px; border-radius: 13px; color: var(--gold2); background: rgba(212,176,123,.08); border: 1px solid rgba(212,176,123,.18); font-weight: 900; }
-    .drop-zone { border: 1px dashed rgba(255,255,255,.16); border-radius: 18px; padding: 24px; background: rgba(255,255,255,.018); text-align: center; cursor: pointer; }
+    .drop-zone { display: block; border: 1px dashed rgba(255,255,255,.16); border-radius: 18px; padding: 24px; background: rgba(255,255,255,.018); text-align: center; cursor: pointer; touch-action: manipulation; }
     .drop-zone:hover, .drop-zone.drag { border-color: rgba(213,176,122,.45); background: rgba(213,176,122,.05); }
     .drop-zone strong { display: block; margin-bottom: 8px; }
     .drop-zone p { color: var(--muted); font-size: .84rem; }
+    .native-file-input { position: fixed; top: 0; left: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
     .gallery-item { position: relative; width: 84px; }
     .gallery-thumb, .pending-thumb { width: 84px; height: 84px; }
     .remove-btn { position: absolute; top: -6px; left: -6px; width: 24px; height: 24px; border: none; border-radius: 50%; background: var(--err); color: #fff; font-weight: 900; cursor: pointer; }
@@ -1252,11 +1281,11 @@
         </div>
         <div class="form-block form-full">
           <h4>صور المنتج</h4>
-          <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()" ondrop="handleDrop(event)" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)">
+          <label class="drop-zone" id="dropZone" for="fileInput" ondrop="handleDrop(event)" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)">
             <strong>📷 اختيار أو سحب الصور هنا</strong>
-            <p>يمكنك اختيار أكثر من صورة، وسيتم رفعها تلقائيًا عند الحفظ أو يدويًا من الزر بالأسفل.</p>
-          </div>
-          <input type="file" id="fileInput" accept="image/*,.heic,.heif,.avif,.jfif" multiple style="display:none" onchange="handleFileSelect(event)" />
+            <p>اختاري صورة واحدة أو عدة صور دفعة واحدة؛ ستظهر هنا قبل الرفع.</p>
+          </label>
+          <input class="native-file-input" type="file" id="fileInput" accept="image/*,.heic,.heif,.avif,.jfif" multiple onchange="handleFileSelect(event)" />
           <div class="thumbs" id="pendingPreviews"></div>
           <div class="upload-status" id="uploadStatus"></div>
           <div class="hero-actions">
@@ -1812,10 +1841,17 @@
       for (const size of sizes) normalized[size] = Math.max(0, parseInt(map[size] || 0, 10) || 0);
       document.getElementById('fSizeQuantities').value = quantityMapToText(normalized);
       editor.innerHTML = sizes.map(size => `
-        <label class="size-quantity-item">
-          <strong>${escHtml(size)}</strong>
-          <input type="number" min="0" step="1" inputmode="numeric" value="${normalized[size]}" aria-label="كمية مقاس ${escHtml(size)}" oninput="setSizeQuantity('${escHtml(size)}', this.value)" />
-        </label>
+        <div class="size-quantity-item">
+          <div class="size-quantity-head"><strong>مقاس ${escHtml(size)}</strong><span>اختاري الكمية</span></div>
+          <div class="quantity-stepper">
+            <button type="button" aria-label="إنقاص كمية مقاس ${escHtml(size)}" onclick="changeSizeQuantity('${escHtml(size)}', -1)">−</button>
+            <input type="number" min="0" step="1" inputmode="none" readonly value="${normalized[size]}" aria-label="كمية مقاس ${escHtml(size)}" />
+            <button type="button" aria-label="زيادة كمية مقاس ${escHtml(size)}" onclick="changeSizeQuantity('${escHtml(size)}', 1)">+</button>
+          </div>
+          <div class="quantity-presets">
+            ${[0, 5, 10, 20].map(qty => `<button type="button" class="quantity-preset ${normalized[size] === qty ? 'active' : ''}" onclick="setSizeQuantity('${escHtml(size)}', ${qty})">${qty}</button>`).join('')}
+          </div>
+        </div>
       `).join('');
       updateInventorySummary();
     }
@@ -1825,7 +1861,14 @@
       const map = parseQuantityMap(document.getElementById('fSizeQuantities').value, normalizeSize);
       map[size] = Math.max(0, parseInt(rawQuantity || '0', 10) || 0);
       document.getElementById('fSizeQuantities').value = quantityMapToText(map);
-      updateInventorySummary();
+      syncSizeInventoryEditor();
+    }
+
+    function changeSizeQuantity(rawSize, delta) {
+      const size = normalizeSize(rawSize);
+      const map = parseQuantityMap(document.getElementById('fSizeQuantities').value, normalizeSize);
+      const current = Math.max(0, parseInt(map[size] || '0', 10) || 0);
+      setSizeQuantity(size, Math.max(0, current + (parseInt(delta, 10) || 0)));
     }
 
     function updateInventorySummary() {

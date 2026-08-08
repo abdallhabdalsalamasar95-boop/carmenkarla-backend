@@ -96,7 +96,13 @@ class AdminFeatureTests(unittest.TestCase):
             self.assertIn("flex: 1 1 auto; min-height: 0; overflow-y: auto", body)
             self.assertIn("sizeQuantityEditor", body)
             self.assertIn("selectAllVisibleSizes", body)
+            self.assertIn("quantity-stepper", body)
+            self.assertIn("changeSizeQuantity", body)
+            self.assertIn("inputmode=\"none\" readonly", body)
             self.assertIn("uploadOneImage", body)
+            self.assertIn("class=\"native-file-input\"", body)
+            self.assertIn("for=\"fileInput\"", body)
+            self.assertIn("multiple onchange=\"handleFileSelect(event)\"", body)
             self.assertIn("ambassadorDetailModal", body)
             self.assertIn("ambassadorSearch", body)
         finally:
