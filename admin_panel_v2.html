@@ -26,6 +26,11 @@
       --radius-sm: 14px;
       --shadow: 0 18px 60px rgba(0,0,0,.36);
     }
+    html, body {
+      width: 100%;
+      min-height: 100%;
+      overflow-x: hidden;
+    }
     body {
       font-family: Inter, "Segoe UI", Tahoma, sans-serif;
       background:
@@ -37,7 +42,9 @@
       overscroll-behavior: none;
       touch-action: pan-x pan-y;
       -webkit-text-size-adjust: 100%;
+      -webkit-touch-callout: none;
     }
+    button, input, textarea, select { touch-action: manipulation; }
     .shell { max-width: 1540px; margin: 0 auto; padding: 14px 18px 42px; }
     .topbar, .card, .panel, .modal {
       background: var(--card);
@@ -418,9 +425,9 @@
     .modal-overlay { position: fixed; inset: 0; background: rgba(3,6,12,.72); display: none; align-items: center; justify-content: center; padding: 16px; z-index: 100; }
     .modal-overlay.open { display: flex; }
     .modal { width: min(1080px, 100%); max-height: 92vh; overflow: auto; border-radius: 28px; padding: 22px; }
-    .product-modal-card { display: flex; flex-direction: column; overflow: hidden; }
+    .product-modal-card { display: flex; flex-direction: column; overflow: hidden; height: min(92vh, 980px); }
     .product-modal-card .modal-header { flex: 0 0 auto; }
-    .product-form-scroll { overflow-y: auto; overscroll-behavior: contain; padding: 2px 4px 18px; }
+    .product-form-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 2px 4px 24px; scroll-padding-bottom: 32px; -webkit-overflow-scrolling: touch; }
     .modal-save-bar {
       position: sticky;
       bottom: 0;
@@ -491,8 +498,14 @@
     .thumb-label { color: var(--muted); text-align: center; margin-top: 6px; font-size: .72rem; }
     .primary-image-btn { width: 100%; border: 0; background: transparent; color: var(--gold2); font-size: .7rem; cursor: pointer; margin-top: 4px; }
     .upload-status { margin-top: 10px; color: var(--muted); font-size: .8rem; min-height: 20px; }
+    .upload-file-state { max-width: 84px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .upload-file-state.ok { color: var(--ok); }
+    .upload-file-state.error { color: var(--err); }
+    .upload-file-state.uploading { color: var(--warn); }
     .amb-detail-identity { display: grid; gap: 8px; padding: 14px; border-radius: 16px; background: rgba(255,255,255,.025); border: 1px solid var(--line); }
     .amb-detail-orders { display: grid; gap: 10px; margin-top: 14px; }
+    .amb-order-items { display: grid; gap: 6px; margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--line); }
+    .amb-order-item { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); font-size: .8rem; line-height: 1.6; }
     .toggle { display: inline-flex; align-items: center; gap: 10px; color: var(--muted); font-size: .86rem; font-weight: 700; }
     .switch { position: relative; width: 48px; height: 28px; }
     .switch input { opacity: 0; width: 0; height: 0; }
@@ -550,9 +563,11 @@
       .ambassador-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
     @media (max-width: 760px) {
-      .switcher, .panel-head, .toolbar, .row, .product-top { flex-direction: column; align-items: stretch; }
+      .switcher, .panel-head, .toolbar, .row, .product-top, .quick-row, .hero-actions { flex-direction: column; align-items: stretch; }
       .products-grid, .form-grid, .dashboard-strip, .modules-grid, .ambassador-grid { grid-template-columns: 1fr; }
       .btn { width: 100%; min-height: 46px; font-size: .95rem; }
+      .quick-row, .hero-actions { width: 100%; }
+      .quick-row > *, .hero-actions > * { min-width: 0 !important; max-width: 100%; }
 
       .shell {
         padding: 10px 10px 26px;
@@ -646,6 +661,10 @@
         border: 0;
         padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
       }
+      .product-modal-card {
+        height: 100dvh;
+        max-height: 100dvh;
+      }
       .modal-header {
         position: sticky;
         top: 0;
@@ -653,11 +672,14 @@
         padding: 4px 0 12px;
         background: rgba(18,23,33,.98);
       }
-      .product-form-scroll { padding-inline: 0; }
+      .product-form-scroll { padding: 0 0 28px; scroll-padding-bottom: 40px; }
       .form-block { padding: 13px; border-radius: 16px; }
       .size-choice-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
       .size-quantity-grid { grid-template-columns: 1fr; }
       .modal-save-bar .btn { flex: 1; }
+      .ambassador-detail-card { display: flex; flex-direction: column; overflow: hidden; }
+      .ambassador-detail-card .modal-header { flex: 0 0 auto; }
+      .ambassador-detail-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-bottom: 24px; -webkit-overflow-scrolling: touch; }
 
       .topbar {
         padding: 12px;
@@ -924,6 +946,9 @@
             <button class="btn btn-soft" onclick="loadAmbassadors(true)">تحديث</button>
             <button class="btn btn-soft" onclick="setView('orders')">فتح الطلبات</button>
           </div>
+        </div>
+        <div class="toolbar" style="margin-bottom:16px">
+          <div style="flex:1;min-width:220px"><input class="search" id="ambassadorSearch" type="search" placeholder="ابحثي باسم المندوبة أو الهاتف أو البريد..." oninput="renderAmbassadors()" /></div>
         </div>
         <div class="stats" style="margin-bottom:16px">
           <div class="stat"><div class="label">عدد المندوبات النشطات</div><div class="num" id="ambCount">0</div></div>
@@ -1205,6 +1230,7 @@
             <input id="fSizeType" type="hidden" value="clothing" />
             <div class="field form-full"><label>نوع المقاسات</label><div class="size-type-tabs" id="sizeTypeTabs"></div></div>
             <div class="field form-full"><label>اختاري المقاسات المتوفرة</label><div class="size-choice-grid" id="sizeChoices"></div><div class="minimal-note">اضغطي على المقاس لإضافته أو إزالته، بدون كتابة يدوية.</div></div>
+            <div class="field form-full"><div class="quick-row"><button type="button" class="btn btn-soft" onclick="selectAllVisibleSizes()">تحديد كل مقاسات النوع</button><button type="button" class="btn btn-soft" onclick="clearProductSizes()">منتج بلا مقاس / مسح</button></div></div>
             <div class="field form-full"><label>الأطوال</label><input id="fLengths" type="text" placeholder="قصير,عادي,طويل أو 150,152..." /><div class="chips" id="lengthsPreset"></div></div>
           </div>
         </div>
@@ -1303,15 +1329,17 @@
   </div>
 
   <div class="modal-overlay" id="ambassadorDetailModal">
-    <div class="modal" style="max-width:820px">
+    <div class="modal ambassador-detail-card" style="max-width:820px">
       <div class="modal-header">
         <div><h3 id="ambDetailName">تفاصيل المندوبة</h3><p>ملف مستقل للمبيعات والعمولات والطلبات.</p></div>
         <button class="btn btn-soft" onclick="closeAmbassadorDetails()">إغلاق</button>
       </div>
-      <div class="amb-detail-identity" id="ambDetailIdentity"></div>
-      <div class="stats" id="ambDetailStats" style="margin-top:14px"></div>
-      <div class="panel-head" style="margin-top:18px"><div><h3>طلبات هذه المندوبة</h3><p>تفاصيل كل طلب وحالته وقيمته وعمولته.</p></div></div>
-      <div class="amb-detail-orders" id="ambDetailOrders"></div>
+      <div class="ambassador-detail-scroll">
+        <div class="amb-detail-identity" id="ambDetailIdentity"></div>
+        <div class="stats" id="ambDetailStats" style="margin-top:14px"></div>
+        <div class="panel-head" style="margin-top:18px"><div><h3>طلبات هذه المندوبة</h3><p>تفاصيل كل طلب وحالته وقيمته وعمولته والمنتجات المباعة.</p></div></div>
+        <div class="amb-detail-orders" id="ambDetailOrders"></div>
+      </div>
       <div class="hero-actions modal-save-bar"><button class="btn btn-soft" onclick="closeAmbassadorDetails()">إغلاق الملف</button></div>
     </div>
   </div>
@@ -1344,6 +1372,7 @@
     let deleteTargetId = null;
     let selectedFiles = [];
     let previewUrls = [];
+    const uploadStateByKey = new Map();
     let imageGallery = [];
     let devicesStats = null;
     let ambassadorPresenceItems = [];
@@ -1738,6 +1767,20 @@
     function setSizeType(type) {
       if (!Object.prototype.hasOwnProperty.call(SIZE_PRESET_GROUPS, type)) return;
       document.getElementById('fSizeType').value = type;
+      renderSizeControls();
+    }
+
+    function selectAllVisibleSizes() {
+      const type = document.getElementById('fSizeType').value || 'clothing';
+      const group = SIZE_PRESET_GROUPS[type] || SIZE_PRESET_GROUPS.clothing;
+      document.getElementById('fSizes').value = joinList(group.values);
+      renderSizeControls();
+    }
+
+    function clearProductSizes() {
+      document.getElementById('fSizes').value = '';
+      document.getElementById('fSizeQuantities').value = '';
+      document.getElementById('fStockQuantity').value = '0';
       renderSizeControls();
     }
 
@@ -2298,8 +2341,10 @@
       return commission > 0 ? commission : 0;
     }
 
-    function ambassadorNameFromCustomer(customer) {
+    function ambassadorNameFromCustomer(customer, summary = {}) {
       if (!customer || typeof customer !== 'object') return 'مندوبة غير محددة';
+      const summaryName = String(summary.ambassadorName || summary.name || '').trim();
+      if (summaryName) return summaryName;
       return resolveUserName({
         uid: String(customer.submitterUid || customer.uid || '').trim(),
         email: String(customer.submitterEmail || customer.email || '').trim(),
@@ -2308,15 +2353,15 @@
       });
     }
 
-    function ambassadorKeyFromCustomer(customer) {
+    function ambassadorKeyFromCustomer(customer, summary = {}) {
       if (!customer || typeof customer !== 'object') return 'unknown';
-      const uid = String(customer.submitterUid || '').trim();
+      const uid = String(summary.ambassadorUid || customer.submitterUid || customer.uid || '').trim();
       if (uid) return `uid:${uid}`;
-      const email = String(customer.submitterEmail || '').trim();
+      const email = String(summary.ambassadorEmail || customer.submitterEmail || '').trim();
       if (email) return `email:${email}`;
-      const phone = String(customer.phone || '').trim();
+      const phone = String(summary.ambassadorPhone || customer.submitterPhone || customer.accountPhone || '').trim();
       if (phone) return `phone:${phone}`;
-      const name = String(customer.name || '').trim();
+      const name = String(summary.ambassadorName || customer.submitterName || customer.accountName || '').trim();
       if (name) return `name:${name}`;
       return 'unknown';
     }
@@ -2374,8 +2419,8 @@
         const summary = order && typeof order.ambassadorSummary === 'object'
           ? order.ambassadorSummary
           : (payload && typeof payload.ambassadorSummary === 'object' ? payload.ambassadorSummary : {});
-        const key = ambassadorKeyFromCustomer(customer);
-        const name = ambassadorNameFromCustomer(customer);
+        const key = ambassadorKeyFromCustomer(customer, summary);
+        const name = ambassadorNameFromCustomer(customer, summary);
         const status = String(order.status || 'pending').trim().toLowerCase();
         const total = coerceNumber(summary.grandTotal, 0) > 0
           ? coerceNumber(summary.grandTotal, 0)
@@ -2401,9 +2446,9 @@
         const current = leadersMap.get(key) || {
           key,
           name,
-          uid: String(customer.submitterUid || customer.uid || '').trim(),
-          email: String(customer.submitterEmail || customer.email || '').trim(),
-          phone: String(customer.phone || '').trim(),
+          uid: String(summary.ambassadorUid || customer.submitterUid || customer.uid || '').trim(),
+          email: String(summary.ambassadorEmail || customer.submitterEmail || '').trim(),
+          phone: String(summary.ambassadorPhone || customer.submitterPhone || customer.accountPhone || '').trim(),
           ordersCount: 0,
           deliveredOrdersCount: 0,
           totalSales: 0,
@@ -2500,10 +2545,13 @@
 
       const profilesBox = document.getElementById('ambProfilesList');
       if (profilesBox) {
-        if (!model.leaders.length) {
+        const query = String(document.getElementById('ambassadorSearch')?.value || '').trim().toLowerCase();
+        const visibleLeaders = model.leaders.filter(a => !query || [a.name, a.phone, a.email, a.uid].some(value => String(value || '').toLowerCase().includes(query)));
+        if (!visibleLeaders.length) {
           profilesBox.innerHTML = '<div class="empty" style="grid-column:1/-1">لا توجد بطاقات أداء حالياً.</div>';
         } else {
-          profilesBox.innerHTML = model.leaders.map((a, index) => {
+          profilesBox.innerHTML = visibleLeaders.map((a) => {
+            const index = model.leaders.indexOf(a);
             const conversion = a.ordersCount > 0 ? (a.deliveredOrdersCount / a.ordersCount) * 100 : 0;
             const avgOrder = a.ordersCount > 0 ? (a.totalSales / a.ordersCount) : 0;
             const openOrders = Math.max(0, a.ordersCount - a.deliveredOrdersCount - a.canceledOrdersCount);
@@ -2528,6 +2576,7 @@
                   <div class="amb-progress-track"><div class="amb-progress-fill" style="width:${Math.max(0, Math.min(conversion, 100)).toFixed(1)}%"></div></div>
                 </div>
                 <div class="subtle">فعلية: ${a.deliveredCommission.toFixed(2)} ل.د • معلقة: ${a.pendingCommission.toFixed(2)} ل.د • ملغية: ${a.canceledOrdersCount}</div>
+                <div class="subtle">انتظار: ${a.statusBreakdown.pending} • معالجة: ${a.statusBreakdown.processing} • شحن: ${a.statusBreakdown.shipped}</div>
                 <button class="btn btn-primary" onclick="openAmbassadorDetails('${encodeURIComponent(a.key)}')">عرض الملف والمبيعات</button>
               </div>
             `;
@@ -2645,7 +2694,10 @@
         if (!isAmbassadorOrder(order)) return false;
         const payload = order && typeof order.payload === 'object' ? order.payload : {};
         const customer = payload && typeof payload.customer === 'object' ? payload.customer : {};
-        return ambassadorKeyFromCustomer(customer) === key;
+        const summary = order && typeof order.ambassadorSummary === 'object'
+          ? order.ambassadorSummary
+          : (payload && typeof payload.ambassadorSummary === 'object' ? payload.ambassadorSummary : {});
+        return ambassadorKeyFromCustomer(customer, summary) === key;
       }).sort((a, b) => coerceNumber(b.createdAtMs, 0) - coerceNumber(a.createdAtMs, 0));
 
       const conversion = ambassador.ordersCount > 0 ? (ambassador.deliveredOrdersCount / ambassador.ordersCount) * 100 : 0;
@@ -2685,6 +2737,14 @@
           : (payload && typeof payload.ambassadorSummary === 'object' ? payload.ambassadorSummary : {});
         const total = coerceNumber(order.grandTotal, 0) || coerceNumber(summary.grandTotal, 0) || coerceNumber(payload?.pricing?.grandTotal, 0);
         const commission = resolveCommissionFromOrder({ payload, summary, defaultPercent, perProductEnabled });
+        const orderItems = Array.isArray(payload.items) ? payload.items : [];
+        const itemsMarkup = orderItems.length ? `<div class="amb-order-items">${orderItems.map(item => {
+          const itemName = item.name || item.productName || item.title || 'منتج';
+          const qty = Math.max(1, parseInt(item.quantity ?? item.qty ?? 1, 10) || 1);
+          const price = coerceNumber(item.price ?? item.unitPrice ?? item.salePrice, 0);
+          const variant = [item.size, item.color].map(v => String(v || '').trim()).filter(Boolean).join(' • ');
+          return `<div class="amb-order-item"><span>${escHtml(itemName)} × ${qty}${variant ? ` — ${escHtml(variant)}` : ''}</span><strong>${(price * qty).toFixed(2)} ل.د</strong></div>`;
+        }).join('')}</div>` : '<div class="minimal-note">تفاصيل المنتجات غير محفوظة في هذا الطلب القديم.</div>';
         return `<div class="mobile-data-card">
           <h4>طلب #${escHtml(order.orderId || '—')}</h4>
           <div class="mobile-meta">
@@ -2694,6 +2754,7 @@
             <div>عدد القطع: ${Number(order.itemsCount || 0)}</div>
             <div>التاريخ: ${escHtml(fmtTime(order.createdAtMs))}</div>
           </div>
+          ${itemsMarkup}
         </div>`;
       }).join('') : '<div class="empty">لا توجد طلبات لهذه المندوبة.</div>';
       document.getElementById('ambassadorDetailModal').classList.add('open');
@@ -3389,11 +3450,33 @@
         box.innerHTML = '';
         return;
       }
-      box.innerHTML = previewUrls.map((url, index) => `<div class="gallery-item"><img class="pending-thumb" src="${escHtml(url)}" alt="pending"><div class="thumb-label">${escHtml(selectedFiles[index]?.name || 'قيد الرفع')}</div></div>`).join('');
+      box.innerHTML = previewUrls.map((url, index) => {
+        const file = selectedFiles[index];
+        const state = uploadStateByKey.get(fileKey(file)) || { status: 'ready', message: 'جاهزة' };
+        const label = state.status === 'uploading' ? 'جارٍ الرفع…' : state.status === 'error' ? state.message : 'جاهزة';
+        return `<div class="gallery-item"><button type="button" class="remove-btn" onclick="removeSelectedFile(${index})">×</button><img class="pending-thumb" src="${escHtml(url)}" alt="pending"><div class="thumb-label upload-file-state ${escHtml(state.status)}" title="${escHtml(file?.name || '')}">${escHtml(file?.name || 'صورة')}</div><div class="thumb-label upload-file-state ${escHtml(state.status)}">${escHtml(label)}</div></div>`;
+      }).join('');
+    }
+
+    function fileKey(file) {
+      return file ? `${file.name}:${file.size}:${file.lastModified}` : '';
+    }
+
+    function removeSelectedFile(index) {
+      const file = selectedFiles[index];
+      if (!file) return;
+      uploadStateByKey.delete(fileKey(file));
+      const url = previewUrls[index];
+      if (url) URL.revokeObjectURL(url);
+      selectedFiles.splice(index, 1);
+      previewUrls.splice(index, 1);
+      renderPendingPreviews();
+      document.getElementById('uploadStatus').textContent = selectedFiles.length ? `${selectedFiles.length} صورة جاهزة للرفع` : '';
     }
 
     function clearSelectedFiles() {
       selectedFiles = [];
+      uploadStateByKey.clear();
       previewUrls.forEach(url => URL.revokeObjectURL(url));
       previewUrls = [];
       document.getElementById('fileInput').value = '';
@@ -3404,12 +3487,21 @@
 
     function setFiles(fileList) {
       const additions = Array.from(fileList || []).filter(Boolean);
-      const keys = new Set(selectedFiles.map(file => `${file.name}:${file.size}:${file.lastModified}`));
+      const keys = new Set(selectedFiles.map(fileKey));
       for (const file of additions) {
-        const key = `${file.name}:${file.size}:${file.lastModified}`;
+        const key = fileKey(file);
+        if (!String(file.type || '').startsWith('image/') && !/\.(jpe?g|png|webp|gif|bmp|jfif|heic|heif|avif)$/i.test(file.name || '')) {
+          toast(`الملف ${file.name} ليس صورة مدعومة`, 'error');
+          continue;
+        }
+        if (file.size > 10 * 1024 * 1024) {
+          toast(`الصورة ${file.name} أكبر من 10MB`, 'error');
+          continue;
+        }
         if (!keys.has(key)) {
           keys.add(key);
           selectedFiles.push(file);
+          uploadStateByKey.set(key, { status: 'ready', message: 'جاهزة' });
         }
       }
       previewUrls.forEach(url => URL.revokeObjectURL(url));
@@ -3427,6 +3519,40 @@
     function handleDrop(e) { e.preventDefault(); document.getElementById('dropZone').classList.remove('drag'); if (e.dataTransfer?.files?.length) setFiles(e.dataTransfer.files); }
     function handleFileSelect(e) { if (e.target.files?.length) setFiles(e.target.files); }
 
+    async function uploadOneImage(file, maxAttempts = 3) {
+      const key = fileKey(file);
+      let lastError = new Error('فشل رفع الصورة');
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        uploadStateByKey.set(key, { status: 'uploading', message: `محاولة ${attempt}/${maxAttempts}` });
+        renderPendingPreviews();
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 45000);
+        try {
+          const fd = new FormData();
+          fd.append('image', file);
+          const res = await fetch(BASE_URL + '/products/upload', { method: 'POST', headers: authHeaders(), body: fd, signal: controller.signal });
+          const rawText = await res.text();
+          let data = null;
+          try { data = rawText ? JSON.parse(rawText) : null; } catch (_) { data = null; }
+          if (res.status === 401) throw new Error('غير مصرح: تأكدي من API Token في تبويب الاتصال');
+          if (!res.ok || !data?.ok || !data?.url) throw new Error(data?.error || data?.message || rawText || `HTTP ${res.status}`);
+          uploadStateByKey.set(key, { status: 'ok', message: 'تم الرفع' });
+          return data.url;
+        } catch (err) {
+          lastError = err?.name === 'AbortError'
+            ? new Error('انتهت مهلة رفع الصورة؛ ستتم إعادة المحاولة')
+            : (err instanceof Error ? err : new Error(String(err || 'فشل رفع الصورة')));
+          uploadStateByKey.set(key, { status: 'error', message: lastError.message });
+          renderPendingPreviews();
+          if (/غير مصرح/.test(lastError.message)) break;
+          if (attempt < maxAttempts) await new Promise(resolve => setTimeout(resolve, 600 * attempt));
+        } finally {
+          clearTimeout(timeoutId);
+        }
+      }
+      throw lastError;
+    }
+
     async function uploadImages() {
       if (!selectedFiles.length) return toast('اختاري صورًا أولاً', 'error');
       const btn = document.getElementById('uploadBtn');
@@ -3441,41 +3567,15 @@
         for (let index = 0; index < pending.length; index += 1) {
           const file = pending[index];
           document.getElementById('uploadStatus').textContent = `جارٍ رفع الصورة ${index + 1} من ${pending.length}: ${file.name}`;
-          const fd = new FormData();
-          fd.append('image', file);
-          const res = await fetch(BASE_URL + '/products/upload', {
-            method: 'POST',
-            headers: authHeaders(),
-            body: fd,
-          });
-
-          let data = null;
-          let rawText = '';
           try {
-            rawText = await res.text();
-            data = rawText ? JSON.parse(rawText) : null;
-          } catch (_) {
-            data = null;
-          }
-
-          if (!res.ok) {
-            const msg = data?.error || data?.message || rawText || `HTTP ${res.status}`;
-            if (res.status === 401) {
-              throw new Error('غير مصرح: تأكدي من API Token في تبويب الاتصال');
-            }
+            const uploadedUrl = await uploadOneImage(file);
+            if (!imageGallery.includes(uploadedUrl)) imageGallery.push(uploadedUrl);
+            uploadedFileKeys.add(fileKey(file));
+            uploaded += 1;
+          } catch (err) {
             failed.push(file);
-            console.warn(`Upload failed for ${file.name}: ${msg}`);
-            continue;
+            console.warn(`Upload failed for ${file.name}: ${err?.message || err}`);
           }
-
-          if (!data || !data.ok || !data.url) {
-            failed.push(file);
-            continue;
-          }
-
-          if (!imageGallery.includes(data.url)) imageGallery.push(data.url);
-          uploadedFileKeys.add(`${file.name}:${file.size}:${file.lastModified}`);
-          uploaded += 1;
         }
         previewUrls.forEach(url => URL.revokeObjectURL(url));
         selectedFiles = failed;
@@ -3491,7 +3591,7 @@
           toast('تم رفع كل الصور بنجاح', 'success');
         }
       } catch (err) {
-        selectedFiles = pending.filter(file => !uploadedFileKeys.has(`${file.name}:${file.size}:${file.lastModified}`));
+        selectedFiles = pending.filter(file => !uploadedFileKeys.has(fileKey(file)));
         previewUrls.forEach(url => URL.revokeObjectURL(url));
         previewUrls = selectedFiles.map(file => URL.createObjectURL(file));
         renderPendingPreviews();

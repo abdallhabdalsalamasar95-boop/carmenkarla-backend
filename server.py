@@ -1,4 +1,5 @@
 import json
+import hashlib
 import os
 import re
 import time
@@ -816,6 +817,33 @@ def normalize_order_item(payload: Dict[str, Any], current: Optional[Dict[str, An
         ambassador_summary = cur.get("ambassadorSummary")
     if not isinstance(ambassador_summary, dict):
         ambassador_summary = {}
+    ambassador_summary = dict(ambassador_summary)
+
+    is_ambassador_order = (
+        bool(ambassador_summary.get("isAmbassadorOrder"))
+        or bool(customer.get("placedAsAmbassador"))
+        or str(customer.get("accountRole") or "").strip().lower() == "ambassador"
+    )
+    if is_ambassador_order:
+        ambassador_summary["isAmbassadorOrder"] = True
+        identity_fields = {
+            "ambassadorUid": customer.get("submitterUid") or customer.get("uid"),
+            "ambassadorName": (
+                customer.get("submitterName")
+                or customer.get("accountName")
+                or customer.get("displayName")
+                or customer.get("fullName")
+            ),
+            "ambassadorEmail": customer.get("submitterEmail") or customer.get("email"),
+            "ambassadorPhone": (
+                customer.get("submitterPhone")
+                or customer.get("accountPhone")
+                or customer.get("ambassadorPhone")
+            ),
+        }
+        for key, value in identity_fields.items():
+            if not str(ambassador_summary.get(key) or "").strip() and str(value or "").strip():
+                ambassador_summary[key] = str(value).strip()
 
     return {
         "orderId": order_id,
@@ -1911,16 +1939,29 @@ def upload_image():
         return jsonify({"ok": False, "error": f"Invalid image MIME type: {mime}"}), 400
 
     max_bytes = _MAX_IMAGE_UPLOAD_MB * 1024 * 1024
-    content_length = as_int(request.content_length or 0, 0)
-    if content_length > max_bytes:
+    blob = file.stream.read(max_bytes + 1)
+    if len(blob) > max_bytes:
         return jsonify({"ok": False, "error": f"Image exceeds max size of {_MAX_IMAGE_UPLOAD_MB}MB"}), 413
+    if not blob:
+        return jsonify({"ok": False, "error": "Uploaded image is empty"}), 400
 
-    filename = f"{int(time.time() * 1000)}_{safe}"
+    # Content-addressed names make retries idempotent: the same image does not
+    # create duplicate files when a mobile connection drops after upload.
+    digest = hashlib.sha256(blob).hexdigest()
+    filename = f"{digest[:20]}_{safe}"
     dest = UPLOAD_DIR / filename
-    file.save(dest)
+    created = not dest.exists()
+    if created:
+        dest.write_bytes(blob)
 
     url = f"{_request_public_base()}/uploads/{filename}"
-    return jsonify({"ok": True, "filename": filename, "url": url, "sizeBytes": dest.stat().st_size if dest.exists() else 0})
+    return jsonify({
+        "ok": True,
+        "created": created,
+        "filename": filename,
+        "url": url,
+        "sizeBytes": dest.stat().st_size if dest.exists() else 0,
+    })
 
 
 @app.post("/products")
