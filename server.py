@@ -66,6 +66,7 @@ NOTIFICATIONS_FILE = DATA_DIR / "notifications.json"
 DEVICES_FILE = DATA_DIR / "devices.json"
 ORDERS_FILE = DATA_DIR / "orders.json"
 AMBASSADOR_WITHDRAWALS_FILE = DATA_DIR / "ambassador_withdrawals.json"
+EXPENSES_FILE = DATA_DIR / "expenses.json"
 MARKETING_FILE = DATA_DIR / "marketing.json"
 AMBASSADOR_WITHDRAWAL_MINIMUM = 100.0
 
@@ -541,6 +542,9 @@ if not ORDERS_FILE.exists():
 if not AMBASSADOR_WITHDRAWALS_FILE.exists():
     AMBASSADOR_WITHDRAWALS_FILE.write_text("[]", encoding="utf-8")
 
+if not EXPENSES_FILE.exists():
+    EXPENSES_FILE.write_text("[]", encoding="utf-8")
+
 
 def default_marketing_config() -> Dict[str, Any]:
     return {
@@ -642,6 +646,7 @@ if not MARKETING_FILE.exists():
 app = Flask(__name__)
 _INVENTORY_LOCK = threading.RLock()
 _WITHDRAWAL_LOCK = threading.RLock()
+_EXPENSES_LOCK = threading.RLock()
 
 if CORS_ORIGIN:
     CORS(app, resources={r"/*": {"origins": [CORS_ORIGIN]}})
@@ -737,6 +742,21 @@ def read_ambassador_withdrawals() -> List[Dict[str, Any]]:
 
 def write_ambassador_withdrawals(items: List[Dict[str, Any]]) -> None:
     _write_json_file_atomic(AMBASSADOR_WITHDRAWALS_FILE, items)
+
+
+def read_expenses() -> List[Dict[str, Any]]:
+    try:
+        raw = EXPENSES_FILE.read_text(encoding="utf-8")
+        data = json.loads(raw)
+        if isinstance(data, list):
+            return [x for x in data if isinstance(x, dict)]
+        return []
+    except Exception:
+        return []
+
+
+def write_expenses(items: List[Dict[str, Any]]) -> None:
+    _write_json_file_atomic(EXPENSES_FILE, items)
 
 
 def read_marketing_config() -> Dict[str, Any]:
@@ -1022,6 +1042,157 @@ def normalize_order_item(payload: Dict[str, Any], current: Optional[Dict[str, An
             if isinstance(payload.get("inventoryReservation"), list)
             else cur.get("inventoryReservation", [])
         ),
+    }
+
+
+def snapshot_order_purchase_costs(
+    order: Dict[str, Any],
+    products: List[Dict[str, Any]],
+    current: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Attach authoritative unit purchase costs without changing old snapshots."""
+    payload = order.get("payload") if isinstance(order.get("payload"), dict) else {}
+    lines = payload.get("items") if isinstance(payload.get("items"), list) else []
+    current_payload = current.get("payload") if isinstance(current, dict) and isinstance(current.get("payload"), dict) else {}
+    current_lines = current_payload.get("items") if isinstance(current_payload.get("items"), list) else []
+    current_costs: Dict[str, float] = {}
+    for raw in current_lines:
+        if not isinstance(raw, dict):
+            continue
+        product_id = str(raw.get("productId") or raw.get("id") or "").strip()
+        if product_id and raw.get("purchasePrice") is not None:
+            current_costs[product_id] = max(0.0, as_number(raw.get("purchasePrice"), 0))
+    product_costs = {
+        str(product.get("id") or "").strip(): max(0.0, as_number(product.get("purchasePrice"), 0))
+        for product in products
+        if isinstance(product, dict) and str(product.get("id") or "").strip()
+    }
+    enriched = []
+    for raw in lines:
+        if not isinstance(raw, dict):
+            continue
+        line = dict(raw)
+        product_id = str(line.get("productId") or line.get("id") or "").strip()
+        line["purchasePrice"] = current_costs.get(product_id, product_costs.get(product_id, 0.0))
+        enriched.append(line)
+    payload = dict(payload)
+    payload["items"] = enriched
+    order = dict(order)
+    order["payload"] = payload
+    return order
+
+
+def normalize_expense(payload: Dict[str, Any], current: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    cur = current or {}
+    now = int(time.time() * 1000)
+    category = str(payload.get("category") or cur.get("category") or "other").strip().lower()
+    if category not in {"rent", "shipping", "marketing", "salary", "utilities", "supplies", "other"}:
+        category = "other"
+    return {
+        "id": str(payload.get("id") or cur.get("id") or f"exp_{now}_{uuid.uuid4().hex[:8]}").strip(),
+        "amount": round(max(0.0, as_number(payload.get("amount", cur.get("amount", 0)), 0)), 2),
+        "category": category,
+        "description": str(payload.get("description") or cur.get("description") or "").strip(),
+        "expenseAtMs": as_int(payload.get("expenseAtMs", cur.get("expenseAtMs", now)), now),
+        "createdAtMs": as_int(payload.get("createdAtMs", cur.get("createdAtMs", now)), now),
+        "updatedAtMs": now,
+    }
+
+
+def accounting_summary(from_ms: int = 0, to_ms: int = 0) -> Dict[str, Any]:
+    products = read_products()
+    product_by_id = {str(item.get("id") or "").strip(): item for item in products}
+    delivered = []
+    for raw in read_orders():
+        if not isinstance(raw, dict):
+            continue
+        order = normalize_order_item(raw)
+        created = as_int(order.get("createdAtMs"), 0)
+        if str(order.get("status") or "").lower() != "delivered":
+            continue
+        if from_ms > 0 and created < from_ms:
+            continue
+        if to_ms > 0 and created > to_ms:
+            continue
+        delivered.append(order)
+
+    revenue = cost_of_goods = ambassador_commissions = 0.0
+    sold_pieces = missing_cost_pieces = 0
+    product_sales: Dict[str, Dict[str, Any]] = {}
+    for order in delivered:
+        revenue += max(0.0, as_number(order.get("grandTotal"), 0))
+        if bool(order.get("ambassadorSummary", {}).get("isAmbassadorOrder")):
+            ambassador_commissions += _ambassador_order_commission(order)
+        payload = order.get("payload") if isinstance(order.get("payload"), dict) else {}
+        lines = payload.get("items") if isinstance(payload.get("items"), list) else []
+        for raw_line in lines:
+            if not isinstance(raw_line, dict):
+                continue
+            product_id = str(raw_line.get("productId") or raw_line.get("id") or "").strip()
+            quantity = max(0, as_int(raw_line.get("quantity"), 0))
+            sold_pieces += quantity
+            purchase_price = as_number(raw_line.get("purchasePrice"), -1)
+            if purchase_price < 0:
+                purchase_price = as_number(product_by_id.get(product_id, {}).get("purchasePrice"), 0)
+            if purchase_price <= 0:
+                missing_cost_pieces += quantity
+            cost_of_goods += max(0.0, purchase_price) * quantity
+            sale_amount = max(0.0, as_number(raw_line.get("price"), 0)) * quantity
+            row = product_sales.setdefault(product_id or str(raw_line.get("name") or "منتج"), {
+                "productId": product_id,
+                "name": str(raw_line.get("name") or product_by_id.get(product_id, {}).get("name") or "منتج"),
+                "pieces": 0,
+                "sales": 0.0,
+                "cost": 0.0,
+            })
+            row["pieces"] += quantity
+            row["sales"] += sale_amount
+            row["cost"] += max(0.0, purchase_price) * quantity
+
+    period_expenses = []
+    for raw in read_expenses():
+        expense = normalize_expense(raw, raw)
+        expense_at = as_int(expense.get("expenseAtMs"), 0)
+        if from_ms > 0 and expense_at < from_ms:
+            continue
+        if to_ms > 0 and expense_at > to_ms:
+            continue
+        period_expenses.append(expense)
+    expenses_total = sum(max(0.0, as_number(item.get("amount"), 0)) for item in period_expenses)
+
+    inventory_pieces = missing_cost_products = 0
+    inventory_cost_value = inventory_sale_value = 0.0
+    for product in products:
+        quantity = max(0, as_int(product.get("availableStock", product.get("stockQuantity", 0)), 0))
+        purchase_price = max(0.0, as_number(product.get("purchasePrice"), 0))
+        sale_price = max(0.0, as_number(product.get("price"), 0))
+        inventory_pieces += quantity
+        inventory_cost_value += quantity * purchase_price
+        inventory_sale_value += quantity * sale_price
+        if quantity > 0 and purchase_price <= 0:
+            missing_cost_products += 1
+
+    gross_profit = revenue - cost_of_goods
+    net_profit = gross_profit - ambassador_commissions - expenses_total
+    top_products = sorted(product_sales.values(), key=lambda item: item["sales"], reverse=True)[:20]
+    for item in top_products:
+        item["sales"] = round(item["sales"], 2)
+        item["cost"] = round(item["cost"], 2)
+        item["profit"] = round(item["sales"] - item["cost"], 2)
+    return {
+        "fromMs": from_ms, "toMs": to_ms,
+        "deliveredOrders": len(delivered), "soldPieces": sold_pieces,
+        "revenue": round(revenue, 2), "costOfGoods": round(cost_of_goods, 2),
+        "grossProfit": round(gross_profit, 2),
+        "ambassadorCommissions": round(ambassador_commissions, 2),
+        "expenses": round(expenses_total, 2), "netProfit": round(net_profit, 2),
+        "inventoryPieces": inventory_pieces,
+        "inventoryCostValue": round(inventory_cost_value, 2),
+        "inventorySaleValue": round(inventory_sale_value, 2),
+        "inventoryPotentialProfit": round(inventory_sale_value - inventory_cost_value, 2),
+        "missingCostProducts": missing_cost_products,
+        "missingCostSoldPieces": missing_cost_pieces,
+        "topProducts": top_products,
     }
 
 
@@ -1643,6 +1814,7 @@ def normalize_product(payload: Dict[str, Any], current: Optional[Dict[str, Any]]
         "name": name,
         "price": as_number(payload.get("price", cur.get("price", 0))),
         "oldPrice": as_number(payload.get("oldPrice", cur.get("oldPrice", 0))),
+        "purchasePrice": max(0.0, as_number(payload.get("purchasePrice", cur.get("purchasePrice", 0)))),
         "commissionPercent": max(0, min(100, as_number(payload.get("commissionPercent", cur.get("commissionPercent", 0))))),
         "imageUrl": image_url,
         "imageUrls": image_urls,
@@ -2140,9 +2312,10 @@ def create_order_from_app():
         item_payload["updatedAtMs"] = int(time.time() * 1000)
 
         created = idx < 0
+        products = read_products()
         if created:
             item = normalize_order_item(item_payload)
-            products = read_products()
+            item = snapshot_order_purchase_costs(item, products)
             reserved, inventory_error, movements = reserve_order_inventory(products, item)
             if not reserved:
                 return jsonify({"ok": False, "error": inventory_error, "code": "insufficient_stock"}), 409
@@ -2152,6 +2325,7 @@ def create_order_from_app():
             entries.append(item)
         else:
             item = normalize_order_item(item_payload, entries[idx])
+            item = snapshot_order_purchase_costs(item, products, entries[idx])
             entries[idx] = item
 
         entries.sort(key=lambda x: as_int(x.get("createdAtMs", 0), 0), reverse=True)
@@ -2371,6 +2545,58 @@ def list_admin_ambassador_withdrawals():
         reverse=True,
     )
     return jsonify({"ok": True, "count": len(entries), "items": entries})
+
+
+@app.get("/admin/accounting/summary")
+def get_admin_accounting_summary():
+    ok, err = require_admin()
+    if not ok:
+        return err
+    from_ms = max(0, as_int(request.args.get("fromMs", 0), 0))
+    to_ms = max(0, as_int(request.args.get("toMs", 0), 0))
+    return jsonify({"ok": True, "summary": accounting_summary(from_ms, to_ms)})
+
+
+@app.get("/admin/expenses")
+def list_admin_expenses():
+    ok, err = require_admin()
+    if not ok:
+        return err
+    items = [normalize_expense(item, item) for item in read_expenses() if isinstance(item, dict)]
+    items.sort(key=lambda item: as_int(item.get("expenseAtMs"), 0), reverse=True)
+    return jsonify({"ok": True, "count": len(items), "items": items[:1000]})
+
+
+@app.post("/admin/expenses")
+def create_admin_expense():
+    ok, err = require_admin()
+    if not ok:
+        return err
+    payload = request.get_json(silent=True) or {}
+    item = normalize_expense(payload)
+    if item["amount"] <= 0 or not item["description"]:
+        return jsonify({"ok": False, "error": "المبلغ والوصف مطلوبان"}), 400
+    with _EXPENSES_LOCK:
+        items = read_expenses()
+        items.append(item)
+        items.sort(key=lambda row: as_int(row.get("expenseAtMs"), 0), reverse=True)
+        write_expenses(items[:5000])
+    return jsonify({"ok": True, "item": item}), 201
+
+
+@app.delete("/admin/expenses/<expense_id>")
+def delete_admin_expense(expense_id: str):
+    ok, err = require_admin()
+    if not ok:
+        return err
+    with _EXPENSES_LOCK:
+        items = read_expenses()
+        idx = next((i for i, item in enumerate(items) if str(item.get("id") or "") == expense_id), -1)
+        if idx < 0:
+            return jsonify({"ok": False, "error": "المصروف غير موجود"}), 404
+        deleted = items.pop(idx)
+        write_expenses(items)
+    return jsonify({"ok": True, "deleted": deleted})
 
 
 @app.put("/admin/ambassador-withdrawals/<withdrawal_id>/status")

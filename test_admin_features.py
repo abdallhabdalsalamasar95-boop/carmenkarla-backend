@@ -141,6 +141,66 @@ class AdminFeatureTests(unittest.TestCase):
             100,
         )
 
+    def test_order_purchase_price_snapshot_is_authoritative_and_stable(self):
+        order = server.normalize_order_item({
+            "orderId": "cost-order",
+            "payload": {"items": [{"productId": "p1", "quantity": 2, "purchasePrice": 1}]},
+        })
+        snapped = server.snapshot_order_purchase_costs(order, [{"id": "p1", "purchasePrice": 40}])
+        self.assertEqual(snapped["payload"]["items"][0]["purchasePrice"], 40)
+
+        retried = server.snapshot_order_purchase_costs(
+            order,
+            [{"id": "p1", "purchasePrice": 55}],
+            snapped,
+        )
+        self.assertEqual(retried["payload"]["items"][0]["purchasePrice"], 40)
+
+    def test_accounting_summary_calculates_net_profit_and_inventory_value(self):
+        products = [{
+            "id": "p1",
+            "name": "فستان",
+            "price": 100,
+            "purchasePrice": 40,
+            "stockQuantity": 3,
+            "availableStock": 3,
+        }]
+        orders = [server.normalize_order_item({
+            "orderId": "delivered-accounting",
+            "status": "delivered",
+            "grandTotal": 200,
+            "ambassadorSummary": {
+                "isAmbassadorOrder": True,
+                "estimatedCommission": 20,
+            },
+            "payload": {
+                "pricing": {"grandTotal": 200},
+                "items": [{
+                    "productId": "p1",
+                    "name": "فستان",
+                    "price": 100,
+                    "purchasePrice": 40,
+                    "quantity": 2,
+                }],
+            },
+        })]
+        expenses = [{"id": "e1", "amount": 30, "description": "توصيل", "expenseAtMs": 1}]
+        with patch.object(server, "read_products", return_value=products), \
+             patch.object(server, "read_orders", return_value=orders), \
+             patch.object(server, "read_expenses", return_value=expenses):
+            summary = server.accounting_summary()
+
+        self.assertEqual(summary["revenue"], 200)
+        self.assertEqual(summary["costOfGoods"], 80)
+        self.assertEqual(summary["grossProfit"], 120)
+        self.assertEqual(summary["ambassadorCommissions"], 20)
+        self.assertEqual(summary["expenses"], 30)
+        self.assertEqual(summary["netProfit"], 70)
+        self.assertEqual(summary["inventoryPieces"], 3)
+        self.assertEqual(summary["inventoryCostValue"], 120)
+        self.assertEqual(summary["inventorySaleValue"], 300)
+        self.assertEqual(summary["inventoryPotentialProfit"], 180)
+
     def test_ambassador_summary_survives_order_normalization(self):
         item = server.normalize_order_item({
             "orderId": "order-1",
