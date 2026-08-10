@@ -249,6 +249,7 @@ class AdminFeatureTests(unittest.TestCase):
 
     def test_sabil_headers_follow_official_api_contract(self):
         with patch.object(server, "_SABIL_API_KEY", "secret"), \
+             patch.object(server, "_SABIL_ACCESS_TOKEN", ""), \
              patch.object(server, "_SABIL_ACCOUNT_ID", "account"), \
              patch.object(server, "_SABIL_API_VERSION", "1.0.0"):
             headers = server._sabil_headers()
@@ -256,6 +257,62 @@ class AdminFeatureTests(unittest.TestCase):
         self.assertEqual(headers["Authorization"], "apikey secret")
         self.assertEqual(headers["X-ACCOUNT-ID"], "account")
         self.assertNotIn("X-API-Key", headers)
+
+    def test_sabil_portal_session_is_preferred_and_counts_as_configured(self):
+        with patch.object(server, "_SABIL_ENABLED", True), \
+             patch.object(server, "_SABIL_API_KEY", "restricted-api-key"), \
+             patch.object(server, "_SABIL_ACCESS_TOKEN", "session-access-token"), \
+             patch.object(server, "_SABIL_REFRESH_TOKEN", "session-refresh-token"), \
+             patch.object(server, "_SABIL_ACCOUNT_ID", "account"), \
+             patch.object(server, "_SABIL_SERVICE_ID", "service"):
+            config = server.sabil_config_status()
+            headers = server._sabil_headers()
+
+        self.assertTrue(config["ready"])
+        self.assertEqual(config["authMode"], "session")
+        self.assertTrue(config["sessionRefreshConfigured"])
+        self.assertEqual(headers["Authorization"], "Bearer session-access-token")
+
+    def test_new_customer_and_ambassador_orders_auto_dispatch_once(self):
+        products, orders, read_products, write_products, read_orders, write_orders = self._inventory_api_state(
+            {"S": 3, "M": 3, "L": 1},
+        )
+        customer_order = self._order_payload(order_id="customer-auto-sabil", quantity=1)
+        ambassador_order = self._order_payload(order_id="ambassador-auto-sabil", quantity=1)
+        with patch.object(server, "_SABIL_ENABLED", True), \
+             patch.object(server, "read_products", side_effect=read_products), \
+             patch.object(server, "write_products", side_effect=write_products), \
+             patch.object(server, "read_orders", side_effect=read_orders), \
+             patch.object(server, "write_orders", side_effect=write_orders), \
+             patch.object(server, "dispatch_order_to_sabil", return_value={"status": "created"}) as dispatch, \
+             patch.object(server, "_firebase_user_from_request", return_value=({"uid": "amb-1"}, None)), \
+             patch.object(server, "_firebase_user_profile", return_value={"accountRole": "ambassador", "ambassadorName": "سارة"}):
+            client = server.app.test_client()
+            customer = client.post("/orders", json=customer_order)
+            customer_retry = client.post("/orders", json=customer_order)
+            ambassador = client.post(
+                "/orders",
+                json=ambassador_order,
+                headers={"Authorization": "Bearer firebase-token"},
+            )
+            ambassador_retry = client.post(
+                "/orders",
+                json=ambassador_order,
+                headers={"Authorization": "Bearer firebase-token"},
+            )
+
+        self.assertEqual(customer.status_code, 200)
+        self.assertTrue(customer.get_json()["created"])
+        self.assertFalse(customer_retry.get_json()["created"])
+        self.assertEqual(ambassador.status_code, 200)
+        self.assertTrue(ambassador.get_json()["created"])
+        self.assertFalse(ambassador_retry.get_json()["created"])
+        self.assertEqual(
+            [call.args[0] for call in dispatch.call_args_list],
+            ["customer-auto-sabil", "ambassador-auto-sabil"],
+        )
+        self.assertEqual(len(orders), 2)
+        self.assertEqual(products[0]["sizeQuantities"]["M"], 1)
 
     def test_sabil_contact_is_created_for_new_customer(self):
         order = server.normalize_order_item({

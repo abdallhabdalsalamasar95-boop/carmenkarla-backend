@@ -1,3 +1,4 @@
+import base64
 import json
 import hashlib
 import os
@@ -93,6 +94,9 @@ _SABIL_ENABLED = str(os.getenv("SABIL_ENABLED", "0") or "0").strip().lower() in 
 _SABIL_API_BASE_URL = (os.getenv("SABIL_API_BASE_URL", "https://v2.sabil.ly") or "https://v2.sabil.ly").strip().rstrip("/")
 _SABIL_CREATE_SHIPMENT_PATH = (os.getenv("SABIL_CREATE_SHIPMENT_PATH", "/api/local/shipments") or "/api/local/shipments").strip()
 _SABIL_API_KEY = (os.getenv("SABIL_API_KEY", "") or "").strip()
+_SABIL_ACCESS_TOKEN = (os.getenv("SABIL_ACCESS_TOKEN", "") or "").strip()
+_SABIL_REFRESH_TOKEN = (os.getenv("SABIL_REFRESH_TOKEN", "") or "").strip()
+_SABIL_REFRESH_PATH = (os.getenv("SABIL_REFRESH_PATH", "/api/oauth/refresh/") or "/api/oauth/refresh/").strip()
 _SABIL_ACCOUNT_ID = (os.getenv("SABIL_ACCOUNT_ID", "") or "").strip()
 _SABIL_API_VERSION = (os.getenv("SABIL_API_VERSION", "1.0.0") or "1.0.0").strip()
 _SABIL_SERVICE_ID = (os.getenv("SABIL_SERVICE_ID", "") or "").strip()
@@ -102,6 +106,8 @@ _SABIL_PAYMENT_BY = (os.getenv("SABIL_PAYMENT_BY", "receiver") or "receiver").st
 _SABIL_COUNTRY_CODE = (os.getenv("SABIL_COUNTRY_CODE", "lby") or "lby").strip().lower()
 _SABIL_DEFAULT_AREA = (os.getenv("SABIL_DEFAULT_AREA", "") or "").strip()
 _SABIL_CURRENCY = (os.getenv("SABIL_CURRENCY", "lyd") or "lyd").strip().lower()
+_SABIL_SESSION_FILE = DATA_DIR / "sabil_session.json"
+_SABIL_SESSION_LOCK = threading.Lock()
 try:
     _MAX_IMAGE_UPLOAD_MB = max(1, int(float((os.getenv("MAX_IMAGE_UPLOAD_MB", "10") or "10").strip())))
 except Exception:
@@ -1070,7 +1076,7 @@ def normalize_order_item(payload: Dict[str, Any], current: Optional[Dict[str, An
 def sabil_config_status() -> Dict[str, Any]:
     missing = []
     for key, value in {
-        "SABIL_API_KEY": _SABIL_API_KEY,
+        "SABIL_AUTH": _SABIL_ACCESS_TOKEN or _SABIL_API_KEY,
         "SABIL_ACCOUNT_ID": _SABIL_ACCOUNT_ID,
         "SABIL_SERVICE_ID": _SABIL_SERVICE_ID,
     }.items():
@@ -1082,6 +1088,8 @@ def sabil_config_status() -> Dict[str, Any]:
         "configured": not missing,
         "ready": _SABIL_ENABLED and not missing,
         "missing": missing,
+        "authMode": "session" if _SABIL_ACCESS_TOKEN else ("api_key" if _SABIL_API_KEY else ""),
+        "sessionRefreshConfigured": bool(_SABIL_REFRESH_TOKEN),
         "endpoint": f"{_SABIL_API_BASE_URL}{_SABIL_CREATE_SHIPMENT_PATH}",
     }
 
@@ -1165,11 +1173,96 @@ def build_sabil_shipment_payload(
     }
 
 
+def _decode_jwt_expiry(token: str) -> float:
+    try:
+        payload = str(token or "").split(".")[1]
+        payload += "=" * (-len(payload) % 4)
+        decoded = json.loads(base64.urlsafe_b64decode(payload.encode("ascii")))
+        return float(decoded.get("exp") or 0)
+    except Exception:
+        return 0
+
+
+def _load_sabil_session() -> None:
+    global _SABIL_ACCESS_TOKEN, _SABIL_REFRESH_TOKEN
+    try:
+        stored = json.loads(_SABIL_SESSION_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return
+    if not isinstance(stored, dict):
+        return
+    stored_access = str(stored.get("accessToken") or "").strip()
+    stored_refresh = str(stored.get("refreshToken") or "").strip()
+    if stored_access:
+        _SABIL_ACCESS_TOKEN = stored_access
+    if stored_refresh:
+        _SABIL_REFRESH_TOKEN = stored_refresh
+
+
+def _save_sabil_session() -> None:
+    try:
+        temporary = _SABIL_SESSION_FILE.with_suffix(".tmp")
+        temporary.write_text(json.dumps({
+            "accessToken": _SABIL_ACCESS_TOKEN,
+            "refreshToken": _SABIL_REFRESH_TOKEN,
+        }), encoding="utf-8")
+        temporary.replace(_SABIL_SESSION_FILE)
+    except Exception:
+        pass
+
+
+def _refresh_sabil_session(*, force: bool = False) -> None:
+    global _SABIL_ACCESS_TOKEN, _SABIL_REFRESH_TOKEN
+    if not _SABIL_REFRESH_TOKEN:
+        raise RuntimeError("انتهت جلسة درب السبيل ويلزم تسجيل الدخول مجددًا")
+    with _SABIL_SESSION_LOCK:
+        expiry = _decode_jwt_expiry(_SABIL_ACCESS_TOKEN)
+        if not force and expiry and expiry > time.time() + 60:
+            return
+        body = json.dumps({"refreshToken": _SABIL_REFRESH_TOKEN}).encode("utf-8")
+        req = urllib.request.Request(
+            f"{_SABIL_API_BASE_URL}/{_SABIL_REFRESH_PATH.lstrip('/')}",
+            data=body,
+            method="POST",
+            headers={
+                "Content-Type": "application/json; charset=utf-8",
+                "Accept": "application/json",
+                "X-API-VERSION": _SABIL_API_VERSION,
+            },
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=15) as response:
+                decoded = json.loads(response.read().decode("utf-8"))
+        except Exception as ex:
+            raise RuntimeError("تعذر تجديد جلسة درب السبيل") from ex
+        authorization = decoded.get("data") if isinstance(decoded, dict) else None
+        access = authorization.get("access") if isinstance(authorization, dict) else None
+        refresh = authorization.get("refresh") if isinstance(authorization, dict) else None
+        access_token = str(access.get("token") or "").strip() if isinstance(access, dict) else ""
+        refresh_token = str(refresh.get("token") or "").strip() if isinstance(refresh, dict) else ""
+        if not access_token:
+            raise RuntimeError("لم يُرجع درب السبيل جلسة صالحة بعد التجديد")
+        _SABIL_ACCESS_TOKEN = access_token
+        if refresh_token:
+            _SABIL_REFRESH_TOKEN = refresh_token
+        _save_sabil_session()
+
+
+_load_sabil_session()
+
+
 def _sabil_headers() -> Dict[str, str]:
+    if _SABIL_ACCESS_TOKEN:
+        expiry = _decode_jwt_expiry(_SABIL_ACCESS_TOKEN)
+        if expiry and expiry <= time.time() + 60:
+            _refresh_sabil_session()
+        authorization = f"Bearer {_SABIL_ACCESS_TOKEN}"
+    else:
+        authorization = f"apikey {_SABIL_API_KEY}"
     return {
         "Content-Type": "application/json; charset=utf-8",
         "Accept": "application/json",
-        "Authorization": f"apikey {_SABIL_API_KEY}",
+        "Authorization": authorization,
         "X-API-VERSION": _SABIL_API_VERSION,
         "X-ACCOUNT-ID": _SABIL_ACCOUNT_ID,
     }
@@ -1187,21 +1280,26 @@ def _request_sabil_api(
         if payload is not None
         else None
     )
-    req = urllib.request.Request(
-        url,
-        data=body,
-        method=method,
-        headers=_sabil_headers(),
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=15) as response:
-            status_code = int(getattr(response, "status", 200))
-            response_body = response.read().decode("utf-8", errors="replace")
-    except urllib.error.HTTPError as ex:
-        ex.read()
-        raise RuntimeError(f"Darb Al Sabeel HTTP {ex.code}: {ex.reason}") from ex
-    except urllib.error.URLError as ex:
-        raise RuntimeError(f"تعذر الاتصال بدرب السبيل: {ex.reason}") from ex
+    for attempt in range(2):
+        req = urllib.request.Request(
+            url,
+            data=body,
+            method=method,
+            headers=_sabil_headers(),
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=15) as response:
+                status_code = int(getattr(response, "status", 200))
+                response_body = response.read().decode("utf-8", errors="replace")
+            break
+        except urllib.error.HTTPError as ex:
+            ex.read()
+            if ex.code == 401 and attempt == 0 and _SABIL_ACCESS_TOKEN and _SABIL_REFRESH_TOKEN:
+                _refresh_sabil_session(force=True)
+                continue
+            raise RuntimeError(f"Darb Al Sabeel HTTP {ex.code}: {ex.reason}") from ex
+        except urllib.error.URLError as ex:
+            raise RuntimeError(f"تعذر الاتصال بدرب السبيل: {ex.reason}") from ex
     try:
         decoded = json.loads(response_body) if response_body.strip() else {}
     except Exception:
