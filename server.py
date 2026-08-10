@@ -1559,6 +1559,10 @@ def health():
         "storageRoot": str(STORAGE_ROOT),
         "catalogBackend": backend,
         "productionReady": production_ready,
+        "features": {
+            "perSizeInventoryReservation": True,
+            "restoreInventoryOnCancellation": True,
+        },
         "publicBase": _request_public_base(),
     })
 

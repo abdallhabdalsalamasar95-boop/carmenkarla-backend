@@ -259,6 +259,13 @@ class AdminFeatureTests(unittest.TestCase):
         finally:
             response.close()
 
+    def test_health_reports_order_inventory_capabilities(self):
+        response = server.app.test_client().get("/health")
+        self.assertEqual(response.status_code, 200)
+        features = response.get_json()["features"]
+        self.assertTrue(features["perSizeInventoryReservation"])
+        self.assertTrue(features["restoreInventoryOnCancellation"])
+
     def test_multiple_images_can_be_uploaded_sequentially(self):
         old_token = server.API_TOKEN
         old_upload_dir = server.UPLOAD_DIR
