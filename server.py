@@ -1211,6 +1211,26 @@ def _normalized_libyan_phone(phone: Any) -> str:
     return digits
 
 
+def _sabil_contact_phone(phone: Any) -> str:
+    raw = str(phone or "").strip()
+    digits = re.sub(r"\D", "", raw)
+    if digits.startswith("00218"):
+        digits = digits[2:]
+    if digits.startswith("218"):
+        international = f"+{digits}"
+    elif digits.startswith("0"):
+        international = f"+218{digits[1:]}"
+    elif raw.startswith("+"):
+        international = f"+{digits}"
+    elif len(digits) == 9 and digits.startswith("9"):
+        international = f"+218{digits}"
+    else:
+        international = ""
+    if not re.fullmatch(r"\+[1-9]\d{6,14}", international):
+        raise RuntimeError("رقم هاتف العميل غير صالح للربط مع درب السبيل")
+    return international
+
+
 def _matching_sabil_contact_id(data: Any, phone: str) -> str:
     wanted = _normalized_libyan_phone(phone)
     if isinstance(data, dict):
@@ -1240,6 +1260,7 @@ def _sabil_contact_for_order(order: Dict[str, Any]) -> str:
     phone = str(customer.get("phone") or order.get("customerPhone") or "").strip()
     if not name or not phone:
         raise RuntimeError("اسم العميل ورقم الهاتف مطلوبان لإنشاء جهة اتصال درب السبيل")
+    contact_phone = _sabil_contact_phone(phone)
 
     with _SABIL_CONTACT_LOCK:
         _, contacts = _request_sabil_api(f"{_SABIL_CONTACTS_PATH.rstrip('/')}/")
@@ -1250,7 +1271,7 @@ def _sabil_contact_for_order(order: Dict[str, Any]) -> str:
         _, created = _request_sabil_api(
             _SABIL_CONTACTS_PATH,
             method="POST",
-            payload={"name": name, "phone": phone},
+            payload={"name": name, "phone": contact_phone},
         )
         contact_id = _first_nested_value(created, {"_id", "id", "contactid", "contact_id"})
         if not contact_id:

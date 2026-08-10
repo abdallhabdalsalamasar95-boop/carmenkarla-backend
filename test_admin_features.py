@@ -214,6 +214,8 @@ class AdminFeatureTests(unittest.TestCase):
             server._matching_sabil_contact_id(response, "091-234-5678"),
             "contact-218",
         )
+        self.assertEqual(server._sabil_contact_phone("091-234-5678"), "+218912345678")
+        self.assertEqual(server._sabil_contact_phone("00218 91 234 5678"), "+218912345678")
 
     def test_sabil_headers_follow_official_api_contract(self):
         with patch.object(server, "_SABIL_API_KEY", "secret"), \
@@ -242,7 +244,7 @@ class AdminFeatureTests(unittest.TestCase):
         request_api.assert_called_with(
             "/api/contacts",
             method="POST",
-            payload={"name": "سارة", "phone": "0912345678"},
+            payload={"name": "سارة", "phone": "+218912345678"},
         )
 
     def test_sabil_configuration_does_not_require_fixed_contact_ids(self):
