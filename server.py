@@ -1351,6 +1351,41 @@ def dispatch_order_to_sabil(order_id: str, force: bool = False) -> Dict[str, Any
     return result
 
 
+def attach_sabil_shipment(order_id: str, shipment: Dict[str, Any]) -> Dict[str, Any]:
+    order_id = str(order_id or "").strip()
+    shipment_id = str(shipment.get("shipmentId") or "").strip()
+    if not shipment_id:
+        raise ValueError("shipmentId is required")
+    now_ms = int(time.time() * 1000)
+    with _INVENTORY_LOCK:
+        entries = read_orders()
+        idx = next((i for i, row in enumerate(entries) if str(row.get("orderId") or "").strip() == order_id), -1)
+        if idx < 0:
+            raise LookupError("Order not found")
+        order = normalize_order_item(entries[idx])
+        previous = order.get("externalDelivery") if isinstance(order.get("externalDelivery"), dict) else {}
+        previous_id = str(previous.get("shipmentId") or "").strip()
+        if previous_id and previous_id != shipment_id:
+            raise RuntimeError("Order already has a different shipment")
+        delivery = {
+            **previous,
+            "provider": "darb_sabeel",
+            "status": "created",
+            "shipmentId": shipment_id,
+            "trackingNumber": str(shipment.get("trackingNumber") or shipment_id).strip(),
+            "referenceCode": str(shipment.get("referenceCode") or "").strip(),
+            "httpStatus": max(200, as_int(shipment.get("httpStatus"), 201)),
+            "lastError": "",
+            "createdAtMs": as_int(previous.get("createdAtMs"), now_ms),
+            "lastAttemptAtMs": now_ms,
+        }
+        order["externalDelivery"] = delivery
+        order["updatedAtMs"] = now_ms
+        entries[idx] = order
+        write_orders(entries)
+    return delivery
+
+
 def snapshot_order_purchase_costs(
     order: Dict[str, Any],
     products: List[Dict[str, Any]],
@@ -2696,6 +2731,24 @@ def admin_send_order_to_sabil(order_id: str):
         return jsonify({"ok": False, "error": "Order not found"}), 404
     if delivery.get("status") != "created":
         return jsonify({"ok": False, "error": delivery.get("lastError") or "تعذر إنشاء الشحنة", "delivery": delivery}), 502
+    order = next((normalize_order_item(row) for row in read_orders() if str(row.get("orderId") or "").strip() == order_id), None)
+    return jsonify({"ok": True, "delivery": delivery, "item": order})
+
+
+@app.post("/orders/<order_id>/delivery/darb-sabeel/attach")
+def admin_attach_sabil_shipment(order_id: str):
+    ok, err = require_admin()
+    if not ok:
+        return err
+    payload = request.get_json(silent=True) or {}
+    try:
+        delivery = attach_sabil_shipment(order_id, payload)
+    except ValueError as ex:
+        return jsonify({"ok": False, "error": str(ex)}), 400
+    except LookupError:
+        return jsonify({"ok": False, "error": "Order not found"}), 404
+    except RuntimeError as ex:
+        return jsonify({"ok": False, "error": str(ex)}), 409
     order = next((normalize_order_item(row) for row in read_orders() if str(row.get("orderId") or "").strip() == order_id), None)
     return jsonify({"ok": True, "delivery": delivery, "item": order})
 

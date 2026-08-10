@@ -313,6 +313,57 @@ class AdminFeatureTests(unittest.TestCase):
         self.assertEqual(second["trackingNumber"], "TRACK-7")
         sender.assert_called_once()
 
+    def test_admin_can_idempotently_attach_provider_created_sabil_shipment(self):
+        orders = [server.normalize_order_item(self._order_payload(order_id="sabil-portal"))]
+
+        def write_orders(items):
+            orders[:] = items
+
+        old_token = server.API_TOKEN
+        server.API_TOKEN = "test-token"
+        try:
+            with patch.object(server, "read_orders", side_effect=lambda: orders), \
+                 patch.object(server, "write_orders", side_effect=write_orders):
+                client = server.app.test_client()
+                headers = {"Authorization": "Bearer test-token"}
+                payload = {
+                    "shipmentId": "shipment-portal-1",
+                    "trackingNumber": "TRACK-PORTAL-1",
+                    "referenceCode": "REF-1",
+                    "httpStatus": 201,
+                }
+                first = client.post(
+                    "/orders/sabil-portal/delivery/darb-sabeel/attach",
+                    json=payload,
+                    headers=headers,
+                )
+                retry = client.post(
+                    "/orders/sabil-portal/delivery/darb-sabeel/attach",
+                    json=payload,
+                    headers=headers,
+                )
+        finally:
+            server.API_TOKEN = old_token
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(retry.status_code, 200)
+        self.assertEqual(orders[0]["externalDelivery"]["status"], "created")
+        self.assertEqual(orders[0]["externalDelivery"]["shipmentId"], "shipment-portal-1")
+
+    def test_attach_sabil_shipment_rejects_different_existing_shipment(self):
+        order = server.normalize_order_item(self._order_payload(order_id="sabil-conflict"))
+        order["externalDelivery"] = {
+            "provider": "darb_sabeel",
+            "status": "created",
+            "shipmentId": "shipment-existing",
+        }
+        with patch.object(server, "read_orders", return_value=[order]):
+            with self.assertRaisesRegex(RuntimeError, "different shipment"):
+                server.attach_sabil_shipment(
+                    "sabil-conflict",
+                    {"shipmentId": "shipment-other"},
+                )
+
     def test_admin_sabil_status_is_protected_and_does_not_expose_secrets(self):
         old_token = server.API_TOKEN
         server.API_TOKEN = "test-token"
