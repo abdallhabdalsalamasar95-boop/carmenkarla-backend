@@ -164,6 +164,7 @@ class AdminFeatureTests(unittest.TestCase):
                     "name": "سارة",
                     "phone": "0912345678",
                     "city": "طرابلس",
+                    "area": "حي الأندلس",
                     "address": "حي الأندلس",
                 },
                 "items": [{
@@ -184,10 +185,76 @@ class AdminFeatureTests(unittest.TestCase):
         self.assertEqual(payload["service"], "service-1")
         self.assertEqual(payload["contacts"], ["contact-1"])
         self.assertEqual(payload["to"]["city"], "طرابلس")
+        self.assertEqual(payload["to"]["area"], "حي الأندلس")
         self.assertEqual(payload["to"]["address"], "حي الأندلس")
         self.assertEqual(payload["products"][0]["quantity"], 2)
         self.assertEqual(payload["products"][0]["metadata"]["size"], "M")
         self.assertEqual(payload["metadata"]["order_id"], "order-sabil-1")
+
+    def test_sabil_contact_reuses_existing_customer_phone(self):
+        order = server.normalize_order_item({
+            "orderId": "contact-existing",
+            "payload": {"customer": {"name": "سارة", "phone": "+218 91 234 5678"}},
+        })
+        response = {
+            "status": True,
+            "data": {"results": [{"_id": "contact-9", "phone": "0912345678"}]},
+        }
+        with patch.object(server, "_SABIL_CONTACT_IDS", []), \
+             patch.object(server, "_request_sabil_api", return_value=(200, response)) as request_api:
+            contact_id = server._sabil_contact_for_order(order)
+
+        self.assertEqual(contact_id, "contact-9")
+        request_api.assert_called_once_with("/api/contacts/")
+
+    def test_sabil_contact_matches_local_and_international_libyan_phone(self):
+        response = {"data": [{"_id": "contact-218", "phone": "+218 91 234 5678"}]}
+
+        self.assertEqual(
+            server._matching_sabil_contact_id(response, "091-234-5678"),
+            "contact-218",
+        )
+
+    def test_sabil_headers_follow_official_api_contract(self):
+        with patch.object(server, "_SABIL_API_KEY", "secret"), \
+             patch.object(server, "_SABIL_ACCOUNT_ID", "account"), \
+             patch.object(server, "_SABIL_API_VERSION", "1.0.0"):
+            headers = server._sabil_headers()
+
+        self.assertEqual(headers["Authorization"], "apikey secret")
+        self.assertEqual(headers["X-ACCOUNT-ID"], "account")
+        self.assertNotIn("X-API-Key", headers)
+
+    def test_sabil_contact_is_created_for_new_customer(self):
+        order = server.normalize_order_item({
+            "orderId": "contact-new",
+            "payload": {"customer": {"name": "سارة", "phone": "0912345678"}},
+        })
+        with patch.object(server, "_SABIL_CONTACT_IDS", []), \
+             patch.object(server, "_request_sabil_api", side_effect=[
+                 (200, {"status": True, "data": {"results": []}}),
+                 (201, {"status": True, "data": {"_id": "contact-new-1"}}),
+             ]) as request_api:
+            contact_id = server._sabil_contact_for_order(order)
+
+        self.assertEqual(contact_id, "contact-new-1")
+        self.assertEqual(request_api.call_count, 2)
+        request_api.assert_called_with(
+            "/api/contacts",
+            method="POST",
+            payload={"name": "سارة", "phone": "0912345678"},
+        )
+
+    def test_sabil_configuration_does_not_require_fixed_contact_ids(self):
+        with patch.object(server, "_SABIL_ENABLED", True), \
+             patch.object(server, "_SABIL_API_KEY", "key"), \
+             patch.object(server, "_SABIL_ACCOUNT_ID", "account"), \
+             patch.object(server, "_SABIL_SERVICE_ID", "service"), \
+             patch.object(server, "_SABIL_CONTACT_IDS", []):
+            config = server.sabil_config_status()
+
+        self.assertTrue(config["ready"])
+        self.assertNotIn("SABIL_CONTACT_IDS", config["missing"])
 
     def test_sabil_dispatch_is_idempotent_after_shipment_creation(self):
         orders = [server.normalize_order_item(self._order_payload(order_id="sabil-once"))]

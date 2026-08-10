@@ -96,6 +96,7 @@ _SABIL_API_KEY = (os.getenv("SABIL_API_KEY", "") or "").strip()
 _SABIL_ACCOUNT_ID = (os.getenv("SABIL_ACCOUNT_ID", "") or "").strip()
 _SABIL_API_VERSION = (os.getenv("SABIL_API_VERSION", "1.0.0") or "1.0.0").strip()
 _SABIL_SERVICE_ID = (os.getenv("SABIL_SERVICE_ID", "") or "").strip()
+_SABIL_CONTACTS_PATH = (os.getenv("SABIL_CONTACTS_PATH", "/api/contacts") or "/api/contacts").strip()
 _SABIL_CONTACT_IDS = [item.strip() for item in (os.getenv("SABIL_CONTACT_IDS", "") or "").split(",") if item.strip()]
 _SABIL_PAYMENT_BY = (os.getenv("SABIL_PAYMENT_BY", "receiver") or "receiver").strip().lower()
 _SABIL_COUNTRY_CODE = (os.getenv("SABIL_COUNTRY_CODE", "LBY") or "LBY").strip().upper()
@@ -659,6 +660,7 @@ if not MARKETING_FILE.exists():
 
 app = Flask(__name__)
 _INVENTORY_LOCK = threading.RLock()
+_SABIL_CONTACT_LOCK = threading.Lock()
 _WITHDRAWAL_LOCK = threading.RLock()
 _EXPENSES_LOCK = threading.RLock()
 
@@ -1071,7 +1073,6 @@ def sabil_config_status() -> Dict[str, Any]:
         "SABIL_API_KEY": _SABIL_API_KEY,
         "SABIL_ACCOUNT_ID": _SABIL_ACCOUNT_ID,
         "SABIL_SERVICE_ID": _SABIL_SERVICE_ID,
-        "SABIL_CONTACT_IDS": _SABIL_CONTACT_IDS,
     }.items():
         if not value:
             missing.append(key)
@@ -1104,7 +1105,10 @@ def _first_nested_value(data: Any, keys: set[str]) -> str:
     return ""
 
 
-def build_sabil_shipment_payload(order: Dict[str, Any]) -> Dict[str, Any]:
+def build_sabil_shipment_payload(
+    order: Dict[str, Any],
+    contact_ids: Optional[List[str]] = None,
+) -> Dict[str, Any]:
     payload = order.get("payload") if isinstance(order.get("payload"), dict) else {}
     customer = payload.get("customer") if isinstance(payload.get("customer"), dict) else {}
     items = payload.get("items") if isinstance(payload.get("items"), list) else []
@@ -1139,7 +1143,7 @@ def build_sabil_shipment_payload(order: Dict[str, Any]) -> Dict[str, Any]:
     note = str(payload.get("note") or customer.get("note") or "").strip()
     return {
         "service": _SABIL_SERVICE_ID,
-        "contacts": list(_SABIL_CONTACT_IDS),
+        "contacts": list(contact_ids if contact_ids is not None else _SABIL_CONTACT_IDS),
         "paymentBy": _SABIL_PAYMENT_BY if _SABIL_PAYMENT_BY in {"sender", "receiver", "sales"} else "receiver",
         "to": destination,
         "products": products,
@@ -1154,38 +1158,117 @@ def build_sabil_shipment_payload(order: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _request_sabil_shipment(order: Dict[str, Any]) -> Dict[str, Any]:
-    config = sabil_config_status()
-    if not config["ready"]:
-        missing = ", ".join(config["missing"])
-        raise RuntimeError(f"إعدادات درب السبيل غير مكتملة: {missing or 'SABIL_ENABLED'}")
-    body = json.dumps(build_sabil_shipment_payload(order), ensure_ascii=False).encode("utf-8")
+def _sabil_headers() -> Dict[str, str]:
+    return {
+        "Content-Type": "application/json; charset=utf-8",
+        "Accept": "application/json",
+        "Authorization": f"apikey {_SABIL_API_KEY}",
+        "X-API-VERSION": _SABIL_API_VERSION,
+        "X-ACCOUNT-ID": _SABIL_ACCOUNT_ID,
+    }
+
+
+def _request_sabil_api(
+    path: str,
+    *,
+    method: str = "GET",
+    payload: Optional[Dict[str, Any]] = None,
+) -> tuple[int, Any]:
+    url = f"{_SABIL_API_BASE_URL}/{str(path or '').lstrip('/')}"
+    body = (
+        json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        if payload is not None
+        else None
+    )
     req = urllib.request.Request(
-        config["endpoint"],
+        url,
         data=body,
-        method="POST",
-        headers={
-            "Content-Type": "application/json; charset=utf-8",
-            "Accept": "application/json",
-            "Authorization": f"apikey {_SABIL_API_KEY}",
-            "X-API-Key": _SABIL_API_KEY,
-            "X-API-VERSION": _SABIL_API_VERSION,
-            "X-ACCOUNT-ID": _SABIL_ACCOUNT_ID,
-        },
+        method=method,
+        headers=_sabil_headers(),
     )
     try:
         with urllib.request.urlopen(req, timeout=15) as response:
             status_code = int(getattr(response, "status", 200))
             response_body = response.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as ex:
-        response_body = ex.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"Darb Al Sabeel HTTP {ex.code}: {response_body[:500] or ex.reason}") from ex
+        ex.read()
+        raise RuntimeError(f"Darb Al Sabeel HTTP {ex.code}: {ex.reason}") from ex
     except urllib.error.URLError as ex:
         raise RuntimeError(f"تعذر الاتصال بدرب السبيل: {ex.reason}") from ex
     try:
         decoded = json.loads(response_body) if response_body.strip() else {}
     except Exception:
         decoded = {"raw": response_body[:500]}
+    return status_code, decoded
+
+
+def _normalized_libyan_phone(phone: Any) -> str:
+    digits = re.sub(r"\D", "", str(phone or ""))
+    if digits.startswith("00218"):
+        digits = digits[2:]
+    if digits.startswith("218"):
+        digits = f"0{digits[3:]}"
+    return digits
+
+
+def _matching_sabil_contact_id(data: Any, phone: str) -> str:
+    wanted = _normalized_libyan_phone(phone)
+    if isinstance(data, dict):
+        candidate_phone = _normalized_libyan_phone(data.get("phone"))
+        if wanted and candidate_phone == wanted:
+            contact_id = str(data.get("_id") or data.get("id") or "").strip()
+            if contact_id:
+                return contact_id
+        for value in data.values():
+            found = _matching_sabil_contact_id(value, phone)
+            if found:
+                return found
+    elif isinstance(data, list):
+        for value in data:
+            found = _matching_sabil_contact_id(value, phone)
+            if found:
+                return found
+    return ""
+
+
+def _sabil_contact_for_order(order: Dict[str, Any]) -> str:
+    if _SABIL_CONTACT_IDS:
+        return _SABIL_CONTACT_IDS[0]
+    payload = order.get("payload") if isinstance(order.get("payload"), dict) else {}
+    customer = payload.get("customer") if isinstance(payload.get("customer"), dict) else {}
+    name = str(customer.get("name") or order.get("customerName") or "").strip()
+    phone = str(customer.get("phone") or order.get("customerPhone") or "").strip()
+    if not name or not phone:
+        raise RuntimeError("اسم العميل ورقم الهاتف مطلوبان لإنشاء جهة اتصال درب السبيل")
+
+    with _SABIL_CONTACT_LOCK:
+        _, contacts = _request_sabil_api(f"{_SABIL_CONTACTS_PATH.rstrip('/')}/")
+        existing_id = _matching_sabil_contact_id(contacts, phone)
+        if existing_id:
+            return existing_id
+
+        _, created = _request_sabil_api(
+            _SABIL_CONTACTS_PATH,
+            method="POST",
+            payload={"name": name, "phone": phone},
+        )
+        contact_id = _first_nested_value(created, {"_id", "id", "contactid", "contact_id"})
+        if not contact_id:
+            raise RuntimeError("لم يُرجع درب السبيل معرف جهة الاتصال الجديدة")
+        return contact_id
+
+
+def _request_sabil_shipment(order: Dict[str, Any]) -> Dict[str, Any]:
+    config = sabil_config_status()
+    if not config["ready"]:
+        missing = ", ".join(config["missing"])
+        raise RuntimeError(f"إعدادات درب السبيل غير مكتملة: {missing or 'SABIL_ENABLED'}")
+    contact_id = _sabil_contact_for_order(order)
+    status_code, decoded = _request_sabil_api(
+        _SABIL_CREATE_SHIPMENT_PATH,
+        method="POST",
+        payload=build_sabil_shipment_payload(order, [contact_id]),
+    )
     shipment_id = _first_nested_value(decoded, {"id", "shipmentid", "shipment_id"})
     tracking_number = _first_nested_value(decoded, {"trackingnumber", "tracking_number", "tracking", "code", "number"})
     reference = _first_nested_value(decoded, {"reference", "referencecode", "reference_code"})
