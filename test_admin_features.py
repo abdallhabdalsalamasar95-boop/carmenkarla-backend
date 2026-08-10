@@ -2,11 +2,54 @@ import io
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import server
 
 
 class AdminFeatureTests(unittest.TestCase):
+    def _inventory_api_state(self, size_quantities=None):
+        products = [{
+            "id": "dress-1",
+            "name": "فستان",
+            "sizes": "S,M,L",
+            "sizeQuantities": size_quantities or {"S": 3, "M": 2, "L": 1},
+            "stockQuantity": 6,
+            "availableStock": 6,
+            "lowStockThreshold": 1,
+        }]
+        orders = []
+
+        def read_products():
+            return products
+
+        def write_products(value):
+            products[:] = value
+
+        def read_orders():
+            return orders
+
+        def write_orders(value):
+            orders[:] = value
+
+        return products, orders, read_products, write_products, read_orders, write_orders
+
+    def _order_payload(self, order_id="order-stock", size="M", quantity=1):
+        return {
+            "orderId": order_id,
+            "status": "pending",
+            "payload": {
+                "customer": {"name": "زبونة", "phone": "091"},
+                "items": [{
+                    "productId": "dress-1",
+                    "name": "فستان",
+                    "size": size,
+                    "quantity": quantity,
+                }],
+                "pricing": {"grandTotal": 100},
+            },
+        }
+
     def test_website_home_normalizes_single_banner_and_ordered_categories(self):
         config = server.normalize_marketing_config({
             "websiteHome": {
@@ -124,6 +167,71 @@ class AdminFeatureTests(unittest.TestCase):
         self.assertEqual(summary["ambassadorEmail"], "sara@example.com")
         self.assertEqual(summary["ambassadorPhone"], "092-ambassador")
         self.assertEqual(item["customerPhone"], "091-shipping")
+
+    def test_order_decrements_selected_size_and_cancel_restores_it_once(self):
+        products, orders, read_products, write_products, read_orders, write_orders = self._inventory_api_state()
+        old_token = server.API_TOKEN
+        server.API_TOKEN = "test-token"
+        try:
+            with patch.object(server, "read_products", side_effect=read_products), \
+                 patch.object(server, "write_products", side_effect=write_products), \
+                 patch.object(server, "read_orders", side_effect=read_orders), \
+                 patch.object(server, "write_orders", side_effect=write_orders), \
+                 patch.object(server, "_notify_user_on_order_status_change"):
+                client = server.app.test_client()
+                created = client.post("/orders", json=self._order_payload(quantity=2))
+                self.assertEqual(created.status_code, 200)
+                self.assertEqual(products[0]["sizeQuantities"], {"S": 3, "M": 0, "L": 1})
+                self.assertEqual(products[0]["availableStock"], 4)
+                self.assertTrue(orders[0]["inventoryReserved"])
+
+                retry = client.post("/orders", json=self._order_payload(quantity=2))
+                self.assertEqual(retry.status_code, 200)
+                self.assertEqual(products[0]["sizeQuantities"]["M"], 0)
+
+                headers = {"Authorization": "Bearer test-token"}
+                canceled = client.put("/orders/order-stock/status", json={"status": "canceled"}, headers=headers)
+                self.assertEqual(canceled.status_code, 200)
+                self.assertEqual(products[0]["sizeQuantities"], {"S": 3, "M": 2, "L": 1})
+                self.assertFalse(orders[0]["inventoryReserved"])
+
+                canceled_again = client.put("/orders/order-stock/status", json={"status": "canceled"}, headers=headers)
+                self.assertEqual(canceled_again.status_code, 200)
+                self.assertEqual(products[0]["sizeQuantities"]["M"], 2)
+
+                reopened = client.put("/orders/order-stock/status", json={"status": "processing"}, headers=headers)
+                self.assertEqual(reopened.status_code, 200)
+                self.assertEqual(products[0]["sizeQuantities"]["M"], 0)
+                self.assertTrue(orders[0]["inventoryReserved"])
+        finally:
+            server.API_TOKEN = old_token
+
+    def test_order_rejects_insufficient_size_stock_without_partial_changes(self):
+        products, orders, read_products, write_products, read_orders, write_orders = self._inventory_api_state()
+        with patch.object(server, "read_products", side_effect=read_products), \
+             patch.object(server, "write_products", side_effect=write_products), \
+             patch.object(server, "read_orders", side_effect=read_orders), \
+             patch.object(server, "write_orders", side_effect=write_orders):
+            response = server.app.test_client().post("/orders", json=self._order_payload(quantity=3))
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.get_json()["code"], "insufficient_stock")
+        self.assertEqual(products[0]["sizeQuantities"]["M"], 2)
+        self.assertEqual(orders, [])
+
+    def test_order_matches_clean_size_to_legacy_bracketed_inventory_key(self):
+        products, orders, read_products, write_products, read_orders, write_orders = self._inventory_api_state(
+            {"['S'": 2, "'M'": 3, "'L']": 1},
+        )
+        with patch.object(server, "read_products", side_effect=read_products), \
+             patch.object(server, "write_products", side_effect=write_products), \
+             patch.object(server, "read_orders", side_effect=read_orders), \
+             patch.object(server, "write_orders", side_effect=write_orders):
+            response = server.app.test_client().post("/orders", json=self._order_payload(size="M", quantity=2))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(products[0]["sizeQuantities"]["'M'"], 1)
+        self.assertEqual(orders[0]["inventoryReservation"][0]["storedSizeKey"], "'M'")
 
     def test_admin_page_is_mobile_and_not_cached(self):
         response = server.app.test_client().get("/admin")

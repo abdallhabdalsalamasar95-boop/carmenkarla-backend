@@ -2,6 +2,7 @@ import json
 import hashlib
 import os
 import re
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -562,6 +563,7 @@ if not MARKETING_FILE.exists():
     _write_json_file_atomic(MARKETING_FILE, default_marketing_config())
 
 app = Flask(__name__)
+_INVENTORY_LOCK = threading.RLock()
 
 if CORS_ORIGIN:
     CORS(app, resources={r"/*": {"origins": [CORS_ORIGIN]}})
@@ -917,7 +919,129 @@ def normalize_order_item(payload: Dict[str, Any], current: Optional[Dict[str, An
         "grandTotal": as_number(pricing.get("grandTotal", payload_map.get("total", cur.get("grandTotal", 0))), 0),
         "itemsCount": len(payload_map.get("items", [])) if isinstance(payload_map.get("items"), list) else as_int(cur.get("itemsCount", 0), 0),
         "source": str(payload.get("source") or cur.get("source") or "app").strip(),
+        "inventoryReserved": bool(payload.get("inventoryReserved", cur.get("inventoryReserved", False))),
+        "inventoryReservation": (
+            payload.get("inventoryReservation")
+            if isinstance(payload.get("inventoryReservation"), list)
+            else cur.get("inventoryReservation", [])
+        ),
     }
+
+
+def _clean_inventory_option(value: Any) -> str:
+    return re.sub(r'''^[\s\[\]"']+|[\s\[\]"']+$''', "", str(value or "").strip()).strip()
+
+
+def _order_inventory_requests(order: Dict[str, Any]) -> tuple[List[Dict[str, Any]], Optional[str]]:
+    payload = order.get("payload") if isinstance(order.get("payload"), dict) else {}
+    items = payload.get("items") if isinstance(payload.get("items"), list) else []
+    totals: Dict[tuple[str, str], int] = {}
+    for raw in items:
+        if not isinstance(raw, dict):
+            continue
+        product_id = str(raw.get("productId") or raw.get("id") or "").strip()
+        quantity = max(0, as_int(raw.get("quantity", 0), 0))
+        size = _clean_inventory_option(raw.get("size"))
+        if not product_id or quantity <= 0:
+            continue
+        key = (product_id, size)
+        totals[key] = totals.get(key, 0) + quantity
+    if not totals:
+        return [], "الطلب لا يحتوي على منتجات صالحة"
+    return [
+        {"productId": product_id, "size": size, "quantity": quantity}
+        for (product_id, size), quantity in totals.items()
+    ], None
+
+
+def _find_size_key(size_quantities: Dict[str, int], requested_size: str) -> Optional[str]:
+    wanted = _clean_inventory_option(requested_size).casefold()
+    for key in size_quantities:
+        if _clean_inventory_option(key).casefold() == wanted:
+            return key
+    return None
+
+
+def _refresh_product_inventory(product: Dict[str, Any]) -> None:
+    size_quantities = normalize_quantity_map(product.get("sizeQuantities", {}))
+    if size_quantities:
+        available = _quantity_map_total(size_quantities)
+        product["sizeQuantities"] = size_quantities
+        product["stockQuantity"] = available
+    else:
+        available = max(0, as_int(product.get("stockQuantity", 0), 0))
+        product["stockQuantity"] = available
+    threshold = max(0, as_int(product.get("lowStockThreshold", 0), 0))
+    product["availableStock"] = available
+    product["outOfStock"] = 1 if available <= 0 else 0
+    product["lowStock"] = 1 if 0 < available <= threshold else 0
+    product["lowStockSizes"] = [
+        key for key, quantity in size_quantities.items()
+        if threshold > 0 and quantity <= threshold
+    ]
+    product["updatedAt"] = int(time.time() * 1000)
+
+
+def reserve_order_inventory(products: List[Dict[str, Any]], order: Dict[str, Any]) -> tuple[bool, str, List[Dict[str, Any]]]:
+    requests, error = _order_inventory_requests(order)
+    if error:
+        return False, error, []
+    by_id = {str(product.get("id") or "").strip(): product for product in products}
+    movements: List[Dict[str, Any]] = []
+
+    for request_item in requests:
+        product = by_id.get(request_item["productId"])
+        if product is None:
+            return False, "أحد المنتجات لم يعد متوفرًا", []
+        quantity = request_item["quantity"]
+        size_quantities = normalize_quantity_map(product.get("sizeQuantities", {}))
+        if size_quantities:
+            if not request_item["size"]:
+                return False, f"يرجى تحديد مقاس {product.get('name') or 'المنتج'}", []
+            stored_key = _find_size_key(size_quantities, request_item["size"])
+            available = size_quantities.get(stored_key, 0) if stored_key is not None else 0
+            if stored_key is None or available < quantity:
+                return False, f"المتوفر من مقاس {request_item['size']} للمنتج {product.get('name') or ''} هو {available} فقط", []
+            movements.append({**request_item, "storedSizeKey": stored_key})
+        else:
+            available = max(0, as_int(product.get("stockQuantity", product.get("availableStock", 0)), 0))
+            if available < quantity:
+                return False, f"المتوفر من المنتج {product.get('name') or ''} هو {available} فقط", []
+            movements.append(dict(request_item))
+
+    for movement in movements:
+        product = by_id[movement["productId"]]
+        size_quantities = normalize_quantity_map(product.get("sizeQuantities", {}))
+        if size_quantities:
+            key = movement["storedSizeKey"]
+            size_quantities[key] -= movement["quantity"]
+            product["sizeQuantities"] = size_quantities
+        else:
+            product["stockQuantity"] = max(0, as_int(product.get("stockQuantity", 0), 0) - movement["quantity"])
+        _refresh_product_inventory(product)
+    return True, "", movements
+
+
+def restore_order_inventory(products: List[Dict[str, Any]], reservation: List[Dict[str, Any]]) -> None:
+    by_id = {str(product.get("id") or "").strip(): product for product in products}
+    for movement in reservation:
+        if not isinstance(movement, dict):
+            continue
+        product = by_id.get(str(movement.get("productId") or "").strip())
+        quantity = max(0, as_int(movement.get("quantity", 0), 0))
+        if product is None or quantity <= 0:
+            continue
+        size_quantities = normalize_quantity_map(product.get("sizeQuantities", {}))
+        if size_quantities:
+            key = str(movement.get("storedSizeKey") or "").strip()
+            if key not in size_quantities:
+                key = _find_size_key(size_quantities, str(movement.get("size") or "")) or key
+            if key:
+                size_quantities[key] = max(0, as_int(size_quantities.get(key, 0), 0)) + quantity
+                product["sizeQuantities"] = size_quantities
+        else:
+            product["stockQuantity"] = max(0, as_int(product.get("stockQuantity", 0), 0)) + quantity
+        _refresh_product_inventory(product)
 
 
 def normalize_device_item(payload: Dict[str, Any], current: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -1811,25 +1935,33 @@ def create_order_from_app():
     if not isinstance(order_payload, dict):
         return jsonify({"ok": False, "error": "payload is required"}), 400
 
-    entries = read_orders()
-    idx = next((i for i, o in enumerate(entries) if str(o.get("orderId", "")).strip() == order_id), -1)
+    with _INVENTORY_LOCK:
+        entries = read_orders()
+        idx = next((i for i, o in enumerate(entries) if str(o.get("orderId", "")).strip() == order_id), -1)
 
-    item_payload = dict(payload)
-    item_payload["orderId"] = order_id
-    item_payload["source"] = "app"
-    item_payload["updatedAtMs"] = int(time.time() * 1000)
+        item_payload = dict(payload)
+        item_payload["orderId"] = order_id
+        item_payload["source"] = "app"
+        item_payload["updatedAtMs"] = int(time.time() * 1000)
 
-    created = idx < 0
-    if created:
-        item = normalize_order_item(item_payload)
-        entries.append(item)
-    else:
-        item = normalize_order_item(item_payload, entries[idx])
-        entries[idx] = item
+        created = idx < 0
+        if created:
+            item = normalize_order_item(item_payload)
+            products = read_products()
+            reserved, inventory_error, movements = reserve_order_inventory(products, item)
+            if not reserved:
+                return jsonify({"ok": False, "error": inventory_error, "code": "insufficient_stock"}), 409
+            item["inventoryReserved"] = True
+            item["inventoryReservation"] = movements
+            write_products(products)
+            entries.append(item)
+        else:
+            item = normalize_order_item(item_payload, entries[idx])
+            entries[idx] = item
 
-    entries.sort(key=lambda x: as_int(x.get("createdAtMs", 0), 0), reverse=True)
-    entries = entries[:5000]
-    write_orders(entries)
+        entries.sort(key=lambda x: as_int(x.get("createdAtMs", 0), 0), reverse=True)
+        entries = entries[:5000]
+        write_orders(entries)
 
     return jsonify({"ok": True, "created": created, "orderId": order_id, "status": item.get("status", "pending")})
 
@@ -1937,19 +2069,37 @@ def update_order_status(order_id: str):
         return jsonify({"ok": False, "error": f"status must be one of {sorted(allowed)}"}), 400
 
     order_id = str(order_id or "").strip()
-    entries = read_orders()
-    idx = next((i for i, o in enumerate(entries) if str(o.get("orderId", "")).strip() == order_id), -1)
-    if idx < 0:
-        return jsonify({"ok": False, "error": "Order not found"}), 404
+    with _INVENTORY_LOCK:
+        entries = read_orders()
+        idx = next((i for i, o in enumerate(entries) if str(o.get("orderId", "")).strip() == order_id), -1)
+        if idx < 0:
+            return jsonify({"ok": False, "error": "Order not found"}), 404
 
-    current = entries[idx]
-    previous_status = str(current.get("status") or "pending").strip().lower()
-    merged = dict(current)
-    merged["status"] = status
-    merged["updatedAtMs"] = int(time.time() * 1000)
-    item = normalize_order_item(merged, current)
-    entries[idx] = item
-    write_orders(entries)
+        current = entries[idx]
+        previous_status = str(current.get("status") or "pending").strip().lower()
+        products = read_products()
+        inventory_reserved = bool(current.get("inventoryReserved", False))
+        reservation = current.get("inventoryReservation") if isinstance(current.get("inventoryReservation"), list) else []
+
+        if status == "canceled" and previous_status != "canceled" and inventory_reserved:
+            restore_order_inventory(products, reservation)
+            inventory_reserved = False
+            write_products(products)
+        elif status != "canceled" and previous_status == "canceled" and not inventory_reserved:
+            reserved, inventory_error, reservation = reserve_order_inventory(products, current)
+            if not reserved:
+                return jsonify({"ok": False, "error": inventory_error, "code": "insufficient_stock"}), 409
+            inventory_reserved = True
+            write_products(products)
+
+        merged = dict(current)
+        merged["status"] = status
+        merged["updatedAtMs"] = int(time.time() * 1000)
+        merged["inventoryReserved"] = inventory_reserved
+        merged["inventoryReservation"] = reservation
+        item = normalize_order_item(merged, current)
+        entries[idx] = item
+        write_orders(entries)
 
     _notify_user_on_order_status_change(item, old_status=previous_status, new_status=status)
 
