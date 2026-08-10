@@ -17,9 +17,10 @@ _FIREBASE_IMPORT_ERROR = ""
 
 try:
     import firebase_admin
-    from firebase_admin import credentials, firestore
+    from firebase_admin import auth as firebase_auth, credentials, firestore
 except Exception as _ex:  # pragma: no cover - optional dependency at runtime
     firebase_admin = None
+    firebase_auth = None
     credentials = None
     firestore = None
     _FIREBASE_IMPORT_ERROR = str(_ex)
@@ -184,6 +185,37 @@ def _firestore_db() -> tuple[Optional[Any], str]:
     if _FIRESTORE_DB is not None:
         return _FIRESTORE_DB, ""
     return None, (_FIREBASE_INIT_ERROR or "Failed to initialize Firestore")
+
+
+def _firebase_user_from_request() -> tuple[Optional[Dict[str, Any]], Optional[Any]]:
+    auth_header = str(request.headers.get("Authorization", "") or "").strip()
+    if not auth_header.startswith("Bearer "):
+        return None, (jsonify({"ok": False, "error": "تسجيل الدخول مطلوب"}), 401)
+    token = auth_header[7:].strip()
+    if not token or firebase_auth is None:
+        return None, (jsonify({"ok": False, "error": "تعذر التحقق من الحساب"}), 401)
+    try:
+        _init_firestore()
+        decoded = firebase_auth.verify_id_token(token)
+        uid = str(decoded.get("uid") or decoded.get("sub") or "").strip()
+        if not uid:
+            raise ValueError("Token has no uid")
+        decoded["uid"] = uid
+        return decoded, None
+    except Exception:
+        return None, (jsonify({"ok": False, "error": "انتهت جلسة الدخول، سجّلي الدخول مجددًا"}), 401)
+
+
+def _firebase_user_profile(uid: str) -> Dict[str, Any]:
+    db, _ = _firestore_db()
+    if db is None:
+        return {}
+    try:
+        snapshot = db.collection("users").document(uid).get()
+        data = snapshot.to_dict() if getattr(snapshot, "exists", False) else {}
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
 
 
 def _is_truthy(v: Any) -> bool:
@@ -1939,6 +1971,31 @@ def create_order_from_app():
     if not isinstance(order_payload, dict):
         return jsonify({"ok": False, "error": "payload is required"}), 400
 
+    auth_header = str(request.headers.get("Authorization", "") or "").strip()
+    if auth_header.startswith("Bearer "):
+        signed_user, auth_error = _firebase_user_from_request()
+        if auth_error is not None:
+            return auth_error
+        user_uid = str(signed_user.get("uid") or "").strip()
+        profile = _firebase_user_profile(user_uid)
+        customer = order_payload.get("customer") if isinstance(order_payload.get("customer"), dict) else {}
+        customer = dict(customer)
+        is_ambassador = str(profile.get("accountRole") or "").strip().lower() == "ambassador"
+        customer.update({
+            "submitterUid": user_uid,
+            "submitterEmail": str(signed_user.get("email") or "").strip(),
+            "submitterName": str(profile.get("ambassadorName") or profile.get("name") or signed_user.get("name") or "").strip(),
+            "submitterPhone": str(profile.get("ambassadorPhone") or profile.get("phone") or "").strip(),
+            "accountRole": "ambassador" if is_ambassador else "customer",
+            "placedAsAmbassador": is_ambassador,
+            "identityVerified": True,
+        })
+        order_payload = dict(order_payload)
+        order_payload["customer"] = customer
+        payload = dict(payload)
+        payload["payload"] = order_payload
+        payload["uid"] = user_uid
+
     with _INVENTORY_LOCK:
         entries = read_orders()
         idx = next((i for i, o in enumerate(entries) if str(o.get("orderId", "")).strip() == order_id), -1)
@@ -2058,6 +2115,42 @@ def list_orders_feed_for_app():
     out.sort(key=lambda x: as_int(x.get("createdAtMs", 0), 0), reverse=True)
     out = out[:limit]
     return jsonify({"ok": True, "count": len(out), "items": out})
+
+
+@app.get("/ambassadors/me/orders")
+def list_current_ambassador_orders():
+    signed_user, auth_error = _firebase_user_from_request()
+    if auth_error is not None:
+        return auth_error
+    uid = str(signed_user.get("uid") or "").strip()
+    profile = _firebase_user_profile(uid)
+    if str(profile.get("accountRole") or "").strip().lower() != "ambassador":
+        return jsonify({"ok": False, "error": "أكملي تسجيل بيانات المندوبة أولًا"}), 403
+
+    limit = max(1, min(as_int(request.args.get("limit", 500), 500), 1000))
+    items = [normalize_order_item(x) for x in read_orders() if isinstance(x, dict)]
+    out = []
+    for item in items:
+        payload = item.get("payload") if isinstance(item.get("payload"), dict) else {}
+        customer = payload.get("customer") if isinstance(payload.get("customer"), dict) else {}
+        summary = item.get("ambassadorSummary") if isinstance(item.get("ambassadorSummary"), dict) else {}
+        owner_uid = str(summary.get("ambassadorUid") or customer.get("submitterUid") or item.get("uid") or "").strip()
+        if owner_uid != uid:
+            continue
+        out.append({
+            "orderId": str(item.get("orderId") or "").strip(),
+            "status": str(item.get("status") or "pending").strip().lower(),
+            "createdAtMs": as_int(item.get("createdAtMs", 0), 0),
+            "updatedAtMs": as_int(item.get("updatedAtMs", 0), 0),
+            "customerName": str(item.get("customerName") or "").strip(),
+            "customerPhone": str(item.get("customerPhone") or "").strip(),
+            "grandTotal": as_number(item.get("grandTotal", 0), 0),
+            "itemsCount": as_int(item.get("itemsCount", 0), 0),
+            "payload": payload,
+            "ambassadorSummary": summary,
+        })
+    out.sort(key=lambda x: as_int(x.get("createdAtMs", 0), 0), reverse=True)
+    return jsonify({"ok": True, "count": len(out[:limit]), "items": out[:limit]})
 
 
 @app.put("/orders/<order_id>/status")

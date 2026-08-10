@@ -233,6 +233,44 @@ class AdminFeatureTests(unittest.TestCase):
         self.assertEqual(products[0]["sizeQuantities"]["'M'"], 1)
         self.assertEqual(orders[0]["inventoryReservation"][0]["storedSizeKey"], "'M'")
 
+    def test_secure_ambassador_feed_returns_only_authenticated_users_orders(self):
+        orders = [
+            server.normalize_order_item({
+                "orderId": "mine",
+                "status": "delivered",
+                "payload": {
+                    "customer": {"name": "عميلة 1", "submitterUid": "amb-1", "accountRole": "ambassador"},
+                    "items": [{"productId": "p1", "quantity": 1, "price": 100}],
+                    "pricing": {"grandTotal": 100},
+                },
+            }),
+            server.normalize_order_item({
+                "orderId": "other",
+                "payload": {
+                    "customer": {"name": "عميلة 2", "submitterUid": "amb-2", "accountRole": "ambassador"},
+                    "items": [{"productId": "p2", "quantity": 1, "price": 200}],
+                    "pricing": {"grandTotal": 200},
+                },
+            }),
+        ]
+        with patch.object(server, "_firebase_user_from_request", return_value=({"uid": "amb-1"}, None)), \
+             patch.object(server, "_firebase_user_profile", return_value={"accountRole": "ambassador"}), \
+             patch.object(server, "read_orders", return_value=orders):
+            response = server.app.test_client().get("/ambassadors/me/orders")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["items"][0]["orderId"], "mine")
+        self.assertEqual(payload["items"][0]["customerName"], "عميلة 1")
+
+    def test_secure_ambassador_feed_rejects_regular_customer(self):
+        with patch.object(server, "_firebase_user_from_request", return_value=({"uid": "customer-1"}, None)), \
+             patch.object(server, "_firebase_user_profile", return_value={"accountRole": "customer"}):
+            response = server.app.test_client().get("/ambassadors/me/orders")
+
+        self.assertEqual(response.status_code, 403)
+
     def test_admin_page_is_mobile_and_not_cached(self):
         response = server.app.test_client().get("/admin")
         try:
