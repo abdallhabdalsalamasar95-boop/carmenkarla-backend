@@ -7,6 +7,49 @@ import server
 
 
 class AdminFeatureTests(unittest.TestCase):
+    def test_website_home_normalizes_single_banner_and_ordered_categories(self):
+        config = server.normalize_marketing_config({
+            "websiteHome": {
+                "banner": {
+                    "imageUrl": " https://example.com/banner.jpg ",
+                    "altText": "بانر الصيف",
+                    "linkUrl": "#collection",
+                    "enabled": True,
+                },
+                "categories": [
+                    {
+                        "id": "evening",
+                        "title": " سهرة ",
+                        "imageUrl": "https://example.com/evening.jpg",
+                        "productCategoryFilter": "فساتين سهرة",
+                        "sortOrder": 2,
+                    },
+                    {
+                        "id": "new",
+                        "title": "الجديد",
+                        "imageUrl": "https://example.com/new.jpg",
+                        "productCategoryFilter": "",
+                        "sortOrder": 1,
+                    },
+                    {"id": "invalid", "title": ""},
+                ],
+            }
+        })
+
+        home = config["websiteHome"]
+        self.assertEqual(
+            home["banner"]["imageUrl"],
+            "https://example.com/banner.jpg",
+        )
+        self.assertEqual(
+            [item["id"] for item in home["categories"]],
+            ["new", "evening"],
+        )
+        self.assertEqual(
+            home["categories"][1]["productCategoryFilter"],
+            "فساتين سهرة",
+        )
+
     def test_size_quantities_define_total_stock(self):
         item = server.normalize_product({
             "name": "فستان",

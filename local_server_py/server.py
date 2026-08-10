@@ -465,6 +465,15 @@ if not ORDERS_FILE.exists():
 
 def default_marketing_config() -> Dict[str, Any]:
     return {
+        "websiteHome": {
+            "banner": {
+                "imageUrl": "",
+                "altText": "بانر أڤيا فاشن",
+                "linkUrl": "#collection",
+                "enabled": True,
+            },
+            "categories": [],
+        },
         "commission": {
             "defaultPercent": 7.0,
             "perProductEnabled": True,
@@ -717,6 +726,45 @@ def normalize_campaign_item(payload: Dict[str, Any], *, fallback_id_prefix: str,
     }
 
 
+def normalize_website_category(payload: Dict[str, Any], index: int = 0) -> Optional[Dict[str, Any]]:
+    title = str(payload.get("title") or "").strip()
+    image_url = str(payload.get("imageUrl") or "").strip()
+    if not title:
+        return None
+    return {
+        "id": str(payload.get("id") or f"category_{uuid.uuid4().hex[:8]}").strip(),
+        "title": title,
+        "imageUrl": image_url,
+        "productCategoryFilter": str(payload.get("productCategoryFilter") or "").strip(),
+        "enabled": bool(payload.get("enabled", True)),
+        "sortOrder": as_int(payload.get("sortOrder", index), index),
+    }
+
+
+def normalize_website_home(payload: Any) -> Dict[str, Any]:
+    source = payload if isinstance(payload, dict) else {}
+    banner_source = source.get("banner") if isinstance(source.get("banner"), dict) else {}
+    raw_categories = source.get("categories") if isinstance(source.get("categories"), list) else []
+    categories = [
+        item
+        for item in (
+            normalize_website_category(row if isinstance(row, dict) else {}, index)
+            for index, row in enumerate(raw_categories[:12])
+        )
+        if item
+    ]
+    categories.sort(key=lambda item: as_int(item.get("sortOrder", 0), 0))
+    return {
+        "banner": {
+            "imageUrl": str(banner_source.get("imageUrl") or "").strip(),
+            "altText": str(banner_source.get("altText") or "بانر أڤيا فاشن").strip() or "بانر أڤيا فاشن",
+            "linkUrl": str(banner_source.get("linkUrl") or "#collection").strip(),
+            "enabled": bool(banner_source.get("enabled", True)),
+        },
+        "categories": categories,
+    }
+
+
 def normalize_marketing_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     now_ms = int(time.time() * 1000)
     commission_src = payload.get("commission") if isinstance(payload.get("commission"), dict) else {}
@@ -738,6 +786,7 @@ def normalize_marketing_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     competitions = [x for x in (normalize_campaign_item(i if isinstance(i, dict) else {}, fallback_id_prefix="competition") for i in raw_competitions) if x]
 
     return {
+        "websiteHome": normalize_website_home(payload.get("websiteHome")),
         "commission": {
             "defaultPercent": commission_default,
             "perProductEnabled": commission_per_product,
@@ -783,6 +832,14 @@ def public_app_content() -> Dict[str, Any]:
     return {
         "ok": True,
         "updatedAt": cfg.get("updatedAt", now_ms),
+        "websiteHome": {
+            "banner": cfg.get("websiteHome", {}).get("banner", {}),
+            "categories": [
+                item
+                for item in cfg.get("websiteHome", {}).get("categories", [])
+                if bool(item.get("enabled", True))
+            ],
+        },
         "commission": {
             "defaultPercent": commission_default,
             "perProductEnabled": commission_per_product,
