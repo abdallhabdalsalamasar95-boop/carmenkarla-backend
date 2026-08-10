@@ -290,6 +290,73 @@ class AdminFeatureTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 403)
 
+    def _delivered_ambassador_order(self, amount=90.0):
+        return server.normalize_order_item({
+            "orderId": f"delivered-{amount}",
+            "status": "delivered",
+            "ambassadorSummary": {
+                "isAmbassadorOrder": True,
+                "ambassadorUid": "amb-1",
+                "estimatedCommission": amount,
+            },
+            "payload": {
+                "customer": {"submitterUid": "amb-1", "accountRole": "ambassador"},
+                "items": [{"productId": "p1", "price": amount, "quantity": 1, "commissionPercent": 100}],
+                "pricing": {"grandTotal": amount},
+            },
+        })
+
+    def test_ambassador_withdrawal_is_blocked_below_100_lyd(self):
+        with patch.object(server, "_firebase_user_from_request", return_value=({"uid": "amb-1"}, None)), \
+             patch.object(server, "_firebase_user_profile", return_value={"accountRole": "ambassador"}), \
+             patch.object(server, "read_orders", return_value=[self._delivered_ambassador_order(99)]), \
+             patch.object(server, "read_ambassador_withdrawals", return_value=[]):
+            response = server.app.test_client().post("/ambassadors/me/withdrawals")
+
+        self.assertEqual(response.status_code, 409)
+        payload = response.get_json()
+        self.assertEqual(payload["code"], "minimum_not_reached")
+        self.assertEqual(payload["available"], 99)
+        self.assertEqual(payload["remainingToMinimum"], 1)
+
+    def test_ambassador_can_withdraw_full_available_balance_at_100_lyd(self):
+        withdrawals = []
+
+        def write_withdrawals(items):
+            withdrawals[:] = items
+
+        with patch.object(server, "_firebase_user_from_request", return_value=({"uid": "amb-1"}, None)), \
+             patch.object(server, "_firebase_user_profile", return_value={"accountRole": "ambassador", "ambassadorName": "سارة"}), \
+             patch.object(server, "read_orders", return_value=[self._delivered_ambassador_order(125)]), \
+             patch.object(server, "read_ambassador_withdrawals", side_effect=lambda: withdrawals), \
+             patch.object(server, "write_ambassador_withdrawals", side_effect=write_withdrawals):
+            response = server.app.test_client().post("/ambassadors/me/withdrawals")
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.get_json()
+        self.assertEqual(payload["request"]["amount"], 125)
+        self.assertEqual(payload["request"]["status"], "pending")
+        self.assertEqual(payload["available"], 0)
+        self.assertFalse(payload["canRequest"])
+
+    def test_ambassador_cannot_create_duplicate_pending_withdrawal(self):
+        pending = [{
+            "id": "wd-existing",
+            "ambassadorUid": "amb-1",
+            "amount": 100,
+            "status": "pending",
+            "createdAtMs": 1,
+            "updatedAtMs": 1,
+        }]
+        with patch.object(server, "_firebase_user_from_request", return_value=({"uid": "amb-1"}, None)), \
+             patch.object(server, "_firebase_user_profile", return_value={"accountRole": "ambassador"}), \
+             patch.object(server, "read_orders", return_value=[self._delivered_ambassador_order(250)]), \
+             patch.object(server, "read_ambassador_withdrawals", return_value=pending):
+            response = server.app.test_client().post("/ambassadors/me/withdrawals")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.get_json()["code"], "withdrawal_pending")
+
     def test_ambassador_profile_can_be_saved_by_authenticated_owner(self):
         with patch.object(server, "_firebase_user_from_request", return_value=({"uid": "amb-7", "email": "a@example.com"}, None)), \
              patch.object(server, "_firebase_user_profile", return_value={}), \

@@ -65,7 +65,9 @@ LOOKS_FILE = DATA_DIR / "looks.json"
 NOTIFICATIONS_FILE = DATA_DIR / "notifications.json"
 DEVICES_FILE = DATA_DIR / "devices.json"
 ORDERS_FILE = DATA_DIR / "orders.json"
+AMBASSADOR_WITHDRAWALS_FILE = DATA_DIR / "ambassador_withdrawals.json"
 MARKETING_FILE = DATA_DIR / "marketing.json"
+AMBASSADOR_WITHDRAWAL_MINIMUM = 100.0
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -536,6 +538,9 @@ if not DEVICES_FILE.exists():
 if not ORDERS_FILE.exists():
     ORDERS_FILE.write_text("[]", encoding="utf-8")
 
+if not AMBASSADOR_WITHDRAWALS_FILE.exists():
+    AMBASSADOR_WITHDRAWALS_FILE.write_text("[]", encoding="utf-8")
+
 
 def default_marketing_config() -> Dict[str, Any]:
     return {
@@ -636,6 +641,7 @@ if not MARKETING_FILE.exists():
 
 app = Flask(__name__)
 _INVENTORY_LOCK = threading.RLock()
+_WITHDRAWAL_LOCK = threading.RLock()
 
 if CORS_ORIGIN:
     CORS(app, resources={r"/*": {"origins": [CORS_ORIGIN]}})
@@ -716,6 +722,21 @@ def read_orders() -> List[Dict[str, Any]]:
 
 def write_orders(items: List[Dict[str, Any]]) -> None:
     _write_json_file_atomic(ORDERS_FILE, items)
+
+
+def read_ambassador_withdrawals() -> List[Dict[str, Any]]:
+    try:
+        raw = AMBASSADOR_WITHDRAWALS_FILE.read_text(encoding="utf-8")
+        data = json.loads(raw)
+        if isinstance(data, list):
+            return [x for x in data if isinstance(x, dict)]
+        return []
+    except Exception:
+        return []
+
+
+def write_ambassador_withdrawals(items: List[Dict[str, Any]]) -> None:
+    _write_json_file_atomic(AMBASSADOR_WITHDRAWALS_FILE, items)
 
 
 def read_marketing_config() -> Dict[str, Any]:
@@ -1001,6 +1022,74 @@ def normalize_order_item(payload: Dict[str, Any], current: Optional[Dict[str, An
             if isinstance(payload.get("inventoryReservation"), list)
             else cur.get("inventoryReservation", [])
         ),
+    }
+
+
+def _ambassador_order_owner_uid(order: Dict[str, Any]) -> str:
+    payload = order.get("payload") if isinstance(order.get("payload"), dict) else {}
+    customer = payload.get("customer") if isinstance(payload.get("customer"), dict) else {}
+    summary = order.get("ambassadorSummary") if isinstance(order.get("ambassadorSummary"), dict) else {}
+    return str(summary.get("ambassadorUid") or customer.get("submitterUid") or order.get("uid") or "").strip()
+
+
+def _ambassador_order_commission(order: Dict[str, Any]) -> float:
+    summary = order.get("ambassadorSummary") if isinstance(order.get("ambassadorSummary"), dict) else {}
+    explicit = as_number(summary.get("estimatedCommission", 0), 0)
+    if explicit > 0:
+        return round(explicit, 2)
+
+    config = read_marketing_config().get("commission", {})
+    default_percent = max(0.0, min(100.0, as_number(config.get("defaultPercent", 7), 7)))
+    per_product = bool(config.get("perProductEnabled", True))
+    payload = order.get("payload") if isinstance(order.get("payload"), dict) else {}
+    lines = payload.get("items") if isinstance(payload.get("items"), list) else []
+    if not lines:
+        return round(max(0.0, as_number(order.get("grandTotal", 0), 0)) * default_percent / 100, 2)
+
+    amount = 0.0
+    for line in lines:
+        if not isinstance(line, dict):
+            continue
+        product_percent = as_number(line.get("commissionPercent", 0), 0)
+        percent = product_percent if per_product and product_percent > 0 else default_percent
+        percent = max(0.0, min(100.0, percent))
+        price = max(0.0, as_number(line.get("price", 0), 0))
+        quantity = max(0, as_int(line.get("quantity", 0), 0))
+        amount += price * quantity * percent / 100
+    return round(amount, 2)
+
+
+def ambassador_withdrawal_summary(uid: str) -> Dict[str, Any]:
+    delivered_orders = [normalize_order_item(x) for x in read_orders() if isinstance(x, dict)]
+    delivered_orders = [
+        order for order in delivered_orders
+        if str(order.get("status") or "").strip().lower() == "delivered"
+        and _ambassador_order_owner_uid(order) == uid
+    ]
+    earned = round(sum(_ambassador_order_commission(order) for order in delivered_orders), 2)
+    withdrawals = [
+        dict(item) for item in read_ambassador_withdrawals()
+        if str(item.get("ambassadorUid") or "").strip() == uid
+    ]
+    reserved = round(sum(
+        max(0.0, as_number(item.get("amount", 0), 0))
+        for item in withdrawals
+        if str(item.get("status") or "pending").strip().lower() in {"pending", "approved", "paid"}
+    ), 2)
+    available = round(max(0.0, earned - reserved), 2)
+    pending = next((
+        item for item in sorted(withdrawals, key=lambda x: as_int(x.get("createdAtMs", 0), 0), reverse=True)
+        if str(item.get("status") or "").strip().lower() in {"pending", "approved"}
+    ), None)
+    return {
+        "minimum": AMBASSADOR_WITHDRAWAL_MINIMUM,
+        "earned": earned,
+        "reserved": reserved,
+        "available": available,
+        "remainingToMinimum": round(max(0.0, AMBASSADOR_WITHDRAWAL_MINIMUM - available), 2),
+        "canRequest": available >= AMBASSADOR_WITHDRAWAL_MINIMUM and pending is None,
+        "pendingRequest": pending,
+        "requests": sorted(withdrawals, key=lambda x: as_int(x.get("createdAtMs", 0), 0), reverse=True),
     }
 
 
@@ -2209,6 +2298,108 @@ def get_current_ambassador_profile():
     if str(profile.get("accountRole") or "").strip().lower() != "ambassador":
         return jsonify({"ok": True, "profile": None})
     return jsonify({"ok": True, "profile": profile})
+
+
+@app.get("/ambassadors/me/withdrawals")
+def get_current_ambassador_withdrawals():
+    signed_user, auth_error = _firebase_user_from_request()
+    if auth_error is not None:
+        return auth_error
+    uid = str(signed_user.get("uid") or "").strip()
+    profile = _firebase_user_profile(uid)
+    if str(profile.get("accountRole") or "").strip().lower() != "ambassador":
+        return jsonify({"ok": False, "error": "حساب مندوبة مفعّل مطلوب"}), 403
+    return jsonify({"ok": True, **ambassador_withdrawal_summary(uid)})
+
+
+@app.post("/ambassadors/me/withdrawals")
+def create_current_ambassador_withdrawal():
+    signed_user, auth_error = _firebase_user_from_request()
+    if auth_error is not None:
+        return auth_error
+    uid = str(signed_user.get("uid") or "").strip()
+    profile = _firebase_user_profile(uid)
+    if str(profile.get("accountRole") or "").strip().lower() != "ambassador":
+        return jsonify({"ok": False, "error": "حساب مندوبة مفعّل مطلوب"}), 403
+
+    with _WITHDRAWAL_LOCK:
+        summary = ambassador_withdrawal_summary(uid)
+        if summary.get("pendingRequest"):
+            return jsonify({
+                "ok": False,
+                "code": "withdrawal_pending",
+                "error": "لديك طلب سحب قيد المراجعة بالفعل",
+                **summary,
+            }), 409
+        available = as_number(summary.get("available", 0), 0)
+        if available < AMBASSADOR_WITHDRAWAL_MINIMUM:
+            return jsonify({
+                "ok": False,
+                "code": "minimum_not_reached",
+                "error": f"يمكن طلب السحب بعد وصول الأرباح المعتمدة إلى {AMBASSADOR_WITHDRAWAL_MINIMUM:.0f} د.ل",
+                **summary,
+            }), 409
+
+        now_ms = int(time.time() * 1000)
+        item = {
+            "id": f"wd_{now_ms}_{uuid.uuid4().hex[:8]}",
+            "ambassadorUid": uid,
+            "ambassadorName": str(profile.get("ambassadorName") or profile.get("name") or "").strip(),
+            "ambassadorPhone": str(profile.get("ambassadorPhone") or profile.get("phone") or "").strip(),
+            "amount": round(available, 2),
+            "status": "pending",
+            "createdAtMs": now_ms,
+            "updatedAtMs": now_ms,
+        }
+        entries = read_ambassador_withdrawals()
+        entries.append(item)
+        entries.sort(key=lambda x: as_int(x.get("createdAtMs", 0), 0), reverse=True)
+        write_ambassador_withdrawals(entries[:5000])
+        updated_summary = ambassador_withdrawal_summary(uid)
+    return jsonify({"ok": True, "request": item, **updated_summary}), 201
+
+
+@app.get("/admin/ambassador-withdrawals")
+def list_admin_ambassador_withdrawals():
+    ok, err = require_admin()
+    if not ok:
+        return err
+    entries = sorted(
+        read_ambassador_withdrawals(),
+        key=lambda x: as_int(x.get("createdAtMs", 0), 0),
+        reverse=True,
+    )
+    return jsonify({"ok": True, "count": len(entries), "items": entries})
+
+
+@app.put("/admin/ambassador-withdrawals/<withdrawal_id>/status")
+def update_admin_ambassador_withdrawal_status(withdrawal_id: str):
+    ok, err = require_admin()
+    if not ok:
+        return err
+    next_status = str((request.get_json(silent=True) or {}).get("status") or "").strip().lower()
+    allowed_transitions = {
+        "pending": {"approved", "rejected"},
+        "approved": {"paid", "rejected"},
+        "paid": set(),
+        "rejected": set(),
+    }
+    with _WITHDRAWAL_LOCK:
+        entries = read_ambassador_withdrawals()
+        idx = next((i for i, item in enumerate(entries) if str(item.get("id") or "") == withdrawal_id), -1)
+        if idx < 0:
+            return jsonify({"ok": False, "error": "طلب السحب غير موجود"}), 404
+        current_status = str(entries[idx].get("status") or "pending").strip().lower()
+        if next_status not in allowed_transitions.get(current_status, set()):
+            return jsonify({"ok": False, "error": "لا يمكن تغيير طلب السحب إلى هذه الحالة"}), 409
+        entries[idx] = {
+            **entries[idx],
+            "status": next_status,
+            "updatedAtMs": int(time.time() * 1000),
+        }
+        write_ambassador_withdrawals(entries)
+        item = entries[idx]
+    return jsonify({"ok": True, "item": item})
 
 
 @app.get("/admin/ambassadors")
