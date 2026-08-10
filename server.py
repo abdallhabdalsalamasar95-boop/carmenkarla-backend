@@ -1643,6 +1643,7 @@ def normalize_product(payload: Dict[str, Any], current: Optional[Dict[str, Any]]
         "name": name,
         "price": as_number(payload.get("price", cur.get("price", 0))),
         "oldPrice": as_number(payload.get("oldPrice", cur.get("oldPrice", 0))),
+        "commissionPercent": max(0, min(100, as_number(payload.get("commissionPercent", cur.get("commissionPercent", 0))))),
         "imageUrl": image_url,
         "imageUrls": image_urls,
         "description": description,

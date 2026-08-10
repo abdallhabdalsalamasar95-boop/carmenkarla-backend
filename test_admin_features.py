@@ -125,6 +125,22 @@ class AdminFeatureTests(unittest.TestCase):
             "https://example.com/second.jpg",
         ])
 
+    def test_product_ambassador_commission_is_persisted_and_clamped(self):
+        item = server.normalize_product({
+            "name": "فستان بعمولة",
+            "commissionPercent": 12.5,
+        })
+        self.assertEqual(item["commissionPercent"], 12.5)
+
+        self.assertEqual(
+            server.normalize_product({"commissionPercent": -4})["commissionPercent"],
+            0,
+        )
+        self.assertEqual(
+            server.normalize_product({"commissionPercent": 140})["commissionPercent"],
+            100,
+        )
+
     def test_ambassador_summary_survives_order_normalization(self):
         item = server.normalize_order_item({
             "orderId": "order-1",
