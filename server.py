@@ -5,6 +5,8 @@ import re
 import threading
 import time
 import uuid
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -87,6 +89,18 @@ _FIREBASE_PROJECT_ID = (os.getenv("FIREBASE_PROJECT_ID", "") or "").strip()
 _PRODUCTS_STORAGE_MODE = (os.getenv("PRODUCTS_STORAGE_MODE", "auto") or "auto").strip().lower()
 _PRODUCTS_FIRESTORE_COLLECTION = (os.getenv("PRODUCTS_FIRESTORE_COLLECTION", "products_catalog") or "products_catalog").strip()
 _LOOKS_FIRESTORE_COLLECTION = (os.getenv("LOOKS_FIRESTORE_COLLECTION", "complete_looks") or "complete_looks").strip()
+_SABIL_ENABLED = str(os.getenv("SABIL_ENABLED", "0") or "0").strip().lower() in {"1", "true", "yes", "on"}
+_SABIL_API_BASE_URL = (os.getenv("SABIL_API_BASE_URL", "https://v2.sabil.ly") or "https://v2.sabil.ly").strip().rstrip("/")
+_SABIL_CREATE_SHIPMENT_PATH = (os.getenv("SABIL_CREATE_SHIPMENT_PATH", "/api/local/shipments") or "/api/local/shipments").strip()
+_SABIL_API_KEY = (os.getenv("SABIL_API_KEY", "") or "").strip()
+_SABIL_ACCOUNT_ID = (os.getenv("SABIL_ACCOUNT_ID", "") or "").strip()
+_SABIL_API_VERSION = (os.getenv("SABIL_API_VERSION", "1.0.0") or "1.0.0").strip()
+_SABIL_SERVICE_ID = (os.getenv("SABIL_SERVICE_ID", "") or "").strip()
+_SABIL_CONTACT_IDS = [item.strip() for item in (os.getenv("SABIL_CONTACT_IDS", "") or "").split(",") if item.strip()]
+_SABIL_PAYMENT_BY = (os.getenv("SABIL_PAYMENT_BY", "receiver") or "receiver").strip().lower()
+_SABIL_COUNTRY_CODE = (os.getenv("SABIL_COUNTRY_CODE", "LBY") or "LBY").strip().upper()
+_SABIL_DEFAULT_AREA = (os.getenv("SABIL_DEFAULT_AREA", "") or "").strip()
+_SABIL_CURRENCY = (os.getenv("SABIL_CURRENCY", "LYD") or "LYD").strip().upper()
 try:
     _MAX_IMAGE_UPLOAD_MB = max(1, int(float((os.getenv("MAX_IMAGE_UPLOAD_MB", "10") or "10").strip())))
 except Exception:
@@ -990,6 +1004,11 @@ def normalize_order_item(payload: Dict[str, Any], current: Optional[Dict[str, An
     if not isinstance(ambassador_summary, dict):
         ambassador_summary = {}
     ambassador_summary = dict(ambassador_summary)
+    external_delivery = payload.get("externalDelivery")
+    if not isinstance(external_delivery, dict):
+        external_delivery = cur.get("externalDelivery")
+    if not isinstance(external_delivery, dict):
+        external_delivery = {}
 
     is_ambassador_order = (
         bool(ambassador_summary.get("isAmbassadorOrder"))
@@ -1042,7 +1061,183 @@ def normalize_order_item(payload: Dict[str, Any], current: Optional[Dict[str, An
             if isinstance(payload.get("inventoryReservation"), list)
             else cur.get("inventoryReservation", [])
         ),
+        "externalDelivery": dict(external_delivery),
     }
+
+
+def sabil_config_status() -> Dict[str, Any]:
+    missing = []
+    for key, value in {
+        "SABIL_API_KEY": _SABIL_API_KEY,
+        "SABIL_ACCOUNT_ID": _SABIL_ACCOUNT_ID,
+        "SABIL_SERVICE_ID": _SABIL_SERVICE_ID,
+        "SABIL_CONTACT_IDS": _SABIL_CONTACT_IDS,
+    }.items():
+        if not value:
+            missing.append(key)
+    return {
+        "provider": "darb_sabeel",
+        "enabled": _SABIL_ENABLED,
+        "configured": not missing,
+        "ready": _SABIL_ENABLED and not missing,
+        "missing": missing,
+        "endpoint": f"{_SABIL_API_BASE_URL}{_SABIL_CREATE_SHIPMENT_PATH}",
+    }
+
+
+def _first_nested_value(data: Any, keys: set[str]) -> str:
+    if isinstance(data, dict):
+        for key, value in data.items():
+            if str(key).lower() in keys and value is not None and not isinstance(value, (dict, list)):
+                text = str(value).strip()
+                if text:
+                    return text
+        for value in data.values():
+            found = _first_nested_value(value, keys)
+            if found:
+                return found
+    elif isinstance(data, list):
+        for value in data:
+            found = _first_nested_value(value, keys)
+            if found:
+                return found
+    return ""
+
+
+def build_sabil_shipment_payload(order: Dict[str, Any]) -> Dict[str, Any]:
+    payload = order.get("payload") if isinstance(order.get("payload"), dict) else {}
+    customer = payload.get("customer") if isinstance(payload.get("customer"), dict) else {}
+    items = payload.get("items") if isinstance(payload.get("items"), list) else []
+    city = str(customer.get("city") or order.get("city") or "").strip()
+    address = str(customer.get("address") or order.get("customerAddress") or "").strip()
+    area = str(customer.get("area") or _SABIL_DEFAULT_AREA).strip()
+    destination = {
+        "countryCode": _SABIL_COUNTRY_CODE,
+        "city": city,
+        **({"area": area} if area else {}),
+        **({"address": address} if address else {}),
+    }
+    products = []
+    for raw in items:
+        if not isinstance(raw, dict):
+            continue
+        quantity = max(1, as_int(raw.get("quantity"), 1))
+        product_id = str(raw.get("productId") or raw.get("id") or "").strip()
+        metadata = {"product_id": product_id} if product_id else {}
+        for key in ("size", "color", "length"):
+            value = str(raw.get(key) or "").strip()
+            if value:
+                metadata[key] = value
+        products.append({
+            "title": str(raw.get("name") or "منتج AVEA").strip(),
+            "quantity": quantity,
+            "amount": round(max(0.0, as_number(raw.get("price"), 0)), 2),
+            "currency": _SABIL_CURRENCY,
+            "isChargeable": True,
+            "metadata": metadata,
+        })
+    note = str(payload.get("note") or customer.get("note") or "").strip()
+    return {
+        "service": _SABIL_SERVICE_ID,
+        "contacts": list(_SABIL_CONTACT_IDS),
+        "paymentBy": _SABIL_PAYMENT_BY if _SABIL_PAYMENT_BY in {"sender", "receiver", "sales"} else "receiver",
+        "to": destination,
+        "products": products,
+        **({"notes": note} if note else {}),
+        "metadata": {
+            "order_id": str(order.get("orderId") or "").strip(),
+            "customer_name": str(customer.get("name") or order.get("customerName") or "").strip(),
+            "customer_phone": str(customer.get("phone") or order.get("customerPhone") or "").strip(),
+            "customer_city": city,
+            "source": "AVEA FASHION",
+        },
+    }
+
+
+def _request_sabil_shipment(order: Dict[str, Any]) -> Dict[str, Any]:
+    config = sabil_config_status()
+    if not config["ready"]:
+        missing = ", ".join(config["missing"])
+        raise RuntimeError(f"إعدادات درب السبيل غير مكتملة: {missing or 'SABIL_ENABLED'}")
+    body = json.dumps(build_sabil_shipment_payload(order), ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(
+        config["endpoint"],
+        data=body,
+        method="POST",
+        headers={
+            "Content-Type": "application/json; charset=utf-8",
+            "Accept": "application/json",
+            "Authorization": f"apikey {_SABIL_API_KEY}",
+            "X-API-Key": _SABIL_API_KEY,
+            "X-API-VERSION": _SABIL_API_VERSION,
+            "X-ACCOUNT-ID": _SABIL_ACCOUNT_ID,
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as response:
+            status_code = int(getattr(response, "status", 200))
+            response_body = response.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as ex:
+        response_body = ex.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Darb Al Sabeel HTTP {ex.code}: {response_body[:500] or ex.reason}") from ex
+    except urllib.error.URLError as ex:
+        raise RuntimeError(f"تعذر الاتصال بدرب السبيل: {ex.reason}") from ex
+    try:
+        decoded = json.loads(response_body) if response_body.strip() else {}
+    except Exception:
+        decoded = {"raw": response_body[:500]}
+    shipment_id = _first_nested_value(decoded, {"id", "shipmentid", "shipment_id"})
+    tracking_number = _first_nested_value(decoded, {"trackingnumber", "tracking_number", "tracking", "code", "number"})
+    reference = _first_nested_value(decoded, {"reference", "referencecode", "reference_code"})
+    return {
+        "provider": "darb_sabeel",
+        "status": "created",
+        "shipmentId": shipment_id,
+        "trackingNumber": tracking_number or shipment_id,
+        "referenceCode": reference,
+        "httpStatus": status_code,
+        "lastError": "",
+    }
+
+
+def dispatch_order_to_sabil(order_id: str, force: bool = False) -> Dict[str, Any]:
+    order_id = str(order_id or "").strip()
+    now_ms = int(time.time() * 1000)
+    with _INVENTORY_LOCK:
+        entries = read_orders()
+        idx = next((i for i, row in enumerate(entries) if str(row.get("orderId") or "").strip() == order_id), -1)
+        if idx < 0:
+            raise LookupError("Order not found")
+        order = normalize_order_item(entries[idx])
+        previous = order.get("externalDelivery") if isinstance(order.get("externalDelivery"), dict) else {}
+        if not force and str(previous.get("status") or "") in {"created", "sending"}:
+            return dict(previous)
+        attempt = {
+            **previous,
+            "provider": "darb_sabeel",
+            "status": "sending",
+            "lastAttemptAtMs": now_ms,
+            "lastError": "",
+        }
+        order["externalDelivery"] = attempt
+        entries[idx] = order
+        write_orders(entries)
+    try:
+        result = _request_sabil_shipment(order)
+        result["createdAtMs"] = as_int(previous.get("createdAtMs"), now_ms)
+    except Exception as ex:
+        result = {**attempt, "status": "failed", "lastError": str(ex)[:700]}
+    result["lastAttemptAtMs"] = now_ms
+    with _INVENTORY_LOCK:
+        entries = read_orders()
+        idx = next((i for i, row in enumerate(entries) if str(row.get("orderId") or "").strip() == order_id), -1)
+        if idx >= 0:
+            updated = normalize_order_item(entries[idx])
+            updated["externalDelivery"] = result
+            updated["updatedAtMs"] = int(time.time() * 1000)
+            entries[idx] = updated
+            write_orders(entries)
+    return result
 
 
 def snapshot_order_purchase_costs(
@@ -2332,7 +2527,16 @@ def create_order_from_app():
         entries = entries[:5000]
         write_orders(entries)
 
-    return jsonify({"ok": True, "created": created, "orderId": order_id, "status": item.get("status", "pending")})
+    delivery = item.get("externalDelivery", {})
+    if created and _SABIL_ENABLED:
+        delivery = dispatch_order_to_sabil(order_id)
+    return jsonify({
+        "ok": True,
+        "created": created,
+        "orderId": order_id,
+        "status": item.get("status", "pending"),
+        "externalDelivery": delivery,
+    })
 
 
 @app.get("/orders")
@@ -2352,6 +2556,37 @@ def list_orders():
     items.sort(key=lambda x: as_int(x.get("createdAtMs", 0), 0), reverse=True)
     items = items[:limit]
     return jsonify({"ok": True, "count": len(items), "items": items})
+
+
+@app.get("/admin/delivery/darb-sabeel/status")
+def admin_sabil_status():
+    ok, err = require_admin()
+    if not ok:
+        return err
+    return jsonify({"ok": True, "config": sabil_config_status()})
+
+
+@app.post("/orders/<order_id>/delivery/darb-sabeel")
+def admin_send_order_to_sabil(order_id: str):
+    ok, err = require_admin()
+    if not ok:
+        return err
+    config = sabil_config_status()
+    if not config["ready"]:
+        return jsonify({
+            "ok": False,
+            "error": "أكملي بيانات حساب درب السبيل في إعدادات خادم Render",
+            "config": config,
+        }), 503
+    force = bool((request.get_json(silent=True) or {}).get("force", False))
+    try:
+        delivery = dispatch_order_to_sabil(order_id, force=force)
+    except LookupError:
+        return jsonify({"ok": False, "error": "Order not found"}), 404
+    if delivery.get("status") != "created":
+        return jsonify({"ok": False, "error": delivery.get("lastError") or "تعذر إنشاء الشحنة", "delivery": delivery}), 502
+    order = next((normalize_order_item(row) for row in read_orders() if str(row.get("orderId") or "").strip() == order_id), None)
+    return jsonify({"ok": True, "delivery": delivery, "item": order})
 
 
 @app.get("/orders/statuses")

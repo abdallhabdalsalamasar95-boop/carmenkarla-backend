@@ -156,6 +156,83 @@ class AdminFeatureTests(unittest.TestCase):
         )
         self.assertEqual(retried["payload"]["items"][0]["purchasePrice"], 40)
 
+    def test_sabil_payload_maps_customer_and_all_order_items(self):
+        order = server.normalize_order_item({
+            "orderId": "order-sabil-1",
+            "payload": {
+                "customer": {
+                    "name": "سارة",
+                    "phone": "0912345678",
+                    "city": "طرابلس",
+                    "address": "حي الأندلس",
+                },
+                "items": [{
+                    "productId": "p1",
+                    "name": "فستان",
+                    "price": 120,
+                    "quantity": 2,
+                    "size": "M",
+                    "color": "أسود",
+                }],
+                "note": "الاتصال قبل الوصول",
+            },
+        })
+        with patch.object(server, "_SABIL_SERVICE_ID", "service-1"), \
+             patch.object(server, "_SABIL_CONTACT_IDS", ["contact-1"]):
+            payload = server.build_sabil_shipment_payload(order)
+
+        self.assertEqual(payload["service"], "service-1")
+        self.assertEqual(payload["contacts"], ["contact-1"])
+        self.assertEqual(payload["to"]["city"], "طرابلس")
+        self.assertEqual(payload["to"]["address"], "حي الأندلس")
+        self.assertEqual(payload["products"][0]["quantity"], 2)
+        self.assertEqual(payload["products"][0]["metadata"]["size"], "M")
+        self.assertEqual(payload["metadata"]["order_id"], "order-sabil-1")
+
+    def test_sabil_dispatch_is_idempotent_after_shipment_creation(self):
+        orders = [server.normalize_order_item(self._order_payload(order_id="sabil-once"))]
+
+        def write_orders(items):
+            orders[:] = items
+
+        provider_result = {
+            "provider": "darb_sabeel",
+            "status": "created",
+            "shipmentId": "shipment-7",
+            "trackingNumber": "TRACK-7",
+            "referenceCode": "",
+            "httpStatus": 201,
+            "lastError": "",
+        }
+        with patch.object(server, "read_orders", side_effect=lambda: orders), \
+             patch.object(server, "write_orders", side_effect=write_orders), \
+             patch.object(server, "_request_sabil_shipment", return_value=provider_result) as sender:
+            first = server.dispatch_order_to_sabil("sabil-once")
+            second = server.dispatch_order_to_sabil("sabil-once")
+
+        self.assertEqual(first["trackingNumber"], "TRACK-7")
+        self.assertEqual(second["trackingNumber"], "TRACK-7")
+        sender.assert_called_once()
+
+    def test_admin_sabil_status_is_protected_and_does_not_expose_secrets(self):
+        old_token = server.API_TOKEN
+        server.API_TOKEN = "test-token"
+        try:
+            client = server.app.test_client()
+            unauthorized = client.get("/admin/delivery/darb-sabeel/status")
+            authorized = client.get(
+                "/admin/delivery/darb-sabeel/status",
+                headers={"Authorization": "Bearer test-token"},
+            )
+        finally:
+            server.API_TOKEN = old_token
+
+        self.assertEqual(unauthorized.status_code, 401)
+        self.assertEqual(authorized.status_code, 200)
+        body = authorized.get_json()
+        self.assertNotIn("apiKey", body["config"])
+        self.assertNotIn("accountId", body["config"])
+
     def test_accounting_summary_calculates_net_profit_and_inventory_value(self):
         products = [{
             "id": "p1",
