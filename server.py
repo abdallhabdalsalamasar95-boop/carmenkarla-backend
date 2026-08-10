@@ -99,9 +99,9 @@ _SABIL_SERVICE_ID = (os.getenv("SABIL_SERVICE_ID", "") or "").strip()
 _SABIL_CONTACTS_PATH = (os.getenv("SABIL_CONTACTS_PATH", "/api/contacts") or "/api/contacts").strip()
 _SABIL_CONTACT_IDS = [item.strip() for item in (os.getenv("SABIL_CONTACT_IDS", "") or "").split(",") if item.strip()]
 _SABIL_PAYMENT_BY = (os.getenv("SABIL_PAYMENT_BY", "receiver") or "receiver").strip().lower()
-_SABIL_COUNTRY_CODE = (os.getenv("SABIL_COUNTRY_CODE", "LBY") or "LBY").strip().upper()
+_SABIL_COUNTRY_CODE = (os.getenv("SABIL_COUNTRY_CODE", "lby") or "lby").strip().lower()
 _SABIL_DEFAULT_AREA = (os.getenv("SABIL_DEFAULT_AREA", "") or "").strip()
-_SABIL_CURRENCY = (os.getenv("SABIL_CURRENCY", "LYD") or "LYD").strip().upper()
+_SABIL_CURRENCY = (os.getenv("SABIL_CURRENCY", "lyd") or "lyd").strip().lower()
 try:
     _MAX_IMAGE_UPLOAD_MB = max(1, int(float((os.getenv("MAX_IMAGE_UPLOAD_MB", "10") or "10").strip())))
 except Exception:
@@ -1115,6 +1115,10 @@ def build_sabil_shipment_payload(
     city = str(customer.get("city") or order.get("city") or "").strip()
     address = str(customer.get("address") or order.get("customerAddress") or "").strip()
     area = str(customer.get("area") or _SABIL_DEFAULT_AREA).strip()
+    customer_city = city
+    if city == "يفرن":
+        city = "غريان"
+        area = "يفرن"
     destination = {
         "countryCode": _SABIL_COUNTRY_CODE,
         "city": city,
@@ -1126,25 +1130,28 @@ def build_sabil_shipment_payload(
         if not isinstance(raw, dict):
             continue
         quantity = max(1, as_int(raw.get("quantity"), 1))
-        product_id = str(raw.get("productId") or raw.get("id") or "").strip()
-        metadata = {"product_id": product_id} if product_id else {}
-        for key in ("size", "color", "length"):
-            value = str(raw.get(key) or "").strip()
-            if value:
-                metadata[key] = value
         products.append({
             "title": str(raw.get("name") or "منتج AVEA").strip(),
             "quantity": quantity,
+            "widthCM": 10,
+            "heightCM": 10,
+            "lengthCM": 10,
+            "allowInspection": True,
+            "allowTesting": True,
+            "isFragile": False,
             "amount": round(max(0.0, as_number(raw.get("price"), 0)), 2),
             "currency": _SABIL_CURRENCY,
             "isChargeable": True,
-            "metadata": metadata,
         })
     note = str(payload.get("note") or customer.get("note") or "").strip()
     return {
+        "isPickup": False,
         "service": _SABIL_SERVICE_ID,
         "contacts": list(contact_ids if contact_ids is not None else _SABIL_CONTACT_IDS),
         "paymentBy": _SABIL_PAYMENT_BY if _SABIL_PAYMENT_BY in {"sender", "receiver", "sales"} else "receiver",
+        "allowCardPayment": False,
+        "allowSplitting": True,
+        "allowedBankNotes": [],
         "to": destination,
         "products": products,
         **({"notes": note} if note else {}),
@@ -1152,7 +1159,7 @@ def build_sabil_shipment_payload(
             "order_id": str(order.get("orderId") or "").strip(),
             "customer_name": str(customer.get("name") or order.get("customerName") or "").strip(),
             "customer_phone": str(customer.get("phone") or order.get("customerPhone") or "").strip(),
-            "customer_city": city,
+            "customer_city": customer_city,
             "source": "AVEA FASHION",
         },
     }

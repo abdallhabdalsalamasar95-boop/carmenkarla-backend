@@ -188,8 +188,38 @@ class AdminFeatureTests(unittest.TestCase):
         self.assertEqual(payload["to"]["area"], "حي الأندلس")
         self.assertEqual(payload["to"]["address"], "حي الأندلس")
         self.assertEqual(payload["products"][0]["quantity"], 2)
-        self.assertEqual(payload["products"][0]["metadata"]["size"], "M")
+        self.assertEqual(payload["products"][0]["currency"], "lyd")
+        self.assertEqual(payload["products"][0]["widthCM"], 10)
+        self.assertTrue(payload["products"][0]["allowInspection"])
+        self.assertTrue(payload["products"][0]["allowTesting"])
+        self.assertFalse(payload["products"][0]["isFragile"])
+        self.assertNotIn("metadata", payload["products"][0])
         self.assertEqual(payload["metadata"]["order_id"], "order-sabil-1")
+
+    def test_sabil_payload_maps_yefren_to_provider_geo_hierarchy(self):
+        order = server.normalize_order_item({
+            "orderId": "order-yefren",
+            "payload": {
+                "customer": {
+                    "name": "عبدالله عصر",
+                    "phone": "0921307674",
+                    "city": "يفرن",
+                    "area": "الغنائمة",
+                    "address": "الغنائمة",
+                },
+                "items": [{"name": "منتج اختبار", "price": 155, "quantity": 1}],
+            },
+        })
+        with patch.object(server, "_SABIL_COUNTRY_CODE", "lby"):
+            payload = server.build_sabil_shipment_payload(order, ["contact-1"])
+
+        self.assertEqual(payload["to"], {
+            "countryCode": "lby",
+            "city": "غريان",
+            "area": "يفرن",
+            "address": "الغنائمة",
+        })
+        self.assertEqual(payload["metadata"]["customer_city"], "يفرن")
 
     def test_sabil_contact_reuses_existing_customer_phone(self):
         order = server.normalize_order_item({
