@@ -229,6 +229,35 @@ def _save_firebase_user_profile(uid: str, profile: Dict[str, Any]) -> tuple[bool
         return False, str(ex)
 
 
+def _firebase_ambassador_profiles() -> tuple[List[Dict[str, Any]], str]:
+    db, db_error = _firestore_db()
+    if db is None:
+        return [], db_error or "تعذر الاتصال بقاعدة بيانات الحسابات"
+    try:
+        items: List[Dict[str, Any]] = []
+        for snapshot in db.collection("users").stream():
+            data = snapshot.to_dict()
+            if not isinstance(data, dict):
+                continue
+            if str(data.get("accountRole") or "").strip().lower() != "ambassador":
+                continue
+            items.append({
+                "uid": str(data.get("uid") or snapshot.id or "").strip(),
+                "accountRole": "ambassador",
+                "ambassadorName": str(data.get("ambassadorName") or data.get("name") or "").strip(),
+                "ambassadorPhone": str(data.get("ambassadorPhone") or data.get("phone") or "").strip(),
+                "ambassadorAddress": str(data.get("ambassadorAddress") or data.get("address") or "").strip(),
+                "email": str(data.get("email") or "").strip(),
+                "status": str(data.get("status") or "active").strip().lower(),
+                "joinedAt": as_int(data.get("joinedAt"), 0),
+                "updatedAt": as_int(data.get("updatedAt"), 0),
+            })
+        items.sort(key=lambda item: as_int(item.get("joinedAt"), 0), reverse=True)
+        return items, ""
+    except Exception as ex:
+        return [], str(ex)
+
+
 def _is_truthy(v: Any) -> bool:
     return str(v or "").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -960,7 +989,11 @@ def normalize_order_item(payload: Dict[str, Any], current: Optional[Dict[str, An
         "customerAddress": str(customer.get("address") or cur.get("customerAddress") or "").strip(),
         "city": str(customer.get("city") or cur.get("city") or "").strip(),
         "grandTotal": as_number(pricing.get("grandTotal", payload_map.get("total", cur.get("grandTotal", 0))), 0),
-        "itemsCount": len(payload_map.get("items", [])) if isinstance(payload_map.get("items"), list) else as_int(cur.get("itemsCount", 0), 0),
+        "itemsCount": (
+            sum(max(0, as_int(line.get("quantity", 0), 0)) for line in payload_map.get("items", []) if isinstance(line, dict))
+            if isinstance(payload_map.get("items"), list)
+            else as_int(cur.get("itemsCount", 0), 0)
+        ),
         "source": str(payload.get("source") or cur.get("source") or "app").strip(),
         "inventoryReserved": bool(payload.get("inventoryReserved", cur.get("inventoryReserved", False))),
         "inventoryReservation": (
@@ -2155,6 +2188,8 @@ def list_current_ambassador_orders():
             "updatedAtMs": as_int(item.get("updatedAtMs", 0), 0),
             "customerName": str(item.get("customerName") or "").strip(),
             "customerPhone": str(item.get("customerPhone") or "").strip(),
+            "customerAddress": str(item.get("customerAddress") or "").strip(),
+            "customerCity": str(item.get("city") or "").strip(),
             "grandTotal": as_number(item.get("grandTotal", 0), 0),
             "itemsCount": as_int(item.get("itemsCount", 0), 0),
             "payload": payload,
@@ -2174,6 +2209,21 @@ def get_current_ambassador_profile():
     if str(profile.get("accountRole") or "").strip().lower() != "ambassador":
         return jsonify({"ok": True, "profile": None})
     return jsonify({"ok": True, "profile": profile})
+
+
+@app.get("/admin/ambassadors")
+def list_admin_ambassadors():
+    ok, err = require_admin()
+    if not ok:
+        return err
+    items, profiles_error = _firebase_ambassador_profiles()
+    return jsonify({
+        "ok": True,
+        "count": len(items),
+        "items": items,
+        "source": "firestore" if not profiles_error else "unavailable",
+        "warning": profiles_error,
+    })
 
 
 @app.put("/ambassadors/me/profile")

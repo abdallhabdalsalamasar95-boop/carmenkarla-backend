@@ -219,6 +219,21 @@ class AdminFeatureTests(unittest.TestCase):
         self.assertEqual(products[0]["sizeQuantities"]["M"], 2)
         self.assertEqual(orders, [])
 
+    def test_size_with_one_piece_rejects_quantity_two(self):
+        products, orders, read_products, write_products, read_orders, write_orders = self._inventory_api_state(
+            {"S": 2, "M": 1, "L": 1},
+        )
+        with patch.object(server, "read_products", side_effect=read_products), \
+             patch.object(server, "write_products", side_effect=write_products), \
+             patch.object(server, "read_orders", side_effect=read_orders), \
+             patch.object(server, "write_orders", side_effect=write_orders):
+            response = server.app.test_client().post("/orders", json=self._order_payload(size="M", quantity=2))
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.get_json()["code"], "insufficient_stock")
+        self.assertEqual(products[0]["sizeQuantities"]["M"], 1)
+        self.assertEqual(orders, [])
+
     def test_order_matches_clean_size_to_legacy_bracketed_inventory_key(self):
         products, orders, read_products, write_products, read_orders, write_orders = self._inventory_api_state(
             {"['S'": 2, "'M'": 3, "'L']": 1},
@@ -239,8 +254,8 @@ class AdminFeatureTests(unittest.TestCase):
                 "orderId": "mine",
                 "status": "delivered",
                 "payload": {
-                    "customer": {"name": "عميلة 1", "submitterUid": "amb-1", "accountRole": "ambassador"},
-                    "items": [{"productId": "p1", "quantity": 1, "price": 100}],
+                    "customer": {"name": "عميلة 1", "phone": "091", "address": "حي الأندلس", "city": "طرابلس", "submitterUid": "amb-1", "accountRole": "ambassador"},
+                    "items": [{"productId": "p1", "name": "فستان سهرة", "imageUrl": "https://example.com/dress.jpg", "size": "M", "color": "أسود", "quantity": 2, "price": 100}],
                     "pricing": {"grandTotal": 100},
                 },
             }),
@@ -263,6 +278,10 @@ class AdminFeatureTests(unittest.TestCase):
         self.assertEqual(payload["count"], 1)
         self.assertEqual(payload["items"][0]["orderId"], "mine")
         self.assertEqual(payload["items"][0]["customerName"], "عميلة 1")
+        self.assertEqual(payload["items"][0]["customerAddress"], "حي الأندلس")
+        self.assertEqual(payload["items"][0]["customerCity"], "طرابلس")
+        self.assertEqual(payload["items"][0]["itemsCount"], 2)
+        self.assertEqual(payload["items"][0]["payload"]["items"][0]["size"], "M")
 
     def test_secure_ambassador_feed_rejects_regular_customer(self):
         with patch.object(server, "_firebase_user_from_request", return_value=({"uid": "customer-1"}, None)), \
@@ -297,6 +316,34 @@ class AdminFeatureTests(unittest.TestCase):
             })
 
         self.assertEqual(response.status_code, 400)
+
+    def test_admin_ambassadors_returns_registered_profiles(self):
+        old_token = server.API_TOKEN
+        server.API_TOKEN = "test-token"
+        try:
+            with patch.object(server, "_firebase_ambassador_profiles", return_value=([{
+                "uid": "amb-registered",
+                "accountRole": "ambassador",
+                "ambassadorName": "مريم محمد",
+                "ambassadorPhone": "0912345678",
+                "ambassadorAddress": "طرابلس",
+                "email": "maryam@example.com",
+                "status": "active",
+                "joinedAt": 123,
+                "updatedAt": 456,
+            }], "")):
+                response = server.app.test_client().get(
+                    "/admin/ambassadors",
+                    headers={"Authorization": "Bearer test-token"},
+                )
+        finally:
+            server.API_TOKEN = old_token
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["items"][0]["uid"], "amb-registered")
+        self.assertEqual(payload["source"], "firestore")
 
     def test_admin_page_is_mobile_and_not_cached(self):
         response = server.app.test_client().get("/admin")
