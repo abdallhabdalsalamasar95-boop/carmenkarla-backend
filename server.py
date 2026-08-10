@@ -218,6 +218,17 @@ def _firebase_user_profile(uid: str) -> Dict[str, Any]:
         return {}
 
 
+def _save_firebase_user_profile(uid: str, profile: Dict[str, Any]) -> tuple[bool, str]:
+    db, db_error = _firestore_db()
+    if db is None:
+        return False, db_error or "تعذر الاتصال بقاعدة البيانات"
+    try:
+        db.collection("users").document(uid).set(profile, merge=True)
+        return True, ""
+    except Exception as ex:
+        return False, str(ex)
+
+
 def _is_truthy(v: Any) -> bool:
     return str(v or "").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -2151,6 +2162,54 @@ def list_current_ambassador_orders():
         })
     out.sort(key=lambda x: as_int(x.get("createdAtMs", 0), 0), reverse=True)
     return jsonify({"ok": True, "count": len(out[:limit]), "items": out[:limit]})
+
+
+@app.get("/ambassadors/me/profile")
+def get_current_ambassador_profile():
+    signed_user, auth_error = _firebase_user_from_request()
+    if auth_error is not None:
+        return auth_error
+    uid = str(signed_user.get("uid") or "").strip()
+    profile = _firebase_user_profile(uid)
+    if str(profile.get("accountRole") or "").strip().lower() != "ambassador":
+        return jsonify({"ok": True, "profile": None})
+    return jsonify({"ok": True, "profile": profile})
+
+
+@app.put("/ambassadors/me/profile")
+def save_current_ambassador_profile():
+    signed_user, auth_error = _firebase_user_from_request()
+    if auth_error is not None:
+        return auth_error
+    uid = str(signed_user.get("uid") or "").strip()
+    payload = request.get_json(silent=True) or {}
+    name = str(payload.get("ambassadorName") or "").strip()
+    phone = re.sub(r"[^0-9+]", "", str(payload.get("ambassadorPhone") or "").strip())
+    address = str(payload.get("ambassadorAddress") or "").strip()
+    if len(name) < 2:
+        return jsonify({"ok": False, "error": "أدخلي الاسم الكامل"}), 400
+    if not re.fullmatch(r"\+?[0-9]{8,15}", phone):
+        return jsonify({"ok": False, "error": "رقم الهاتف غير صحيح"}), 400
+    if len(address) < 4:
+        return jsonify({"ok": False, "error": "أدخلي المدينة والمنطقة"}), 400
+
+    now = int(time.time() * 1000)
+    existing = _firebase_user_profile(uid)
+    profile = {
+        "uid": uid,
+        "accountRole": "ambassador",
+        "ambassadorName": name,
+        "ambassadorPhone": phone,
+        "ambassadorAddress": address,
+        "email": str(signed_user.get("email") or existing.get("email") or "").strip(),
+        "status": "active",
+        "joinedAt": as_int(existing.get("joinedAt"), now),
+        "updatedAt": now,
+    }
+    saved, save_error = _save_firebase_user_profile(uid, profile)
+    if not saved:
+        return jsonify({"ok": False, "error": "تعذر حفظ حساب المندوبة", "details": save_error}), 503
+    return jsonify({"ok": True, "profile": profile})
 
 
 @app.put("/orders/<order_id>/status")

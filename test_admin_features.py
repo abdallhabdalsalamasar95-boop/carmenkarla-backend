@@ -271,6 +271,33 @@ class AdminFeatureTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 403)
 
+    def test_ambassador_profile_can_be_saved_by_authenticated_owner(self):
+        with patch.object(server, "_firebase_user_from_request", return_value=({"uid": "amb-7", "email": "a@example.com"}, None)), \
+             patch.object(server, "_firebase_user_profile", return_value={}), \
+             patch.object(server, "_save_firebase_user_profile", return_value=(True, "")) as save_profile:
+            response = server.app.test_client().put("/ambassadors/me/profile", json={
+                "ambassadorName": "سارة محمد",
+                "ambassadorPhone": "091-234-5678",
+                "ambassadorAddress": "طرابلس - الأندلس",
+            })
+
+        self.assertEqual(response.status_code, 200)
+        profile = response.get_json()["profile"]
+        self.assertEqual(profile["uid"], "amb-7")
+        self.assertEqual(profile["ambassadorPhone"], "0912345678")
+        self.assertEqual(profile["accountRole"], "ambassador")
+        save_profile.assert_called_once()
+
+    def test_ambassador_profile_rejects_invalid_phone(self):
+        with patch.object(server, "_firebase_user_from_request", return_value=({"uid": "amb-7"}, None)):
+            response = server.app.test_client().put("/ambassadors/me/profile", json={
+                "ambassadorName": "سارة محمد",
+                "ambassadorPhone": "123",
+                "ambassadorAddress": "طرابلس",
+            })
+
+        self.assertEqual(response.status_code, 400)
+
     def test_admin_page_is_mobile_and_not_cached(self):
         response = server.app.test_client().get("/admin")
         try:
