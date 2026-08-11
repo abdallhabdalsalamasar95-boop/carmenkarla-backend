@@ -294,14 +294,18 @@ def verify_ambassador_share_token(token: str, now: Optional[int] = None) -> Opti
         return None
     try:
         body, supplied_signature = str(token or "").strip().split(".", 1)
+        decoded_body = _urlsafe_decode(body)
+        decoded_signature = _urlsafe_decode(supplied_signature)
+        if _urlsafe_encode(decoded_body) != body or _urlsafe_encode(decoded_signature) != supplied_signature:
+            return None
         expected_signature = hmac.new(
             _AMBASSADOR_SHARE_SECRET.encode("utf-8"),
             body.encode("ascii"),
             hashlib.sha256,
         ).digest()
-        if not secrets.compare_digest(_urlsafe_decode(supplied_signature), expected_signature):
+        if not secrets.compare_digest(decoded_signature, expected_signature):
             return None
-        claims = json.loads(_urlsafe_decode(body).decode("utf-8"))
+        claims = json.loads(decoded_body.decode("utf-8"))
         current_time = int(time.time() if now is None else now)
         if (
             not isinstance(claims, dict)
@@ -1146,6 +1150,33 @@ def normalize_order_item(payload: Dict[str, Any], current: Optional[Dict[str, An
         "externalDelivery": dict(external_delivery),
         "trackingToken": str(payload.get("trackingToken") or cur.get("trackingToken") or "").strip(),
     }
+
+
+def is_direct_ambassador_sale(item: Dict[str, Any]) -> bool:
+    payload = item.get("payload") if isinstance(item.get("payload"), dict) else {}
+    customer = payload.get("customer") if isinstance(payload.get("customer"), dict) else {}
+    if bool(customer.get("submittedViaShareLink")):
+        return False
+    summary = item.get("ambassadorSummary") if isinstance(item.get("ambassadorSummary"), dict) else {}
+    return (
+        bool(customer.get("placedAsAmbassador"))
+        or str(customer.get("accountRole") or "").strip().lower() == "ambassador"
+        or bool(summary.get("isAmbassadorOrder"))
+    )
+
+
+def safe_customer_order_lines(value: Any) -> List[Dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    allowed = (
+        "productId", "productCode", "name", "imageUrl", "size", "length",
+        "color", "quantity", "price",
+    )
+    return [
+        {key: line.get(key) for key in allowed if line.get(key) not in (None, "")}
+        for line in value
+        if isinstance(line, dict)
+    ]
 
 
 def sabil_config_status() -> Dict[str, Any]:
@@ -3421,6 +3452,10 @@ def list_current_customer_orders():
         item = normalize_order_item(raw)
         if str(item.get("uid") or "").strip() != uid:
             continue
+        if is_direct_ambassador_sale(item):
+            continue
+        payload = item.get("payload") if isinstance(item.get("payload"), dict) else {}
+        order_items = safe_customer_order_lines(payload.get("items"))
         delivery = item.get("externalDelivery") if isinstance(item.get("externalDelivery"), dict) else {}
         safe_delivery = {
             key: delivery.get(key)
@@ -3439,6 +3474,8 @@ def list_current_customer_orders():
             "itemsCount": as_int(item.get("itemsCount", 0), 0),
             "trackingToken": str(item.get("trackingToken") or "").strip(),
             "externalDelivery": safe_delivery,
+            "items": order_items,
+            "orderChannel": "customer",
         })
     out = [item for item in out if item["orderId"]]
     out.sort(key=lambda item: as_int(item.get("createdAtMs", 0), 0), reverse=True)
@@ -3505,7 +3542,9 @@ def list_current_ambassador_orders():
         payload = item.get("payload") if isinstance(item.get("payload"), dict) else {}
         customer = payload.get("customer") if isinstance(payload.get("customer"), dict) else {}
         summary = item.get("ambassadorSummary") if isinstance(item.get("ambassadorSummary"), dict) else {}
-        owner_uid = str(summary.get("ambassadorUid") or customer.get("submitterUid") or item.get("uid") or "").strip()
+        owner_uid = str(summary.get("ambassadorUid") or customer.get("submitterUid") or "").strip()
+        if not owner_uid and bool(summary.get("isAmbassadorOrder")):
+            owner_uid = str(item.get("uid") or "").strip()
         if owner_uid != uid:
             continue
         out.append({

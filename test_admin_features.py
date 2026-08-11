@@ -568,6 +568,53 @@ class AdminFeatureTests(unittest.TestCase):
         self.assertEqual(payload["items"][0]["externalDelivery"]["providerStatus"], "postponed")
         self.assertNotIn("lastError", payload["items"][0]["externalDelivery"])
 
+    def test_customer_orders_excludes_direct_ambassador_sales_but_keeps_shared_customer_orders(self):
+        personal = server.normalize_order_item({
+            **self._order_payload(order_id="personal-order"),
+            "uid": "amb-1",
+        })
+        direct_sale = server.normalize_order_item({
+            **self._order_payload(order_id="direct-ambassador-sale"),
+            "uid": "amb-1",
+            "payload": {
+                "customer": {
+                    "name": "عميلة المندوبة",
+                    "submitterUid": "amb-1",
+                    "accountRole": "ambassador",
+                    "placedAsAmbassador": True,
+                },
+                "items": [{"productId": "dress-1", "name": "فستان أسود", "imageUrl": "https://example.com/dress.jpg", "size": "M", "quantity": 1, "price": 120}],
+                "pricing": {"grandTotal": 120},
+            },
+        })
+        shared_customer_order = server.normalize_order_item({
+            **self._order_payload(order_id="shared-customer-order"),
+            "uid": "amb-1",
+            "payload": {
+                "customer": {
+                    "name": "صاحبة الحساب",
+                    "submitterUid": "amb-2",
+                    "accountRole": "ambassador",
+                    "placedAsAmbassador": True,
+                    "submittedViaShareLink": True,
+                },
+                "items": [{"productId": "dress-2", "name": "فستان وردي", "size": "L", "quantity": 2, "price": 90, "purchaseCost": 30}],
+                "pricing": {"grandTotal": 180},
+            },
+        })
+        with patch.object(server, "_firebase_user_from_request", return_value=({"uid": "amb-1"}, None)), \
+             patch.object(server, "read_orders", return_value=[direct_sale, shared_customer_order, personal]):
+            response = server.app.test_client().get("/customers/me/orders")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual({item["orderId"] for item in payload["items"]}, {"personal-order", "shared-customer-order"})
+        shared = next(item for item in payload["items"] if item["orderId"] == "shared-customer-order")
+        self.assertEqual(shared["items"][0]["name"], "فستان وردي")
+        self.assertEqual(shared["items"][0]["size"], "L")
+        self.assertNotIn("purchaseCost", shared["items"][0])
+        self.assertEqual(shared["orderChannel"], "customer")
+
     def test_sabil_deleted_shipment_cancels_order_and_restores_stock_once(self):
         products, orders, read_products, write_products, read_orders, write_orders = self._inventory_api_state()
         with patch.object(server, "_SABIL_ENABLED", False), \
@@ -1053,6 +1100,33 @@ class AdminFeatureTests(unittest.TestCase):
         self.assertEqual(payload["items"][0]["customerCity"], "طرابلس")
         self.assertEqual(payload["items"][0]["itemsCount"], 2)
         self.assertEqual(payload["items"][0]["payload"]["items"][0]["size"], "M")
+
+    def test_secure_ambassador_feed_excludes_personal_order_with_same_uid(self):
+        personal = server.normalize_order_item({
+            "orderId": "personal",
+            "uid": "amb-1",
+            "payload": {
+                "customer": {"name": "المندوبة نفسها"},
+                "items": [{"productId": "p1", "quantity": 1, "price": 100}],
+                "pricing": {"grandTotal": 100},
+            },
+        })
+        sale = server.normalize_order_item({
+            "orderId": "ambassador-sale",
+            "uid": "amb-1",
+            "payload": {
+                "customer": {"name": "عميلة", "submitterUid": "amb-1", "accountRole": "ambassador", "placedAsAmbassador": True},
+                "items": [{"productId": "p2", "quantity": 1, "price": 150}],
+                "pricing": {"grandTotal": 150},
+            },
+        })
+        with patch.object(server, "_firebase_user_from_request", return_value=({"uid": "amb-1"}, None)), \
+             patch.object(server, "_firebase_user_profile", return_value={"accountRole": "ambassador"}), \
+             patch.object(server, "read_orders", return_value=[personal, sale]):
+            response = server.app.test_client().get("/ambassadors/me/orders")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([item["orderId"] for item in response.get_json()["items"]], ["ambassador-sale"])
 
     def test_secure_ambassador_feed_includes_provider_tracking(self):
         order = server.normalize_order_item({
