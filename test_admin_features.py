@@ -379,9 +379,10 @@ class AdminFeatureTests(unittest.TestCase):
             },
         }
         with patch.object(server, "_SABIL_DESTINATIONS_CACHE", {"expiresAt": 0, "cities": {}}), \
-             patch.object(server, "_request_sabil_api", return_value=(200, provider_response)):
+               patch.object(server, "_request_sabil_api", return_value=(200, provider_response)) as request_api:
             cities = server.sabil_delivery_destinations()
 
+        request_api.assert_called_once_with("/api/local/branches/public?includeTotalCount=true")
         self.assertEqual(cities["طرابلس"], ["تاجوراء", "سوق الجمعة", "عين زارة"])
         self.assertEqual(cities["مصراتة"], ["مصراتة"])
         self.assertNotIn("تونس", cities)

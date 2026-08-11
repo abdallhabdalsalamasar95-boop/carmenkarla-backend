@@ -1465,7 +1465,7 @@ def sabil_delivery_destinations() -> Dict[str, List[str]]:
         if isinstance(cached, dict) and cached and float(_SABIL_DESTINATIONS_CACHE.get("expiresAt") or 0) > time.time():
             return {str(city): list(areas) for city, areas in cached.items()}
         _, decoded = _request_sabil_api(
-            "/api/local/branches/public?countryCode=lby&limit=2000&includeTotalCount=true",
+            "/api/local/branches/public?includeTotalCount=true",
         )
         collected: Dict[str, set[str]] = {}
         _collect_sabil_destinations(decoded, collected)
