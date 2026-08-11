@@ -194,7 +194,9 @@ class AdminFeatureTests(unittest.TestCase):
         self.assertTrue(payload["products"][0]["allowTesting"])
         self.assertFalse(payload["products"][0]["isFragile"])
         self.assertNotIn("metadata", payload["products"][0])
-        self.assertEqual(payload["metadata"]["order_id"], "order-sabil-1")
+        self.assertEqual(payload["allowedBankNotes"], {"50": False})
+        self.assertEqual(payload["tags"], [])
+        self.assertEqual(payload["metadata"], {})
 
     def test_sabil_payload_maps_yefren_to_provider_geo_hierarchy(self):
         order = server.normalize_order_item({
@@ -219,7 +221,6 @@ class AdminFeatureTests(unittest.TestCase):
             "area": "يفرن",
             "address": "الغنائمة",
         })
-        self.assertEqual(payload["metadata"]["customer_city"], "يفرن")
 
     def test_sabil_contact_reuses_existing_customer_phone(self):
         order = server.normalize_order_item({

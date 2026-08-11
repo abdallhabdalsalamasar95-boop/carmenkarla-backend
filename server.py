@@ -1123,7 +1123,6 @@ def build_sabil_shipment_payload(
     city = str(customer.get("city") or order.get("city") or "").strip()
     address = str(customer.get("address") or order.get("customerAddress") or "").strip()
     area = str(customer.get("area") or _SABIL_DEFAULT_AREA).strip()
-    customer_city = city
     if city == "يفرن":
         city = "غريان"
         area = "يفرن"
@@ -1159,17 +1158,12 @@ def build_sabil_shipment_payload(
         "paymentBy": _SABIL_PAYMENT_BY if _SABIL_PAYMENT_BY in {"sender", "receiver", "sales"} else "receiver",
         "allowCardPayment": False,
         "allowSplitting": True,
-        "allowedBankNotes": [],
+        "allowedBankNotes": {"50": False},
         "to": destination,
         "products": products,
         **({"notes": note} if note else {}),
-        "metadata": {
-            "order_id": str(order.get("orderId") or "").strip(),
-            "customer_name": str(customer.get("name") or order.get("customerName") or "").strip(),
-            "customer_phone": str(customer.get("phone") or order.get("customerPhone") or "").strip(),
-            "customer_city": customer_city,
-            "source": "AVEA FASHION",
-        },
+        "tags": [],
+        "metadata": {},
     }
 
 
@@ -1293,11 +1287,19 @@ def _request_sabil_api(
                 response_body = response.read().decode("utf-8", errors="replace")
             break
         except urllib.error.HTTPError as ex:
-            ex.read()
+            error_body = ex.read().decode("utf-8", errors="replace").strip()
             if ex.code == 401 and attempt == 0 and _SABIL_ACCESS_TOKEN and _SABIL_REFRESH_TOKEN:
                 _refresh_sabil_session(force=True)
                 continue
-            raise RuntimeError(f"Darb Al Sabeel HTTP {ex.code}: {ex.reason}") from ex
+            detail = ""
+            if error_body:
+                try:
+                    decoded_error = json.loads(error_body)
+                    detail = _first_nested_value(decoded_error, {"message", "error", "detail"})
+                except Exception:
+                    detail = error_body[:300]
+            suffix = f" - {detail}" if detail else ""
+            raise RuntimeError(f"Darb Al Sabeel HTTP {ex.code}: {ex.reason}{suffix}") from ex
         except urllib.error.URLError as ex:
             raise RuntimeError(f"تعذر الاتصال بدرب السبيل: {ex.reason}") from ex
     try:
