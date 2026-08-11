@@ -406,9 +406,86 @@ class AdminFeatureTests(unittest.TestCase):
         with patch.object(server, "_request_sabil_api", side_effect=RuntimeError("Darb Al Sabeel HTTP 404: Not Found")):
             missing = server._sabil_shipment_snapshot("shipment-1")
 
-        self.assertEqual(existing, {"exists": True, "deleted": False, "providerStatus": "pending"})
+        self.assertEqual(existing["providerStatus"], "pending")
+        self.assertFalse(existing["deleted"])
+        self.assertEqual(existing["timeline"], [])
         self.assertTrue(deleted["deleted"])
         self.assertTrue(missing["deleted"])
+
+    def test_sabil_snapshot_keeps_customer_safe_timeline(self):
+        response = {"data": {"results": [{
+            "_id": "shipment-timeline",
+            "reference": "SH100",
+            "status": "processing",
+            "timeline": [{
+                "_id": "event-1",
+                "type": "booked",
+                "description": {"ar": "تم قبول طلبك", "en": "Order accepted"},
+                "timestamp": "2026-08-11T10:00:00.000Z",
+                "createdBy": "private-staff-id",
+            }],
+        }]}}
+        with patch.object(server, "_request_sabil_api", return_value=(200, response)):
+            snapshot = server._sabil_shipment_snapshot("shipment-timeline")
+
+        self.assertEqual(snapshot["providerStatus"], "processing")
+        self.assertEqual(snapshot["referenceCode"], "SH100")
+        self.assertEqual(snapshot["timeline"], [{
+            "id": "event-1",
+            "type": "booked",
+            "descriptionAr": "تم قبول طلبك",
+            "descriptionEn": "Order accepted",
+            "timestamp": "2026-08-11T10:00:00.000Z",
+        }])
+        self.assertNotIn("createdBy", snapshot["timeline"][0])
+
+    def test_sabil_returning_does_not_restore_until_returned(self):
+        products, orders, read_products, write_products, read_orders, write_orders = self._inventory_api_state()
+        with patch.object(server, "_SABIL_ENABLED", False), \
+             patch.object(server, "read_products", side_effect=read_products), \
+             patch.object(server, "write_products", side_effect=write_products), \
+             patch.object(server, "read_orders", side_effect=read_orders), \
+             patch.object(server, "write_orders", side_effect=write_orders), \
+             patch.object(server, "_notify_user_on_order_status_change"):
+            created = server.app.test_client().post("/orders", json=self._order_payload(order_id="provider-return", quantity=1))
+            self.assertEqual(created.status_code, 200)
+            self.assertEqual(products[0]["sizeQuantities"]["M"], 1)
+
+            server._change_order_status("provider-return", "returning", sabil_snapshot={
+                "providerStatus": "returning", "deleted": False, "timeline": [],
+            })
+            self.assertTrue(orders[0]["inventoryReserved"])
+            self.assertEqual(products[0]["sizeQuantities"]["M"], 1)
+
+            server._change_order_status("provider-return", "returned", sabil_snapshot={
+                "providerStatus": "returned", "deleted": False, "timeline": [],
+            })
+            server._change_order_status("provider-return", "returned", sabil_snapshot={
+                "providerStatus": "returned", "deleted": False, "timeline": [],
+            })
+        self.assertFalse(orders[0]["inventoryReserved"])
+        self.assertEqual(products[0]["sizeQuantities"]["M"], 2)
+
+    def test_public_tracking_requires_order_token(self):
+        order = server.normalize_order_item({
+            **self._order_payload(order_id="tracked-order"),
+            "trackingToken": "private-token",
+            "externalDelivery": {
+                "provider": "darb_sabeel",
+                "providerStatus": "processing",
+                "timeline": [{"type": "booked", "descriptionAr": "تم قبول طلبك"}],
+                "lastError": "must-not-be-public",
+            },
+        })
+        with patch.object(server, "read_orders", return_value=[order]):
+            denied = server.app.test_client().get("/orders/tracked-order/tracking?token=wrong")
+            allowed = server.app.test_client().get("/orders/tracked-order/tracking?token=private-token")
+
+        self.assertEqual(denied.status_code, 404)
+        self.assertEqual(allowed.status_code, 200)
+        delivery = allowed.get_json()["item"]["externalDelivery"]
+        self.assertEqual(delivery["providerStatus"], "processing")
+        self.assertNotIn("lastError", delivery)
 
     def test_sabil_deleted_shipment_cancels_order_and_restores_stock_once(self):
         products, orders, read_products, write_products, read_orders, write_orders = self._inventory_api_state()
@@ -440,6 +517,23 @@ class AdminFeatureTests(unittest.TestCase):
         self.assertEqual(products[0]["sizeQuantities"]["M"], 2)
         self.assertEqual(orders[0]["externalDelivery"]["syncStatus"], "deleted_on_provider")
         notify.assert_called_once()
+
+    def test_admin_orders_list_runs_sabil_sync_before_reading_orders(self):
+        old_token = server.API_TOKEN
+        server.API_TOKEN = "test-token"
+        try:
+            with patch.object(server, "_SABIL_ENABLED", True), \
+                 patch.object(server, "sync_sabil_deleted_shipments", return_value={"checked": 1, "canceled": 1}) as sync, \
+                 patch.object(server, "read_orders", return_value=[]):
+                response = server.app.test_client().get(
+                    "/orders",
+                    headers={"Authorization": "Bearer test-token"},
+                )
+        finally:
+            server.API_TOKEN = old_token
+
+        self.assertEqual(response.status_code, 200)
+        sync.assert_called_once_with()
 
     def test_new_customer_and_ambassador_orders_auto_dispatch_once(self):
         products, orders, read_products, write_products, read_orders, write_orders = self._inventory_api_state(
@@ -810,6 +904,31 @@ class AdminFeatureTests(unittest.TestCase):
         self.assertEqual(payload["items"][0]["customerCity"], "طرابلس")
         self.assertEqual(payload["items"][0]["itemsCount"], 2)
         self.assertEqual(payload["items"][0]["payload"]["items"][0]["size"], "M")
+
+    def test_secure_ambassador_feed_includes_provider_tracking(self):
+        order = server.normalize_order_item({
+            "orderId": "ambassador-tracked",
+            "status": "processing",
+            "payload": {
+                "customer": {"submitterUid": "amb-1", "accountRole": "ambassador"},
+                "items": [{"productId": "p1", "quantity": 1, "price": 100}],
+            },
+            "externalDelivery": {
+                "provider": "darb_sabeel",
+                "trackingNumber": "SH100",
+                "providerStatus": "processing",
+                "timeline": [{"type": "booked", "descriptionAr": "تم قبول الطلب"}],
+            },
+        })
+        with patch.object(server, "_firebase_user_from_request", return_value=({"uid": "amb-1"}, None)), \
+             patch.object(server, "_firebase_user_profile", return_value={"accountRole": "ambassador"}), \
+             patch.object(server, "read_orders", return_value=[order]):
+            response = server.app.test_client().get("/ambassadors/me/orders")
+
+        self.assertEqual(response.status_code, 200)
+        tracking = response.get_json()["items"][0]["externalDelivery"]
+        self.assertEqual(tracking["trackingNumber"], "SH100")
+        self.assertEqual(tracking["timeline"][0]["type"], "booked")
 
     def test_secure_ambassador_feed_rejects_regular_customer(self):
         with patch.object(server, "_firebase_user_from_request", return_value=({"uid": "customer-1"}, None)), \

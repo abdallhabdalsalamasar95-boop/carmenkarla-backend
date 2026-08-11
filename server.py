@@ -3,11 +3,13 @@ import json
 import hashlib
 import os
 import re
+import secrets
 import threading
 import time
 import uuid
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -1010,7 +1012,7 @@ def normalize_order_item(payload: Dict[str, Any], current: Optional[Dict[str, An
 
     order_id = str(payload.get("orderId") or cur.get("orderId") or f"o_{now_ms}_{uuid.uuid4().hex[:8]}").strip()
     status = str(payload.get("status") or cur.get("status") or "pending").strip().lower()
-    if status not in {"pending", "processing", "shipped", "delivered", "canceled"}:
+    if status not in {"pending", "processing", "shipped", "delivered", "canceled", "returning", "returned"}:
         status = "pending"
 
     payload_map = payload.get("payload") if isinstance(payload.get("payload"), dict) else cur.get("payload")
@@ -1085,6 +1087,7 @@ def normalize_order_item(payload: Dict[str, Any], current: Optional[Dict[str, An
             else cur.get("inventoryReservation", [])
         ),
         "externalDelivery": dict(external_delivery),
+        "trackingToken": str(payload.get("trackingToken") or cur.get("trackingToken") or "").strip(),
     }
 
 
@@ -1621,14 +1624,42 @@ def _sabil_shipment_snapshot(shipment_id: str) -> Dict[str, Any]:
     if row is None:
         return {"exists": False, "deleted": True, "providerStatus": "deleted"}
     provider_status = str(row.get("status") or "").strip().lower()
-    cancelled = provider_status in {"canceled", "cancelled", "deleted"} or bool(
-        row.get("cancelledConfirmed") or row.get("canceledConfirmed")
-    )
+    timeline = []
+    for raw_event in row.get("timeline", []):
+        if not isinstance(raw_event, dict):
+            continue
+        description = raw_event.get("description") if isinstance(raw_event.get("description"), dict) else {}
+        timeline.append({
+            "id": str(raw_event.get("_id") or raw_event.get("id") or "").strip(),
+            "type": str(raw_event.get("type") or "info").strip().lower(),
+            "descriptionAr": str(description.get("ar") or raw_event.get("descriptionAr") or "").strip(),
+            "descriptionEn": str(description.get("en") or raw_event.get("descriptionEn") or "").strip(),
+            "timestamp": str(raw_event.get("timestamp") or raw_event.get("createdAt") or "").strip(),
+        })
     return {
         "exists": True,
-        "deleted": cancelled,
+        "deleted": provider_status == "deleted",
         "providerStatus": provider_status or "unknown",
+        "referenceCode": str(row.get("reference") or "").strip(),
+        "timeline": timeline,
     }
+
+
+def _local_status_for_sabil(provider_status: str) -> str:
+    normalized = str(provider_status or "").strip().lower()
+    if normalized == "pending":
+        return "pending"
+    if normalized in {"processing", "booked", "assigned", "accepted"}:
+        return "processing"
+    if normalized in {"completed", "released", "delivered"}:
+        return "delivered"
+    if normalized in {"canceled", "cancelled", "returning"}:
+        return "returning"
+    if normalized == "returned":
+        return "returned"
+    if normalized == "deleted":
+        return "canceled"
+    return ""
 
 
 def _change_order_status(
@@ -1649,11 +1680,12 @@ def _change_order_status(
         inventory_reserved = bool(current.get("inventoryReserved", False))
         reservation = current.get("inventoryReservation") if isinstance(current.get("inventoryReservation"), list) else []
 
-        if status == "canceled" and previous_status != "canceled" and inventory_reserved:
+        terminal_inventory_statuses = {"canceled", "returned"}
+        if status in terminal_inventory_statuses and previous_status not in terminal_inventory_statuses and inventory_reserved:
             restore_order_inventory(products, reservation)
             inventory_reserved = False
             write_products(products)
-        elif status != "canceled" and previous_status == "canceled" and not inventory_reserved:
+        elif status not in terminal_inventory_statuses and previous_status in terminal_inventory_statuses and not inventory_reserved:
             reserved, inventory_error, reservation = reserve_order_inventory(products, current)
             if not reserved:
                 raise RuntimeError(inventory_error or "insufficient_stock")
@@ -1668,11 +1700,17 @@ def _change_order_status(
         if sabil_snapshot is not None:
             delivery = dict(merged.get("externalDelivery") or {})
             delivery.update({
-                "providerStatus": str(sabil_snapshot.get("providerStatus") or "deleted"),
-                "syncStatus": "deleted_on_provider",
-                "deletedOnProviderAtMs": merged["updatedAtMs"],
+                "providerStatus": str(sabil_snapshot.get("providerStatus") or "unknown"),
+                "syncStatus": "deleted_on_provider" if sabil_snapshot.get("deleted") else "synced",
                 "lastSyncAtMs": merged["updatedAtMs"],
             })
+            if isinstance(sabil_snapshot.get("timeline"), list):
+                delivery["timeline"] = sabil_snapshot["timeline"]
+            reference_code = str(sabil_snapshot.get("referenceCode") or "").strip()
+            if reference_code:
+                delivery["referenceCode"] = reference_code
+            if sabil_snapshot.get("deleted"):
+                delivery["deletedOnProviderAtMs"] = merged["updatedAtMs"]
             merged["externalDelivery"] = delivery
         item = normalize_order_item(merged, current)
         entries[idx] = item
@@ -1694,20 +1732,45 @@ def sync_sabil_deleted_shipments() -> Dict[str, Any]:
         for raw_order in read_orders():
             order = normalize_order_item(raw_order)
             delivery = order.get("externalDelivery") if isinstance(order.get("externalDelivery"), dict) else {}
-            local_status = str(order.get("status") or "pending").strip().lower()
             if (
                 str(delivery.get("provider") or "") == "darb_sabeel"
                 and str(delivery.get("status") or "") == "created"
                 and str(delivery.get("shipmentId") or "").strip()
-                and local_status not in {"canceled", "delivered"}
+                and str(delivery.get("syncStatus") or "") != "deleted_on_provider"
             ):
                 candidates.append((str(order.get("orderId") or ""), str(delivery.get("shipmentId") or "")))
-        for order_id, shipment_id in candidates:
+        snapshots: Dict[str, Dict[str, Any]] = {}
+        with ThreadPoolExecutor(max_workers=min(6, max(1, len(candidates)))) as executor:
+            futures = {
+                executor.submit(_sabil_shipment_snapshot, shipment_id): (order_id, shipment_id)
+                for order_id, shipment_id in candidates
+            }
+            for future in as_completed(futures):
+                order_id, _ = futures[future]
+                try:
+                    snapshots[order_id] = future.result()
+                    checked += 1
+                except Exception as ex:
+                    errors.append({"orderId": order_id, "error": str(ex)[:300]})
+        for order_id, _ in candidates:
+            snapshot = snapshots.get(order_id)
+            if not snapshot:
+                continue
             try:
-                snapshot = _sabil_shipment_snapshot(shipment_id)
-                checked += 1
+                mapped_status = _local_status_for_sabil(snapshot.get("providerStatus"))
                 if snapshot.get("deleted"):
-                    _change_order_status(order_id, "canceled", sabil_snapshot=snapshot)
+                    mapped_status = "canceled"
+                if not mapped_status:
+                    mapped_status = next(
+                        (
+                            str(normalize_order_item(row).get("status") or "pending")
+                            for row in read_orders()
+                            if str(row.get("orderId") or "") == order_id
+                        ),
+                        "pending",
+                    )
+                updated = _change_order_status(order_id, mapped_status, sabil_snapshot=snapshot)
+                if updated.get("status") == "canceled":
                     canceled += 1
             except Exception as ex:
                 errors.append({"orderId": order_id, "error": str(ex)[:300]})
@@ -1730,6 +1793,8 @@ def _trigger_sabil_sync_if_due() -> None:
 
 @app.before_request
 def trigger_sabil_sync() -> None:
+    if request.path == "/orders" or request.path.startswith("/admin/delivery/darb-sabeel/"):
+        return
     _trigger_sabil_sync_if_due()
 
 
@@ -2171,6 +2236,10 @@ def _status_label_ar(status: str) -> str:
         return "تم التوصيل"
     if s == "canceled":
         return "ملغي"
+    if s == "returning":
+        return "الشحنة راجعة"
+    if s == "returned":
+        return "تم إرجاع الشحنة"
     return "محدث"
 
 
@@ -2998,6 +3067,10 @@ def create_order_from_app():
         item_payload["orderId"] = order_id
         item_payload["source"] = "app"
         item_payload["updatedAtMs"] = int(time.time() * 1000)
+        item_payload["trackingToken"] = str(
+            (entries[idx].get("trackingToken") if idx >= 0 and isinstance(entries[idx], dict) else "")
+            or secrets.token_urlsafe(24)
+        )
 
         created = idx < 0
         products = read_products()
@@ -3028,6 +3101,7 @@ def create_order_from_app():
         "created": created,
         "orderId": order_id,
         "status": item.get("status", "pending"),
+        "trackingToken": item.get("trackingToken", ""),
         "externalDelivery": delivery,
     })
 
@@ -3037,6 +3111,9 @@ def list_orders():
     ok, err = require_admin()
     if not ok:
         return err
+
+    if _SABIL_ENABLED:
+        sync_sabil_deleted_shipments()
 
     limit = as_int(request.args.get("limit", 200), 200)
     limit = max(1, min(limit, 1000))
@@ -3159,6 +3236,37 @@ def list_order_statuses_for_app():
     return jsonify({"ok": True, "count": len(compact), "items": compact})
 
 
+@app.get("/orders/<order_id>/tracking")
+def public_order_tracking(order_id: str):
+    token = str(request.args.get("token") or "").strip()
+    item = next(
+        (normalize_order_item(row) for row in read_orders() if str(row.get("orderId") or "").strip() == str(order_id).strip()),
+        None,
+    )
+    expected = str((item or {}).get("trackingToken") or "").strip()
+    if item is None or not token or not expected or not secrets.compare_digest(token, expected):
+        return jsonify({"ok": False, "error": "تعذر العثور على بيانات التتبع"}), 404
+    delivery = item.get("externalDelivery") if isinstance(item.get("externalDelivery"), dict) else {}
+    safe_delivery = {
+        key: delivery.get(key)
+        for key in (
+            "provider", "status", "shipmentId", "trackingNumber", "referenceCode",
+            "providerStatus", "syncStatus", "lastSyncAtMs", "timeline",
+        )
+        if delivery.get(key) not in (None, "")
+    }
+    return jsonify({
+        "ok": True,
+        "item": {
+            "orderId": item["orderId"],
+            "status": item["status"],
+            "createdAtMs": item["createdAtMs"],
+            "updatedAtMs": item["updatedAtMs"],
+            "externalDelivery": safe_delivery,
+        },
+    })
+
+
 @app.get("/orders/feed")
 def list_orders_feed_for_app():
     limit = as_int(request.args.get("limit", 200), 200)
@@ -3235,6 +3343,7 @@ def list_current_ambassador_orders():
             "itemsCount": as_int(item.get("itemsCount", 0), 0),
             "payload": payload,
             "ambassadorSummary": summary,
+            "externalDelivery": item.get("externalDelivery") if isinstance(item.get("externalDelivery"), dict) else {},
         })
     out.sort(key=lambda x: as_int(x.get("createdAtMs", 0), 0), reverse=True)
     return jsonify({"ok": True, "count": len(out[:limit]), "items": out[:limit]})
@@ -3465,7 +3574,7 @@ def update_order_status(order_id: str):
 
     payload = request.get_json(silent=True) or {}
     status = str(payload.get("status") or "").strip().lower()
-    allowed = {"pending", "processing", "shipped", "delivered", "canceled"}
+    allowed = {"pending", "processing", "shipped", "delivered", "canceled", "returning", "returned"}
     if status not in allowed:
         return jsonify({"ok": False, "error": f"status must be one of {sorted(allowed)}"}), 400
 
