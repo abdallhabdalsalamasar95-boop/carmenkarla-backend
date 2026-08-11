@@ -322,6 +322,21 @@ class AdminFeatureTests(unittest.TestCase):
                 self.assertEqual(server._SABIL_ACCESS_TOKEN, token(200))
                 self.assertEqual(server._SABIL_REFRESH_TOKEN, "newer-persisted-refresh")
 
+    def test_sabil_shipment_captures_provider_underscore_id(self):
+        order = server.normalize_order_item(self._order_payload(order_id="sabil-provider-shape"))
+        with patch.object(server, "sabil_config_status", return_value={"ready": True, "missing": []}), \
+             patch.object(server, "_sabil_contact_for_order", return_value="contact-1"), \
+             patch.object(
+                 server,
+                 "_request_sabil_api",
+                 return_value=(201, {"data": {"_id": "shipment-1", "reference": "SH123"}}),
+             ):
+            result = server._request_sabil_shipment(order)
+
+        self.assertEqual(result["shipmentId"], "shipment-1")
+        self.assertEqual(result["trackingNumber"], "shipment-1")
+        self.assertEqual(result["referenceCode"], "SH123")
+
     def test_new_customer_and_ambassador_orders_auto_dispatch_once(self):
         products, orders, read_products, write_products, read_orders, write_orders = self._inventory_api_state(
             {"S": 3, "M": 3, "L": 1},

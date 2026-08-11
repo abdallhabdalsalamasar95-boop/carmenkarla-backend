@@ -1419,7 +1419,7 @@ def _request_sabil_shipment(order: Dict[str, Any]) -> Dict[str, Any]:
         method="POST",
         payload=build_sabil_shipment_payload(order, [contact_id]),
     )
-    shipment_id = _first_nested_value(decoded, {"id", "shipmentid", "shipment_id"})
+    shipment_id = _first_nested_value(decoded, {"_id", "id", "shipmentid", "shipment_id"})
     tracking_number = _first_nested_value(decoded, {"trackingnumber", "tracking_number", "tracking", "code", "number"})
     reference = _first_nested_value(decoded, {"reference", "referencecode", "reference_code"})
     return {
