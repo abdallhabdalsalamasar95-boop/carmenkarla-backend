@@ -257,7 +257,30 @@ class AdminFeatureTests(unittest.TestCase):
 
         self.assertEqual(headers["Authorization"], "apikey secret")
         self.assertEqual(headers["X-ACCOUNT-ID"], "account")
+        self.assertEqual(headers["Origin"], "https://app.sabil.ly")
+        self.assertIn("Chrome/148", headers["User-Agent"])
+        self.assertEqual(headers["Sec-CH-UA-Platform"], '"Windows"')
         self.assertNotIn("X-API-Key", headers)
+
+    def test_admin_can_preview_sabil_shipping_without_creating_shipment(self):
+        old_token = server.API_TOKEN
+        server.API_TOKEN = "test-token"
+        try:
+            with patch.object(
+                server,
+                "preview_sabil_shipping",
+                return_value={"status": "ready", "httpStatus": 200, "response": {}},
+            ) as preview:
+                response = server.app.test_client().post(
+                    "/orders/order-preview/delivery/darb-sabeel/preview",
+                    headers={"Authorization": "Bearer test-token"},
+                )
+        finally:
+            server.API_TOKEN = old_token
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["preview"]["httpStatus"], 200)
+        preview.assert_called_once_with("order-preview")
 
     def test_sabil_portal_session_is_preferred_and_counts_as_configured(self):
         with patch.object(server, "_SABIL_ENABLED", True), \

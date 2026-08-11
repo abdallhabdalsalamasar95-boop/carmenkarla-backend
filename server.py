@@ -106,6 +106,12 @@ _SABIL_PAYMENT_BY = (os.getenv("SABIL_PAYMENT_BY", "receiver") or "receiver").st
 _SABIL_COUNTRY_CODE = (os.getenv("SABIL_COUNTRY_CODE", "lby") or "lby").strip().lower()
 _SABIL_DEFAULT_AREA = (os.getenv("SABIL_DEFAULT_AREA", "") or "").strip()
 _SABIL_CURRENCY = (os.getenv("SABIL_CURRENCY", "lyd") or "lyd").strip().lower()
+_SABIL_USER_AGENT = (os.getenv(
+    "SABIL_USER_AGENT",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Code/1.132.0 Chrome/148.0.7778.280 "
+    "Electron/42.7.1 Safari/537.36",
+) or "").strip()
 _SABIL_SESSION_FILE = DATA_DIR / "sabil_session.json"
 _SABIL_SESSION_LOCK = threading.Lock()
 try:
@@ -1255,8 +1261,14 @@ def _sabil_headers() -> Dict[str, str]:
         authorization = f"apikey {_SABIL_API_KEY}"
     return {
         "Content-Type": "application/json; charset=utf-8",
-        "Accept": "application/json",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "ar",
         "Authorization": authorization,
+        "Origin": "https://app.sabil.ly",
+        "User-Agent": _SABIL_USER_AGENT,
+        "Sec-CH-UA": '"Not/A)Brand";v="99", "Chromium";v="148"',
+        "Sec-CH-UA-Mobile": "?0",
+        "Sec-CH-UA-Platform": '"Windows"',
         "X-API-VERSION": _SABIL_API_VERSION,
         "X-ACCOUNT-ID": _SABIL_ACCOUNT_ID,
     }
@@ -1409,6 +1421,27 @@ def _request_sabil_shipment(order: Dict[str, Any]) -> Dict[str, Any]:
         "httpStatus": status_code,
         "lastError": "",
     }
+
+
+def preview_sabil_shipping(order_id: str) -> Dict[str, Any]:
+    order_id = str(order_id or "").strip()
+    order = next(
+        (
+            normalize_order_item(row)
+            for row in read_orders()
+            if str(row.get("orderId") or "").strip() == order_id
+        ),
+        None,
+    )
+    if order is None:
+        raise LookupError("Order not found")
+    contact_id = _sabil_contact_for_order(order)
+    status_code, decoded = _request_sabil_api(
+        "/api/local/shipments/calculate/shipping",
+        method="POST",
+        payload=build_sabil_shipment_payload(order, [contact_id]),
+    )
+    return {"status": "ready", "httpStatus": status_code, "response": decoded}
 
 
 def dispatch_order_to_sabil(order_id: str, force: bool = False) -> Dict[str, Any]:
@@ -2833,6 +2866,20 @@ def admin_send_order_to_sabil(order_id: str):
         return jsonify({"ok": False, "error": delivery.get("lastError") or "تعذر إنشاء الشحنة", "delivery": delivery}), 502
     order = next((normalize_order_item(row) for row in read_orders() if str(row.get("orderId") or "").strip() == order_id), None)
     return jsonify({"ok": True, "delivery": delivery, "item": order})
+
+
+@app.post("/orders/<order_id>/delivery/darb-sabeel/preview")
+def admin_preview_order_sabil_shipping(order_id: str):
+    ok, err = require_admin()
+    if not ok:
+        return err
+    try:
+        preview = preview_sabil_shipping(order_id)
+    except LookupError:
+        return jsonify({"ok": False, "error": "Order not found"}), 404
+    except Exception as ex:
+        return jsonify({"ok": False, "error": str(ex)[:700]}), 502
+    return jsonify({"ok": True, "preview": preview})
 
 
 @app.post("/orders/<order_id>/delivery/darb-sabeel/attach")
