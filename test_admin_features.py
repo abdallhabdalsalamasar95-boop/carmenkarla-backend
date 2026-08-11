@@ -466,6 +466,32 @@ class AdminFeatureTests(unittest.TestCase):
         self.assertFalse(orders[0]["inventoryReserved"])
         self.assertEqual(products[0]["sizeQuantities"]["M"], 2)
 
+    def test_cancel_after_delivery_starts_return_without_restoring_stock(self):
+        products, orders, read_products, write_products, read_orders, write_orders = self._inventory_api_state()
+        with patch.object(server, "_SABIL_ENABLED", False), \
+             patch.object(server, "read_products", side_effect=read_products), \
+             patch.object(server, "write_products", side_effect=write_products), \
+             patch.object(server, "read_orders", side_effect=read_orders), \
+             patch.object(server, "write_orders", side_effect=write_orders), \
+             patch.object(server, "_notify_user_on_order_status_change"):
+            created = server.app.test_client().post(
+                "/orders",
+                json=self._order_payload(order_id="delivered-cancel", quantity=1),
+            )
+            self.assertEqual(created.status_code, 200)
+            server._change_order_status("delivered-cancel", "delivered")
+
+            updated = server._change_order_status("delivered-cancel", "canceled")
+
+            self.assertEqual(updated["status"], "returning")
+            self.assertTrue(updated["inventoryReserved"])
+            self.assertEqual(products[0]["sizeQuantities"]["M"], 1)
+
+            received = server._change_order_status("delivered-cancel", "returned")
+            self.assertEqual(received["status"], "returned")
+            self.assertFalse(received["inventoryReserved"])
+            self.assertEqual(products[0]["sizeQuantities"]["M"], 2)
+
     def test_public_tracking_requires_order_token(self):
         order = server.normalize_order_item({
             **self._order_payload(order_id="tracked-order"),

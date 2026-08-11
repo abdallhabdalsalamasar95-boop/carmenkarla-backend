@@ -1676,6 +1676,11 @@ def _change_order_status(
             raise LookupError("Order not found")
         current = entries[idx]
         previous_status = str(current.get("status") or "pending").strip().lower()
+        status = str(status or "").strip().lower()
+        # A delivered parcel is physically with the customer. Canceling it must
+        # start a return first; stock is restored only after receipt is confirmed.
+        if status == "canceled" and previous_status in {"delivered", "returning"}:
+            status = "returning"
         products = read_products()
         inventory_reserved = bool(current.get("inventoryReserved", False))
         reservation = current.get("inventoryReservation") if isinstance(current.get("inventoryReservation"), list) else []
