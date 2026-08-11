@@ -297,6 +297,20 @@ class AdminFeatureTests(unittest.TestCase):
         self.assertTrue(config["sessionRefreshConfigured"])
         self.assertEqual(headers["Authorization"], "Bearer session-access-token")
 
+    def test_sabil_environment_session_wins_over_stale_persisted_session(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            session_file = Path(temp_dir) / "sabil_session.json"
+            session_file.write_text(
+                '{"accessToken":"stale-access","refreshToken":"stale-refresh"}',
+                encoding="utf-8",
+            )
+            with patch.object(server, "_SABIL_SESSION_FILE", session_file), \
+                 patch.object(server, "_SABIL_ACCESS_TOKEN", "fresh-access"), \
+                 patch.object(server, "_SABIL_REFRESH_TOKEN", "fresh-refresh"):
+                server._load_sabil_session()
+                self.assertEqual(server._SABIL_ACCESS_TOKEN, "fresh-access")
+                self.assertEqual(server._SABIL_REFRESH_TOKEN, "fresh-refresh")
+
     def test_new_customer_and_ambassador_orders_auto_dispatch_once(self):
         products, orders, read_products, write_products, read_orders, write_orders = self._inventory_api_state(
             {"S": 3, "M": 3, "L": 1},

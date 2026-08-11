@@ -1193,9 +1193,9 @@ def _load_sabil_session() -> None:
         return
     stored_access = str(stored.get("accessToken") or "").strip()
     stored_refresh = str(stored.get("refreshToken") or "").strip()
-    if stored_access:
+    if stored_access and not _SABIL_ACCESS_TOKEN:
         _SABIL_ACCESS_TOKEN = stored_access
-    if stored_refresh:
+    if stored_refresh and not _SABIL_REFRESH_TOKEN:
         _SABIL_REFRESH_TOKEN = stored_refresh
 
 
