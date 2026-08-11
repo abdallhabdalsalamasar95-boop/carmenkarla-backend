@@ -1174,11 +1174,15 @@ def build_sabil_shipment_payload(
 
 
 def _decode_jwt_expiry(token: str) -> float:
+    return _decode_jwt_claim_number(token, "exp")
+
+
+def _decode_jwt_claim_number(token: str, claim: str) -> float:
     try:
         payload = str(token or "").split(".")[1]
         payload += "=" * (-len(payload) % 4)
         decoded = json.loads(base64.urlsafe_b64decode(payload.encode("ascii")))
-        return float(decoded.get("exp") or 0)
+        return float(decoded.get(claim) or 0)
     except Exception:
         return 0
 
@@ -1193,9 +1197,15 @@ def _load_sabil_session() -> None:
         return
     stored_access = str(stored.get("accessToken") or "").strip()
     stored_refresh = str(stored.get("refreshToken") or "").strip()
-    if stored_access and not _SABIL_ACCESS_TOKEN:
+    environment_issued_at = _decode_jwt_claim_number(_SABIL_ACCESS_TOKEN, "iat")
+    stored_issued_at = _decode_jwt_claim_number(stored_access, "iat")
+    use_stored = bool(stored_access and stored_refresh) and (
+        not _SABIL_ACCESS_TOKEN
+        or not _SABIL_REFRESH_TOKEN
+        or stored_issued_at > environment_issued_at
+    )
+    if use_stored:
         _SABIL_ACCESS_TOKEN = stored_access
-    if stored_refresh and not _SABIL_REFRESH_TOKEN:
         _SABIL_REFRESH_TOKEN = stored_refresh
 
 

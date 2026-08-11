@@ -1,4 +1,6 @@
+import base64
 import io
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -297,19 +299,28 @@ class AdminFeatureTests(unittest.TestCase):
         self.assertTrue(config["sessionRefreshConfigured"])
         self.assertEqual(headers["Authorization"], "Bearer session-access-token")
 
-    def test_sabil_environment_session_wins_over_stale_persisted_session(self):
+    def test_sabil_newest_complete_session_wins_across_restart(self):
+        def token(issued_at):
+            payload = base64.urlsafe_b64encode(
+                ('{"iat":%s,"exp":9999999999}' % issued_at).encode(),
+            ).decode().rstrip("=")
+            return f"header.{payload}.signature"
+
         with tempfile.TemporaryDirectory() as temp_dir:
             session_file = Path(temp_dir) / "sabil_session.json"
             session_file.write_text(
-                '{"accessToken":"stale-access","refreshToken":"stale-refresh"}',
+                json.dumps({
+                    "accessToken": token(200),
+                    "refreshToken": "newer-persisted-refresh",
+                }),
                 encoding="utf-8",
             )
             with patch.object(server, "_SABIL_SESSION_FILE", session_file), \
-                 patch.object(server, "_SABIL_ACCESS_TOKEN", "fresh-access"), \
-                 patch.object(server, "_SABIL_REFRESH_TOKEN", "fresh-refresh"):
+                 patch.object(server, "_SABIL_ACCESS_TOKEN", token(100)), \
+                 patch.object(server, "_SABIL_REFRESH_TOKEN", "older-environment-refresh"):
                 server._load_sabil_session()
-                self.assertEqual(server._SABIL_ACCESS_TOKEN, "fresh-access")
-                self.assertEqual(server._SABIL_REFRESH_TOKEN, "fresh-refresh")
+                self.assertEqual(server._SABIL_ACCESS_TOKEN, token(200))
+                self.assertEqual(server._SABIL_REFRESH_TOKEN, "newer-persisted-refresh")
 
     def test_new_customer_and_ambassador_orders_auto_dispatch_once(self):
         products, orders, read_products, write_products, read_orders, write_orders = self._inventory_api_state(
