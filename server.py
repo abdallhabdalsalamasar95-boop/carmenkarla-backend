@@ -1408,16 +1408,34 @@ def _sabil_contact_for_order(order: Dict[str, Any]) -> str:
         return contact_id
 
 
+def _request_sabil_with_branch_fallback(
+    path: str,
+    payload: Dict[str, Any],
+) -> tuple[int, Any]:
+    try:
+        return _request_sabil_api(path, method="POST", payload=payload)
+    except RuntimeError as ex:
+        destination = payload.get("to") if isinstance(payload.get("to"), dict) else {}
+        city = str(destination.get("city") or "").strip()
+        area = str(destination.get("area") or "").strip()
+        if "Unable to fetch branch" not in str(ex) or not city or area == city:
+            raise
+        fallback_payload = {
+            **payload,
+            "to": {**destination, "area": city},
+        }
+        return _request_sabil_api(path, method="POST", payload=fallback_payload)
+
+
 def _request_sabil_shipment(order: Dict[str, Any]) -> Dict[str, Any]:
     config = sabil_config_status()
     if not config["ready"]:
         missing = ", ".join(config["missing"])
         raise RuntimeError(f"إعدادات درب السبيل غير مكتملة: {missing or 'SABIL_ENABLED'}")
     contact_id = _sabil_contact_for_order(order)
-    status_code, decoded = _request_sabil_api(
+    status_code, decoded = _request_sabil_with_branch_fallback(
         _SABIL_CREATE_SHIPMENT_PATH,
-        method="POST",
-        payload=build_sabil_shipment_payload(order, [contact_id]),
+        build_sabil_shipment_payload(order, [contact_id]),
     )
     shipment_id = _first_nested_value(decoded, {"_id", "id", "shipmentid", "shipment_id"})
     tracking_number = _first_nested_value(decoded, {"trackingnumber", "tracking_number", "tracking", "code", "number"})
@@ -1446,10 +1464,9 @@ def preview_sabil_shipping(order_id: str) -> Dict[str, Any]:
     if order is None:
         raise LookupError("Order not found")
     contact_id = _sabil_contact_for_order(order)
-    status_code, decoded = _request_sabil_api(
+    status_code, decoded = _request_sabil_with_branch_fallback(
         "/api/local/shipments/calculate/shipping",
-        method="POST",
-        payload=build_sabil_shipment_payload(order, [contact_id]),
+        build_sabil_shipment_payload(order, [contact_id]),
     )
     return {"status": "ready", "httpStatus": status_code, "response": decoded}
 

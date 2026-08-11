@@ -337,6 +337,36 @@ class AdminFeatureTests(unittest.TestCase):
         self.assertEqual(result["trackingNumber"], "shipment-1")
         self.assertEqual(result["referenceCode"], "SH123")
 
+    def test_sabil_invalid_cross_city_area_falls_back_to_city_center(self):
+        payload = {
+            "to": {
+                "countryCode": "lby",
+                "city": "مصراتة",
+                "area": "عين زارة",
+                "address": "العنوان التفصيلي",
+            },
+            "products": [],
+        }
+        with patch.object(
+            server,
+            "_request_sabil_api",
+            side_effect=[
+                RuntimeError("Unable to fetch branch 'LBY-مصراتة,عين زارة'!"),
+                (201, {"data": {"_id": "shipment-1"}}),
+            ],
+        ) as request_api:
+            status, _ = server._request_sabil_with_branch_fallback(
+                "/api/local/shipments",
+                payload,
+            )
+
+        self.assertEqual(status, 201)
+        retry_payload = request_api.call_args_list[1].kwargs["payload"]
+        self.assertEqual(retry_payload["to"]["city"], "مصراتة")
+        self.assertEqual(retry_payload["to"]["area"], "مصراتة")
+        self.assertEqual(retry_payload["to"]["address"], "العنوان التفصيلي")
+        self.assertEqual(payload["to"]["area"], "عين زارة")
+
     def test_new_customer_and_ambassador_orders_auto_dispatch_once(self):
         products, orders, read_products, write_products, read_orders, write_orders = self._inventory_api_state(
             {"S": 3, "M": 3, "L": 1},
