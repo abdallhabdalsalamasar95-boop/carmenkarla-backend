@@ -367,6 +367,79 @@ class AdminFeatureTests(unittest.TestCase):
         self.assertEqual(retry_payload["to"]["address"], "العنوان التفصيلي")
         self.assertEqual(payload["to"]["area"], "عين زارة")
 
+    def test_sabil_destinations_group_all_areas_by_city(self):
+        provider_response = {
+            "data": {
+                "results": [
+                    {"countryCode": "lby", "city": "طرابلس", "area": "عين زارة", "areas": [{"area": "تاجوراء"}, {"area": "سوق الجمعة"}]},
+                    {"countryCode": "lby", "city": "طرابلس", "area": "سوق الجمعة"},
+                    {"countryCode": "lby", "city": "مصراتة", "area": "مصراتة"},
+                    {"countryCode": "tun", "city": "تونس", "area": "المرسى"},
+                ],
+            },
+        }
+        with patch.object(server, "_SABIL_DESTINATIONS_CACHE", {"expiresAt": 0, "cities": {}}), \
+             patch.object(server, "_request_sabil_api", return_value=(200, provider_response)):
+            cities = server.sabil_delivery_destinations()
+
+        self.assertEqual(cities["طرابلس"], ["تاجوراء", "سوق الجمعة", "عين زارة"])
+        self.assertEqual(cities["مصراتة"], ["مصراتة"])
+        self.assertNotIn("تونس", cities)
+
+    def test_public_sabil_destinations_endpoint(self):
+        with patch.object(server, "sabil_delivery_destinations", return_value={"بنغازي": ["البركة"]}):
+            response = server.app.test_client().get("/delivery/darb-sabeel/destinations")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["cities"], {"بنغازي": ["البركة"]})
+
+    def test_sabil_shipment_snapshot_distinguishes_existing_and_deleted(self):
+        existing_response = {
+            "status": 200,
+            "data": {"results": [{"_id": "shipment-1", "reference": "SH1", "status": "pending"}]},
+        }
+        with patch.object(server, "_request_sabil_api", return_value=(200, existing_response)):
+            existing = server._sabil_shipment_snapshot("shipment-1")
+        with patch.object(server, "_request_sabil_api", return_value=(200, {"data": {"results": []}})):
+            deleted = server._sabil_shipment_snapshot("shipment-1")
+        with patch.object(server, "_request_sabil_api", side_effect=RuntimeError("Darb Al Sabeel HTTP 404: Not Found")):
+            missing = server._sabil_shipment_snapshot("shipment-1")
+
+        self.assertEqual(existing, {"exists": True, "deleted": False, "providerStatus": "pending"})
+        self.assertTrue(deleted["deleted"])
+        self.assertTrue(missing["deleted"])
+
+    def test_sabil_deleted_shipment_cancels_order_and_restores_stock_once(self):
+        products, orders, read_products, write_products, read_orders, write_orders = self._inventory_api_state()
+        with patch.object(server, "_SABIL_ENABLED", False), \
+             patch.object(server, "read_products", side_effect=read_products), \
+             patch.object(server, "write_products", side_effect=write_products), \
+             patch.object(server, "read_orders", side_effect=read_orders), \
+             patch.object(server, "write_orders", side_effect=write_orders), \
+             patch.object(server, "_notify_user_on_order_status_change") as notify:
+            created = server.app.test_client().post("/orders", json=self._order_payload(order_id="provider-delete", quantity=2))
+            self.assertEqual(created.status_code, 200)
+            orders[0]["externalDelivery"] = {
+                "provider": "darb_sabeel",
+                "status": "created",
+                "shipmentId": "shipment-delete-1",
+            }
+            with patch.object(server, "_sabil_shipment_snapshot", return_value={
+                "exists": False,
+                "deleted": True,
+                "providerStatus": "deleted",
+            }):
+                first = server.sync_sabil_deleted_shipments()
+                second = server.sync_sabil_deleted_shipments()
+
+        self.assertEqual(first["canceled"], 1)
+        self.assertEqual(second["canceled"], 0)
+        self.assertEqual(orders[0]["status"], "canceled")
+        self.assertFalse(orders[0]["inventoryReserved"])
+        self.assertEqual(products[0]["sizeQuantities"]["M"], 2)
+        self.assertEqual(orders[0]["externalDelivery"]["syncStatus"], "deleted_on_provider")
+        notify.assert_called_once()
+
     def test_new_customer_and_ambassador_orders_auto_dispatch_once(self):
         products, orders, read_products, write_products, read_orders, write_orders = self._inventory_api_state(
             {"S": 3, "M": 3, "L": 1},

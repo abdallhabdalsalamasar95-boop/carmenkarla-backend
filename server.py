@@ -114,6 +114,15 @@ _SABIL_USER_AGENT = (os.getenv(
 ) or "").strip()
 _SABIL_SESSION_FILE = DATA_DIR / "sabil_session.json"
 _SABIL_SESSION_LOCK = threading.Lock()
+_SABIL_DESTINATIONS_LOCK = threading.Lock()
+_SABIL_DESTINATIONS_CACHE: Dict[str, Any] = {"expiresAt": 0.0, "cities": {}}
+_SABIL_SYNC_LOCK = threading.Lock()
+_SABIL_SYNC_TRIGGER_LOCK = threading.Lock()
+_SABIL_SYNC_LAST_TRIGGER = 0.0
+try:
+    _SABIL_SYNC_INTERVAL_SECONDS = max(30, int(float(os.getenv("SABIL_SYNC_INTERVAL_SECONDS", "60") or "60")))
+except Exception:
+    _SABIL_SYNC_INTERVAL_SECONDS = 60
 try:
     _MAX_IMAGE_UPLOAD_MB = max(1, int(float((os.getenv("MAX_IMAGE_UPLOAD_MB", "10") or "10").strip())))
 except Exception:
@@ -1427,6 +1436,51 @@ def _request_sabil_with_branch_fallback(
         return _request_sabil_api(path, method="POST", payload=fallback_payload)
 
 
+def _collect_sabil_destinations(data: Any, result: Dict[str, set[str]]) -> None:
+    if isinstance(data, dict):
+        country_code = str(data.get("countryCode") or "").strip().lower()
+        city = str(data.get("city") or "").strip()
+        area = str(data.get("area") or "").strip()
+        if country_code == _SABIL_COUNTRY_CODE and city:
+            result.setdefault(city, set()).add(area or city)
+            nested_areas = data.get("areas") if isinstance(data.get("areas"), list) else []
+            for nested in nested_areas:
+                nested_area = str(nested.get("area") or "").strip() if isinstance(nested, dict) else str(nested or "").strip()
+                if nested_area:
+                    result[city].add(nested_area)
+        for value in data.values():
+            _collect_sabil_destinations(value, result)
+    elif isinstance(data, list):
+        for value in data:
+            _collect_sabil_destinations(value, result)
+
+
+def sabil_delivery_destinations() -> Dict[str, List[str]]:
+    now = time.time()
+    cached = _SABIL_DESTINATIONS_CACHE.get("cities")
+    if isinstance(cached, dict) and cached and float(_SABIL_DESTINATIONS_CACHE.get("expiresAt") or 0) > now:
+        return {str(city): list(areas) for city, areas in cached.items()}
+    with _SABIL_DESTINATIONS_LOCK:
+        cached = _SABIL_DESTINATIONS_CACHE.get("cities")
+        if isinstance(cached, dict) and cached and float(_SABIL_DESTINATIONS_CACHE.get("expiresAt") or 0) > time.time():
+            return {str(city): list(areas) for city, areas in cached.items()}
+        _, decoded = _request_sabil_api(
+            "/api/local/branches/public?countryCode=lby&limit=2000&includeTotalCount=true",
+        )
+        collected: Dict[str, set[str]] = {}
+        _collect_sabil_destinations(decoded, collected)
+        cities = {
+            city: sorted(areas, key=lambda value: (value != city, value))
+            for city, areas in sorted(collected.items())
+            if areas
+        }
+        if not cities:
+            raise RuntimeError("لم يُرجع درب السبيل قائمة مدن صالحة")
+        _SABIL_DESTINATIONS_CACHE["cities"] = cities
+        _SABIL_DESTINATIONS_CACHE["expiresAt"] = time.time() + 6 * 60 * 60
+        return {city: list(areas) for city, areas in cities.items()}
+
+
 def _request_sabil_shipment(order: Dict[str, Any]) -> Dict[str, Any]:
     config = sabil_config_status()
     if not config["ready"]:
@@ -1544,6 +1598,139 @@ def attach_sabil_shipment(order_id: str, shipment: Dict[str, Any]) -> Dict[str, 
         entries[idx] = order
         write_orders(entries)
     return delivery
+
+
+def _sabil_shipment_snapshot(shipment_id: str) -> Dict[str, Any]:
+    shipment_id = str(shipment_id or "").strip()
+    if not shipment_id:
+        raise ValueError("Missing Darb Assabil shipment id")
+    try:
+        _, decoded = _request_sabil_api(f"/api/local/shipments/{shipment_id}")
+    except RuntimeError as ex:
+        if re.search(r"\bHTTP 404\b", str(ex)):
+            return {"exists": False, "deleted": True, "providerStatus": "deleted"}
+        raise
+    root = decoded if isinstance(decoded, dict) else {}
+    data = root.get("data") if isinstance(root.get("data"), dict) else root
+    results = data.get("results") if isinstance(data, dict) else None
+    rows = results if isinstance(results, list) else ([results] if isinstance(results, dict) else [])
+    row = next(
+        (item for item in rows if isinstance(item, dict) and str(item.get("_id") or item.get("id") or "").strip() == shipment_id),
+        next((item for item in rows if isinstance(item, dict)), None),
+    )
+    if row is None:
+        return {"exists": False, "deleted": True, "providerStatus": "deleted"}
+    provider_status = str(row.get("status") or "").strip().lower()
+    cancelled = provider_status in {"canceled", "cancelled", "deleted"} or bool(
+        row.get("cancelledConfirmed") or row.get("canceledConfirmed")
+    )
+    return {
+        "exists": True,
+        "deleted": cancelled,
+        "providerStatus": provider_status or "unknown",
+    }
+
+
+def _change_order_status(
+    order_id: str,
+    status: str,
+    *,
+    sabil_snapshot: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    order_id = str(order_id or "").strip()
+    with _INVENTORY_LOCK:
+        entries = read_orders()
+        idx = next((i for i, order in enumerate(entries) if str(order.get("orderId", "")).strip() == order_id), -1)
+        if idx < 0:
+            raise LookupError("Order not found")
+        current = entries[idx]
+        previous_status = str(current.get("status") or "pending").strip().lower()
+        products = read_products()
+        inventory_reserved = bool(current.get("inventoryReserved", False))
+        reservation = current.get("inventoryReservation") if isinstance(current.get("inventoryReservation"), list) else []
+
+        if status == "canceled" and previous_status != "canceled" and inventory_reserved:
+            restore_order_inventory(products, reservation)
+            inventory_reserved = False
+            write_products(products)
+        elif status != "canceled" and previous_status == "canceled" and not inventory_reserved:
+            reserved, inventory_error, reservation = reserve_order_inventory(products, current)
+            if not reserved:
+                raise RuntimeError(inventory_error or "insufficient_stock")
+            inventory_reserved = True
+            write_products(products)
+
+        merged = dict(current)
+        merged["status"] = status
+        merged["updatedAtMs"] = int(time.time() * 1000)
+        merged["inventoryReserved"] = inventory_reserved
+        merged["inventoryReservation"] = reservation
+        if sabil_snapshot is not None:
+            delivery = dict(merged.get("externalDelivery") or {})
+            delivery.update({
+                "providerStatus": str(sabil_snapshot.get("providerStatus") or "deleted"),
+                "syncStatus": "deleted_on_provider",
+                "deletedOnProviderAtMs": merged["updatedAtMs"],
+                "lastSyncAtMs": merged["updatedAtMs"],
+            })
+            merged["externalDelivery"] = delivery
+        item = normalize_order_item(merged, current)
+        entries[idx] = item
+        write_orders(entries)
+
+    if previous_status != status:
+        _notify_user_on_order_status_change(item, old_status=previous_status, new_status=status)
+    return item
+
+
+def sync_sabil_deleted_shipments() -> Dict[str, Any]:
+    if not _SABIL_SYNC_LOCK.acquire(blocking=False):
+        return {"checked": 0, "canceled": 0, "busy": True, "errors": []}
+    checked = 0
+    canceled = 0
+    errors: List[Dict[str, str]] = []
+    try:
+        candidates = []
+        for raw_order in read_orders():
+            order = normalize_order_item(raw_order)
+            delivery = order.get("externalDelivery") if isinstance(order.get("externalDelivery"), dict) else {}
+            local_status = str(order.get("status") or "pending").strip().lower()
+            if (
+                str(delivery.get("provider") or "") == "darb_sabeel"
+                and str(delivery.get("status") or "") == "created"
+                and str(delivery.get("shipmentId") or "").strip()
+                and local_status not in {"canceled", "delivered"}
+            ):
+                candidates.append((str(order.get("orderId") or ""), str(delivery.get("shipmentId") or "")))
+        for order_id, shipment_id in candidates:
+            try:
+                snapshot = _sabil_shipment_snapshot(shipment_id)
+                checked += 1
+                if snapshot.get("deleted"):
+                    _change_order_status(order_id, "canceled", sabil_snapshot=snapshot)
+                    canceled += 1
+            except Exception as ex:
+                errors.append({"orderId": order_id, "error": str(ex)[:300]})
+        return {"checked": checked, "canceled": canceled, "busy": False, "errors": errors}
+    finally:
+        _SABIL_SYNC_LOCK.release()
+
+
+def _trigger_sabil_sync_if_due() -> None:
+    global _SABIL_SYNC_LAST_TRIGGER
+    if not _SABIL_ENABLED:
+        return
+    now = time.time()
+    with _SABIL_SYNC_TRIGGER_LOCK:
+        if now - _SABIL_SYNC_LAST_TRIGGER < _SABIL_SYNC_INTERVAL_SECONDS:
+            return
+        _SABIL_SYNC_LAST_TRIGGER = now
+    threading.Thread(target=sync_sabil_deleted_shipments, name="sabil-sync", daemon=True).start()
+
+
+@app.before_request
+def trigger_sabil_sync() -> None:
+    _trigger_sabil_sync_if_due()
 
 
 def snapshot_order_purchase_costs(
@@ -2872,6 +3059,23 @@ def admin_sabil_status():
     return jsonify({"ok": True, "config": sabil_config_status()})
 
 
+@app.post("/admin/delivery/darb-sabeel/sync")
+def admin_sync_sabil_shipments():
+    ok, err = require_admin()
+    if not ok:
+        return err
+    return jsonify({"ok": True, **sync_sabil_deleted_shipments()})
+
+
+@app.get("/delivery/darb-sabeel/destinations")
+def public_sabil_destinations():
+    try:
+        cities = sabil_delivery_destinations()
+    except Exception as ex:
+        return jsonify({"ok": False, "error": str(ex)[:300]}), 502
+    return jsonify({"ok": True, "cities": cities})
+
+
 @app.post("/orders/<order_id>/delivery/darb-sabeel")
 def admin_send_order_to_sabil(order_id: str):
     ok, err = require_admin()
@@ -3265,41 +3469,12 @@ def update_order_status(order_id: str):
     if status not in allowed:
         return jsonify({"ok": False, "error": f"status must be one of {sorted(allowed)}"}), 400
 
-    order_id = str(order_id or "").strip()
-    with _INVENTORY_LOCK:
-        entries = read_orders()
-        idx = next((i for i, o in enumerate(entries) if str(o.get("orderId", "")).strip() == order_id), -1)
-        if idx < 0:
-            return jsonify({"ok": False, "error": "Order not found"}), 404
-
-        current = entries[idx]
-        previous_status = str(current.get("status") or "pending").strip().lower()
-        products = read_products()
-        inventory_reserved = bool(current.get("inventoryReserved", False))
-        reservation = current.get("inventoryReservation") if isinstance(current.get("inventoryReservation"), list) else []
-
-        if status == "canceled" and previous_status != "canceled" and inventory_reserved:
-            restore_order_inventory(products, reservation)
-            inventory_reserved = False
-            write_products(products)
-        elif status != "canceled" and previous_status == "canceled" and not inventory_reserved:
-            reserved, inventory_error, reservation = reserve_order_inventory(products, current)
-            if not reserved:
-                return jsonify({"ok": False, "error": inventory_error, "code": "insufficient_stock"}), 409
-            inventory_reserved = True
-            write_products(products)
-
-        merged = dict(current)
-        merged["status"] = status
-        merged["updatedAtMs"] = int(time.time() * 1000)
-        merged["inventoryReserved"] = inventory_reserved
-        merged["inventoryReservation"] = reservation
-        item = normalize_order_item(merged, current)
-        entries[idx] = item
-        write_orders(entries)
-
-    _notify_user_on_order_status_change(item, old_status=previous_status, new_status=status)
-
+    try:
+        item = _change_order_status(order_id, status)
+    except LookupError:
+        return jsonify({"ok": False, "error": "Order not found"}), 404
+    except RuntimeError as ex:
+        return jsonify({"ok": False, "error": str(ex), "code": "insufficient_stock"}), 409
     return jsonify({"ok": True, "item": item})
 
 
