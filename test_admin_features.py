@@ -94,6 +94,10 @@ class AdminFeatureTests(unittest.TestCase):
                 "checkoutButtonSize": "medium",
                 "checkoutConfirmPosition": "summary",
             },
+            "ambassadorSupport": {
+                "whatsappNumber": " +218 91-234-5678 ",
+                "enabled": True,
+            },
         })
 
         home = config["websiteHome"]
@@ -122,6 +126,28 @@ class AdminFeatureTests(unittest.TestCase):
         self.assertEqual(config["websiteAppearance"]["discountCorner"], "left")
         self.assertFalse(config["websiteAppearance"]["showFavorite"])
         self.assertEqual(config["websiteAppearance"]["checkoutConfirmPosition"], "summary")
+        self.assertEqual(config["ambassadorSupport"]["whatsappNumber"], "+218912345678")
+        self.assertTrue(config["ambassadorSupport"]["enabled"])
+
+    def test_ambassador_support_requires_a_phone_to_be_enabled(self):
+        support = server.normalize_ambassador_support({
+            "whatsappNumber": "   ",
+            "enabled": True,
+        })
+        self.assertEqual(support["whatsappNumber"], "")
+        self.assertFalse(support["enabled"])
+
+    def test_public_content_exposes_ambassador_support(self):
+        with patch.object(server, "read_marketing_config", return_value={
+            **server.default_marketing_config(),
+            "ambassadorSupport": {
+                "whatsappNumber": "+218912345678",
+                "enabled": True,
+            },
+        }):
+            content = server.public_app_content()
+        self.assertEqual(content["ambassadorSupport"]["whatsappNumber"], "+218912345678")
+        self.assertTrue(content["ambassadorSupport"]["enabled"])
 
     def test_website_appearance_rejects_unsafe_choices(self):
         appearance = server.normalize_website_appearance({

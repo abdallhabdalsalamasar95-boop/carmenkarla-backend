@@ -671,6 +671,10 @@ def default_marketing_config() -> Dict[str, Any]:
             "checkoutButtonSize": "small",
             "checkoutConfirmPosition": "afterCustomer",
         },
+        "ambassadorSupport": {
+            "whatsappNumber": "+218921397674",
+            "enabled": True,
+        },
         "commission": {
             "defaultPercent": 7.0,
             "perProductEnabled": True,
@@ -1021,6 +1025,15 @@ def normalize_website_appearance(payload: Any) -> Dict[str, Any]:
     }
 
 
+def normalize_ambassador_support(payload: Any) -> Dict[str, Any]:
+    source = payload if isinstance(payload, dict) else {}
+    phone = re.sub(r"[^0-9+]", "", str(source.get("whatsappNumber") or "").strip())[:24]
+    return {
+        "whatsappNumber": phone,
+        "enabled": bool(source.get("enabled", False)) and bool(phone),
+    }
+
+
 def normalize_marketing_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     now_ms = int(time.time() * 1000)
     commission_src = payload.get("commission") if isinstance(payload.get("commission"), dict) else {}
@@ -1044,6 +1057,7 @@ def normalize_marketing_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "websiteHome": normalize_website_home(payload.get("websiteHome")),
         "websiteAppearance": normalize_website_appearance(payload.get("websiteAppearance")),
+        "ambassadorSupport": normalize_ambassador_support(payload.get("ambassadorSupport")),
         "commission": {
             "defaultPercent": commission_default,
             "perProductEnabled": commission_per_product,
@@ -1099,6 +1113,7 @@ def public_app_content() -> Dict[str, Any]:
             ],
         },
         "websiteAppearance": cfg.get("websiteAppearance", normalize_website_appearance({})),
+        "ambassadorSupport": cfg.get("ambassadorSupport", normalize_ambassador_support({})),
         "commission": {
             "defaultPercent": commission_default,
             "perProductEnabled": commission_per_product,
