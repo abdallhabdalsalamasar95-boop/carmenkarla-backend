@@ -84,7 +84,16 @@ class AdminFeatureTests(unittest.TestCase):
                     },
                     {"id": "invalid", "title": ""},
                 ],
-            }
+            },
+            "websiteAppearance": {
+                "productCardSize": "medium",
+                "productImageRatio": "square",
+                "discountCorner": "left",
+                "showFavorite": False,
+                "showShare": True,
+                "checkoutButtonSize": "medium",
+                "checkoutConfirmPosition": "summary",
+            },
         })
 
         home = config["websiteHome"]
@@ -108,6 +117,25 @@ class AdminFeatureTests(unittest.TestCase):
             home["categories"][1]["productCategoryFilter"],
             "فساتين سهرة",
         )
+        self.assertEqual(config["websiteAppearance"]["productCardSize"], "medium")
+        self.assertEqual(config["websiteAppearance"]["productImageRatio"], "square")
+        self.assertEqual(config["websiteAppearance"]["discountCorner"], "left")
+        self.assertFalse(config["websiteAppearance"]["showFavorite"])
+        self.assertEqual(config["websiteAppearance"]["checkoutConfirmPosition"], "summary")
+
+    def test_website_appearance_rejects_unsafe_choices(self):
+        appearance = server.normalize_website_appearance({
+            "productCardSize": "huge",
+            "productImageRatio": "broken",
+            "discountCorner": "center",
+            "checkoutButtonSize": "giant",
+            "checkoutConfirmPosition": "floating",
+        })
+        self.assertEqual(appearance["productCardSize"], "small")
+        self.assertEqual(appearance["productImageRatio"], "portrait")
+        self.assertEqual(appearance["discountCorner"], "right")
+        self.assertEqual(appearance["checkoutButtonSize"], "small")
+        self.assertEqual(appearance["checkoutConfirmPosition"], "afterCustomer")
 
     def test_size_quantities_define_total_stock(self):
         item = server.normalize_product({

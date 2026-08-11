@@ -662,6 +662,15 @@ def default_marketing_config() -> Dict[str, Any]:
             },
             "categories": [],
         },
+        "websiteAppearance": {
+            "productCardSize": "small",
+            "productImageRatio": "portrait",
+            "discountCorner": "right",
+            "showFavorite": True,
+            "showShare": True,
+            "checkoutButtonSize": "small",
+            "checkoutConfirmPosition": "afterCustomer",
+        },
         "commission": {
             "defaultPercent": 7.0,
             "perProductEnabled": True,
@@ -994,6 +1003,24 @@ def normalize_website_home(payload: Any) -> Dict[str, Any]:
     }
 
 
+def normalize_website_appearance(payload: Any) -> Dict[str, Any]:
+    source = payload if isinstance(payload, dict) else {}
+
+    def choice(key: str, allowed: set[str], fallback: str) -> str:
+        value = str(source.get(key) or fallback).strip()
+        return value if value in allowed else fallback
+
+    return {
+        "productCardSize": choice("productCardSize", {"small", "medium", "large"}, "small"),
+        "productImageRatio": choice("productImageRatio", {"portrait", "tall", "square"}, "portrait"),
+        "discountCorner": choice("discountCorner", {"right", "left"}, "right"),
+        "showFavorite": bool(source.get("showFavorite", True)),
+        "showShare": bool(source.get("showShare", True)),
+        "checkoutButtonSize": choice("checkoutButtonSize", {"small", "medium"}, "small"),
+        "checkoutConfirmPosition": choice("checkoutConfirmPosition", {"afterCustomer", "summary"}, "afterCustomer"),
+    }
+
+
 def normalize_marketing_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     now_ms = int(time.time() * 1000)
     commission_src = payload.get("commission") if isinstance(payload.get("commission"), dict) else {}
@@ -1016,6 +1043,7 @@ def normalize_marketing_config(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         "websiteHome": normalize_website_home(payload.get("websiteHome")),
+        "websiteAppearance": normalize_website_appearance(payload.get("websiteAppearance")),
         "commission": {
             "defaultPercent": commission_default,
             "perProductEnabled": commission_per_product,
@@ -1070,6 +1098,7 @@ def public_app_content() -> Dict[str, Any]:
                 if bool(item.get("enabled", True))
             ],
         },
+        "websiteAppearance": cfg.get("websiteAppearance", normalize_website_appearance({})),
         "commission": {
             "defaultPercent": commission_default,
             "perProductEnabled": commission_per_product,
