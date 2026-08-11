@@ -816,6 +816,74 @@ class AdminFeatureTests(unittest.TestCase):
         self.assertEqual(summary["ambassadorPhone"], "092-ambassador")
         self.assertEqual(item["customerPhone"], "091-shipping")
 
+    def test_ambassador_share_token_is_signed_and_expires(self):
+        with patch.object(server, "_AMBASSADOR_SHARE_SECRET", "test-share-secret"):
+            token = server.create_ambassador_share_token("amb-22", "المندوبة سارة", now=100)
+            claims = server.verify_ambassador_share_token(token, now=101)
+            tampered = server.verify_ambassador_share_token(f"{token[:-1]}x", now=101)
+            expired = server.verify_ambassador_share_token(
+                token,
+                now=100 + server._AMBASSADOR_SHARE_TTL_SECONDS + 1,
+            )
+
+        self.assertEqual(claims["uid"], "amb-22")
+        self.assertEqual(claims["name"], "المندوبة سارة")
+        self.assertIsNone(tampered)
+        self.assertIsNone(expired)
+
+    def test_ambassador_can_create_publicly_verifiable_share_token(self):
+        with patch.object(server, "_AMBASSADOR_SHARE_SECRET", "test-share-secret"), \
+             patch.object(server, "_firebase_user_from_request", return_value=({"uid": "amb-22"}, None)), \
+             patch.object(server, "_firebase_user_profile", return_value={
+                 "accountRole": "ambassador",
+                 "status": "active",
+                 "ambassadorName": "المندوبة سارة",
+             }):
+            client = server.app.test_client()
+            created = client.post("/ambassadors/me/share-token")
+            token = created.get_json()["token"]
+            verified = client.get(f"/ambassador-shares/{token}")
+
+        self.assertEqual(created.status_code, 200)
+        self.assertEqual(verified.status_code, 200)
+        self.assertEqual(verified.get_json()["ambassadorName"], "المندوبة سارة")
+        self.assertNotIn("uid", verified.get_json())
+
+    def test_guest_shared_order_is_attributed_to_verified_ambassador(self):
+        products, orders, read_products, write_products, read_orders, write_orders = self._inventory_api_state()
+        with patch.object(server, "_AMBASSADOR_SHARE_SECRET", "test-share-secret"), \
+             patch.object(server, "read_products", side_effect=read_products), \
+             patch.object(server, "write_products", side_effect=write_products), \
+             patch.object(server, "read_orders", side_effect=read_orders), \
+             patch.object(server, "write_orders", side_effect=write_orders), \
+             patch.object(server, "_firebase_user_profile", return_value={
+                 "accountRole": "ambassador",
+                 "status": "active",
+                 "ambassadorName": "المندوبة سارة",
+                 "ambassadorPhone": "0920000000",
+                 "email": "sara@example.com",
+             }):
+            token = server.create_ambassador_share_token("amb-22", "المندوبة سارة")
+            order = self._order_payload(order_id="shared-customer-order")
+            order["ambassadorShareToken"] = token
+            response = server.app.test_client().post("/orders", json=order)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(orders[0]["customerName"], "زبونة")
+        self.assertTrue(orders[0]["ambassadorSummary"]["isAmbassadorOrder"])
+        self.assertEqual(orders[0]["ambassadorSummary"]["ambassadorUid"], "amb-22")
+        self.assertEqual(orders[0]["ambassadorSummary"]["ambassadorPhone"], "0920000000")
+
+    def test_order_rejects_tampered_ambassador_share_token(self):
+        with patch.object(server, "_AMBASSADOR_SHARE_SECRET", "test-share-secret"):
+            token = server.create_ambassador_share_token("amb-22", "المندوبة سارة")
+            order = self._order_payload(order_id="tampered-share-order")
+            order["ambassadorShareToken"] = f"{token[:-1]}x"
+            response = server.app.test_client().post("/orders", json=order)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json()["code"], "invalid_ambassador_share")
+
     def test_order_decrements_selected_size_and_cancel_restores_it_once(self):
         products, orders, read_products, write_products, read_orders, write_orders = self._inventory_api_state()
         old_token = server.API_TOKEN

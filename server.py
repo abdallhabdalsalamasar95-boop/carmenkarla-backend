@@ -1,6 +1,7 @@
 import base64
 import json
 import hashlib
+import hmac
 import os
 import re
 import secrets
@@ -83,6 +84,8 @@ HOST = os.getenv("HOST", "0.0.0.0").strip() or "0.0.0.0"
 PORT = int((os.getenv("PORT", "8080") or "8080").strip())
 API_TOKEN = (os.getenv("API_TOKEN", "") or "").strip()
 CORS_ORIGIN = (os.getenv("CORS_ORIGIN", "") or "").strip()
+_AMBASSADOR_SHARE_SECRET = (os.getenv("AMBASSADOR_SHARE_SECRET", "") or API_TOKEN).strip()
+_AMBASSADOR_SHARE_TTL_SECONDS = 7 * 24 * 60 * 60
 # Explicit public base URL used for image links (so phone can access them via LAN IP).
 # If not set, auto-detected from SERVER_HOST or machine's LAN IP.
 _SERVER_BASE_URL_ENV = (os.getenv("SERVER_BASE_URL", "") or "").strip().rstrip("/")
@@ -257,6 +260,60 @@ def _firebase_user_profile(uid: str) -> Dict[str, Any]:
         return data if isinstance(data, dict) else {}
     except Exception:
         return {}
+
+
+def _urlsafe_encode(value: bytes) -> str:
+    return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
+
+
+def _urlsafe_decode(value: str) -> bytes:
+    text = str(value or "").strip()
+    return base64.urlsafe_b64decode((text + "=" * (-len(text) % 4)).encode("ascii"))
+
+
+def create_ambassador_share_token(uid: str, name: str, now: Optional[int] = None) -> str:
+    if not _AMBASSADOR_SHARE_SECRET:
+        raise RuntimeError("AMBASSADOR_SHARE_SECRET is not configured")
+    issued_at = int(time.time() if now is None else now)
+    claims = {
+        "v": 1,
+        "uid": str(uid or "").strip(),
+        "name": str(name or "").strip()[:120],
+        "iat": issued_at,
+        "exp": issued_at + _AMBASSADOR_SHARE_TTL_SECONDS,
+    }
+    if not claims["uid"] or not claims["name"]:
+        raise ValueError("Ambassador identity is incomplete")
+    body = _urlsafe_encode(json.dumps(claims, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+    signature = hmac.new(_AMBASSADOR_SHARE_SECRET.encode("utf-8"), body.encode("ascii"), hashlib.sha256).digest()
+    return f"{body}.{_urlsafe_encode(signature)}"
+
+
+def verify_ambassador_share_token(token: str, now: Optional[int] = None) -> Optional[Dict[str, Any]]:
+    if not _AMBASSADOR_SHARE_SECRET:
+        return None
+    try:
+        body, supplied_signature = str(token or "").strip().split(".", 1)
+        expected_signature = hmac.new(
+            _AMBASSADOR_SHARE_SECRET.encode("utf-8"),
+            body.encode("ascii"),
+            hashlib.sha256,
+        ).digest()
+        if not secrets.compare_digest(_urlsafe_decode(supplied_signature), expected_signature):
+            return None
+        claims = json.loads(_urlsafe_decode(body).decode("utf-8"))
+        current_time = int(time.time() if now is None else now)
+        if (
+            not isinstance(claims, dict)
+            or as_int(claims.get("v"), 0) != 1
+            or not str(claims.get("uid") or "").strip()
+            or not str(claims.get("name") or "").strip()
+            or as_int(claims.get("exp"), 0) < current_time
+        ):
+            return None
+        return claims
+    except Exception:
+        return None
 
 
 def _save_firebase_user_profile(uid: str, profile: Dict[str, Any]) -> tuple[bool, str]:
@@ -3039,6 +3096,10 @@ def create_order_from_app():
     if not isinstance(order_payload, dict):
         return jsonify({"ok": False, "error": "payload is required"}), 400
 
+    share_claims = verify_ambassador_share_token(payload.get("ambassadorShareToken"))
+    if payload.get("ambassadorShareToken") and share_claims is None:
+        return jsonify({"ok": False, "error": "رابط المندوبة غير صالح أو انتهت صلاحيته", "code": "invalid_ambassador_share"}), 400
+
     auth_header = str(request.headers.get("Authorization", "") or "").strip()
     if auth_header.startswith("Bearer "):
         signed_user, auth_error = _firebase_user_from_request()
@@ -3063,6 +3124,31 @@ def create_order_from_app():
         payload = dict(payload)
         payload["payload"] = order_payload
         payload["uid"] = user_uid
+
+    if share_claims is not None:
+        ambassador_uid = str(share_claims.get("uid") or "").strip()
+        ambassador_profile = _firebase_user_profile(ambassador_uid)
+        if (
+            str(ambassador_profile.get("accountRole") or "").strip().lower() != "ambassador"
+            or str(ambassador_profile.get("status") or "active").strip().lower() != "active"
+        ):
+            return jsonify({"ok": False, "error": "حساب المندوبة غير متاح حاليًا", "code": "inactive_ambassador_share"}), 400
+        customer = order_payload.get("customer") if isinstance(order_payload.get("customer"), dict) else {}
+        customer = dict(customer)
+        customer.update({
+            "submitterUid": ambassador_uid,
+            "submitterName": str(ambassador_profile.get("ambassadorName") or share_claims.get("name") or "").strip(),
+            "submitterEmail": str(ambassador_profile.get("email") or "").strip(),
+            "submitterPhone": str(ambassador_profile.get("ambassadorPhone") or "").strip(),
+            "accountRole": "ambassador",
+            "placedAsAmbassador": True,
+            "identityVerified": True,
+            "submittedViaShareLink": True,
+        })
+        order_payload = dict(order_payload)
+        order_payload["customer"] = customer
+        payload = dict(payload)
+        payload["payload"] = order_payload
 
     with _INVENTORY_LOCK:
         entries = read_orders()
@@ -3108,6 +3194,49 @@ def create_order_from_app():
         "status": item.get("status", "pending"),
         "trackingToken": item.get("trackingToken", ""),
         "externalDelivery": delivery,
+    })
+
+
+@app.post("/ambassadors/me/share-token")
+def create_current_ambassador_share_token():
+    signed_user, auth_error = _firebase_user_from_request()
+    if auth_error is not None:
+        return auth_error
+    uid = str(signed_user.get("uid") or "").strip()
+    profile = _firebase_user_profile(uid)
+    if (
+        str(profile.get("accountRole") or "").strip().lower() != "ambassador"
+        or str(profile.get("status") or "active").strip().lower() != "active"
+    ):
+        return jsonify({"ok": False, "error": "هذه الخدمة متاحة للمندوبات فقط"}), 403
+    name = str(profile.get("ambassadorName") or profile.get("name") or "").strip()
+    try:
+        token = create_ambassador_share_token(uid, name)
+    except RuntimeError:
+        return jsonify({"ok": False, "error": "خدمة مشاركة الطلبات غير مهيأة"}), 503
+    return jsonify({
+        "ok": True,
+        "token": token,
+        "ambassadorName": name,
+        "expiresAt": int(time.time()) + _AMBASSADOR_SHARE_TTL_SECONDS,
+    })
+
+
+@app.get("/ambassador-shares/<token>")
+def get_ambassador_share(token: str):
+    claims = verify_ambassador_share_token(token)
+    if claims is None:
+        return jsonify({"ok": False, "error": "رابط الطلب غير صالح أو انتهت صلاحيته"}), 404
+    profile = _firebase_user_profile(str(claims.get("uid") or ""))
+    if (
+        str(profile.get("accountRole") or "").strip().lower() != "ambassador"
+        or str(profile.get("status") or "active").strip().lower() != "active"
+    ):
+        return jsonify({"ok": False, "error": "رابط الطلب غير متاح"}), 404
+    return jsonify({
+        "ok": True,
+        "ambassadorName": str(profile.get("ambassadorName") or claims.get("name") or "").strip(),
+        "expiresAt": as_int(claims.get("exp"), 0),
     })
 
 
