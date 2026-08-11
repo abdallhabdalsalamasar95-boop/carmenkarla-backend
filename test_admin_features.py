@@ -657,6 +657,125 @@ class AdminFeatureTests(unittest.TestCase):
         self.assertNotIn("purchaseCost", shared["items"][0])
         self.assertEqual(shared["orderChannel"], "customer")
 
+    def test_customer_can_cancel_own_pending_order_and_restore_stock_once(self):
+        products, orders, read_products, write_products, read_orders, write_orders = self._inventory_api_state()
+        with patch.object(server, "_SABIL_ENABLED", False), \
+             patch.object(server, "read_products", side_effect=read_products), \
+             patch.object(server, "write_products", side_effect=write_products), \
+             patch.object(server, "read_orders", side_effect=read_orders), \
+             patch.object(server, "write_orders", side_effect=write_orders), \
+             patch.object(server, "_firebase_user_from_request", return_value=({"uid": "customer-a"}, None)), \
+             patch.object(server, "_notify_user_on_order_status_change") as notify:
+            created = server.app.test_client().post(
+                "/orders",
+                json={**self._order_payload(order_id="customer-cancel"), "uid": "customer-a"},
+            )
+            self.assertEqual(created.status_code, 200)
+            first = server.app.test_client().post("/customers/me/orders/customer-cancel/cancel")
+            second = server.app.test_client().post("/customers/me/orders/customer-cancel/cancel")
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(orders[0]["status"], "canceled")
+        self.assertFalse(orders[0]["inventoryReserved"])
+        self.assertEqual(products[0]["sizeQuantities"]["M"], 2)
+        notify.assert_called_once()
+
+    def test_customer_can_cancel_own_shared_link_order(self):
+        order = server.normalize_order_item({
+            **self._order_payload(order_id="shared-link-cancel"),
+            "uid": "customer-a",
+            "payload": {
+                "customer": {
+                    "name": "زبونة الرابط",
+                    "submitterUid": "amb-1",
+                    "accountRole": "ambassador",
+                    "placedAsAmbassador": True,
+                    "submittedViaShareLink": True,
+                },
+                "items": [],
+                "pricing": {"grandTotal": 100},
+            },
+        })
+        orders = [order]
+        with patch.object(server, "_firebase_user_from_request", return_value=({"uid": "customer-a"}, None)), \
+             patch.object(server, "read_orders", return_value=orders), \
+             patch.object(server, "write_orders", side_effect=lambda value: orders.__setitem__(slice(None), value)), \
+             patch.object(server, "read_products", return_value=[]), \
+             patch.object(server, "_notify_user_on_order_status_change"):
+            response = server.app.test_client().post("/customers/me/orders/shared-link-cancel/cancel")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["item"]["status"], "canceled")
+
+    def test_customer_cannot_cancel_another_customer_order_or_shipped_order(self):
+        other = server.normalize_order_item({
+            **self._order_payload(order_id="other-customer"),
+            "uid": "customer-b",
+        })
+        shipped = server.normalize_order_item({
+            **self._order_payload(order_id="already-shipped"),
+            "uid": "customer-a",
+            "status": "shipped",
+        })
+        with patch.object(server, "_firebase_user_from_request", return_value=({"uid": "customer-a"}, None)), \
+             patch.object(server, "read_orders", return_value=[other, shipped]):
+            denied = server.app.test_client().post("/customers/me/orders/other-customer/cancel")
+            too_late = server.app.test_client().post("/customers/me/orders/already-shipped/cancel")
+
+        self.assertEqual(denied.status_code, 404)
+        self.assertEqual(too_late.status_code, 409)
+        self.assertEqual(too_late.get_json()["code"], "order_not_cancelable")
+
+    def test_ambassador_can_cancel_only_own_order(self):
+        own = server.normalize_order_item({
+            **self._order_payload(order_id="ambassador-own"),
+            "uid": "amb-1",
+            "ambassadorSummary": {"isAmbassadorOrder": True, "ambassadorUid": "amb-1"},
+        })
+        other = server.normalize_order_item({
+            **self._order_payload(order_id="ambassador-other"),
+            "uid": "amb-2",
+            "ambassadorSummary": {"isAmbassadorOrder": True, "ambassadorUid": "amb-2"},
+        })
+        orders = [own, other]
+        with patch.object(server, "_firebase_user_from_request", return_value=({"uid": "amb-1"}, None)), \
+             patch.object(server, "_firebase_user_profile", return_value={"accountRole": "ambassador"}), \
+             patch.object(server, "read_orders", return_value=orders), \
+             patch.object(server, "write_orders", side_effect=lambda value: orders.__setitem__(slice(None), value)), \
+             patch.object(server, "read_products", return_value=[]), \
+             patch.object(server, "_notify_user_on_order_status_change"):
+            allowed = server.app.test_client().post("/ambassadors/me/orders/ambassador-own/cancel")
+            denied = server.app.test_client().post("/ambassadors/me/orders/ambassador-other/cancel")
+
+        self.assertEqual(allowed.status_code, 200)
+        self.assertEqual(allowed.get_json()["item"]["status"], "canceled")
+        self.assertEqual(denied.status_code, 404)
+
+    def test_self_cancel_deletes_existing_sabil_shipment_first(self):
+        order = server.normalize_order_item({
+            **self._order_payload(order_id="customer-sabil-cancel"),
+            "uid": "customer-a",
+            "externalDelivery": {
+                "provider": "darb_sabeel",
+                "status": "created",
+                "shipmentId": "shipment-1",
+            },
+        })
+        orders = [order]
+        with patch.object(server, "_firebase_user_from_request", return_value=({"uid": "customer-a"}, None)), \
+             patch.object(server, "read_orders", return_value=orders), \
+             patch.object(server, "write_orders", side_effect=lambda value: orders.__setitem__(slice(None), value)), \
+             patch.object(server, "read_products", return_value=[]), \
+             patch.object(server, "_request_sabil_api", return_value=(200, {"ok": True})) as request_sabil, \
+             patch.object(server, "_notify_user_on_order_status_change"):
+            response = server.app.test_client().post("/customers/me/orders/customer-sabil-cancel/cancel")
+
+        self.assertEqual(response.status_code, 200)
+        request_sabil.assert_called_once_with("/api/local/shipments/shipment-1", method="DELETE")
+        self.assertEqual(orders[0]["status"], "canceled")
+        self.assertEqual(orders[0]["externalDelivery"]["syncStatus"], "deleted_on_provider")
+
     def test_sabil_deleted_shipment_cancels_order_and_restores_stock_once(self):
         products, orders, read_products, write_products, read_orders, write_orders = self._inventory_api_state()
         with patch.object(server, "_SABIL_ENABLED", False), \

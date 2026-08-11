@@ -1776,6 +1776,25 @@ def _sabil_shipment_snapshot(shipment_id: str) -> Dict[str, Any]:
     }
 
 
+def _cancel_sabil_shipment_for_order(order: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    delivery = order.get("externalDelivery") if isinstance(order.get("externalDelivery"), dict) else {}
+    shipment_id = str(delivery.get("shipmentId") or "").strip()
+    if not shipment_id or str(delivery.get("syncStatus") or "") == "deleted_on_provider":
+        return None
+    try:
+        _request_sabil_api(f"/api/local/shipments/{shipment_id}", method="DELETE")
+    except RuntimeError as ex:
+        if not re.search(r"\bHTTP 404\b", str(ex)):
+            raise
+    return {
+        "exists": False,
+        "deleted": True,
+        "providerStatus": "deleted",
+        "referenceCode": str(delivery.get("referenceCode") or "").strip(),
+        "timeline": delivery.get("timeline") if isinstance(delivery.get("timeline"), list) else [],
+    }
+
+
 def _local_status_for_sabil(provider_status: str) -> str:
     normalized = re.sub(r"[\s-]+", "_", str(provider_status or "").strip().lower())
     if normalized == "pending":
@@ -1859,6 +1878,41 @@ def _change_order_status(
     if previous_status != status:
         _notify_user_on_order_status_change(item, old_status=previous_status, new_status=status)
     return item
+
+
+def _cancel_owned_order(order_id: str, uid: str, *, actor: str) -> Dict[str, Any]:
+    order = next(
+        (
+            normalize_order_item(row)
+            for row in read_orders()
+            if isinstance(row, dict) and str(row.get("orderId") or "").strip() == str(order_id or "").strip()
+        ),
+        None,
+    )
+    if order is None:
+        raise LookupError("Order not found")
+
+    payload = order.get("payload") if isinstance(order.get("payload"), dict) else {}
+    customer = payload.get("customer") if isinstance(payload.get("customer"), dict) else {}
+    summary = order.get("ambassadorSummary") if isinstance(order.get("ambassadorSummary"), dict) else {}
+    if actor == "customer":
+        owns_order = str(order.get("uid") or "").strip() == uid and not is_direct_ambassador_sale(order)
+    else:
+        ambassador_uid = str(summary.get("ambassadorUid") or customer.get("submitterUid") or "").strip()
+        if not ambassador_uid and bool(summary.get("isAmbassadorOrder")):
+            ambassador_uid = str(order.get("uid") or "").strip()
+        owns_order = ambassador_uid == uid
+    if not owns_order:
+        raise LookupError("Order not found")
+
+    status = str(order.get("status") or "pending").strip().lower()
+    if status == "canceled":
+        return order
+    if status not in {"pending", "confirmed", "processing"}:
+        raise ValueError("لا يمكن إلغاء الطلب بعد بدء الشحن أو اكتمال الطلب")
+
+    sabil_snapshot = _cancel_sabil_shipment_for_order(order)
+    return _change_order_status(order_id, "canceled", sabil_snapshot=sabil_snapshot)
 
 
 def sync_sabil_deleted_shipments() -> Dict[str, Any]:
@@ -3525,6 +3579,26 @@ def list_current_customer_orders():
     return jsonify({"ok": True, "count": len(out[:limit]), "items": out[:limit]})
 
 
+@app.post("/customers/me/orders/<order_id>/cancel")
+def cancel_current_customer_order(order_id: str):
+    signed_user, auth_error = _firebase_user_from_request()
+    if auth_error is not None:
+        return auth_error
+    try:
+        item = _cancel_owned_order(order_id, str(signed_user.get("uid") or "").strip(), actor="customer")
+    except LookupError:
+        return jsonify({"ok": False, "error": "الطلب غير موجود"}), 404
+    except ValueError as ex:
+        return jsonify({"ok": False, "error": str(ex), "code": "order_not_cancelable"}), 409
+    except RuntimeError:
+        return jsonify({
+            "ok": False,
+            "error": "تعذر إلغاء الشحنة لدى شركة التوصيل الآن. حاولي مجددًا أو تواصلي مع الدعم.",
+            "code": "delivery_cancel_failed",
+        }), 502
+    return jsonify({"ok": True, "item": item})
+
+
 @app.get("/orders/feed")
 def list_orders_feed_for_app():
     limit = as_int(request.args.get("limit", 200), 200)
@@ -3607,6 +3681,30 @@ def list_current_ambassador_orders():
         })
     out.sort(key=lambda x: as_int(x.get("createdAtMs", 0), 0), reverse=True)
     return jsonify({"ok": True, "count": len(out[:limit]), "items": out[:limit]})
+
+
+@app.post("/ambassadors/me/orders/<order_id>/cancel")
+def cancel_current_ambassador_order(order_id: str):
+    signed_user, auth_error = _firebase_user_from_request()
+    if auth_error is not None:
+        return auth_error
+    uid = str(signed_user.get("uid") or "").strip()
+    profile = _firebase_user_profile(uid)
+    if str(profile.get("accountRole") or "").strip().lower() != "ambassador":
+        return jsonify({"ok": False, "error": "حساب مندوبة مفعّل مطلوب"}), 403
+    try:
+        item = _cancel_owned_order(order_id, uid, actor="ambassador")
+    except LookupError:
+        return jsonify({"ok": False, "error": "الطلب غير موجود"}), 404
+    except ValueError as ex:
+        return jsonify({"ok": False, "error": str(ex), "code": "order_not_cancelable"}), 409
+    except RuntimeError:
+        return jsonify({
+            "ok": False,
+            "error": "تعذر إلغاء الشحنة لدى شركة التوصيل الآن. حاولي مجددًا أو تواصلي مع الدعم.",
+            "code": "delivery_cancel_failed",
+        }), 502
+    return jsonify({"ok": True, "item": item})
 
 
 @app.get("/ambassadors/me/profile")
