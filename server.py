@@ -654,6 +654,12 @@ def default_marketing_config() -> Dict[str, Any]:
                 "linkUrl": "#collection",
                 "enabled": True,
             },
+            "sectionBanner": {
+                "imageUrl": "",
+                "altText": "بانر أحدث المنتجات والأكثر مبيعًا",
+                "linkUrl": "#collection",
+                "enabled": True,
+            },
             "categories": [],
         },
         "commission": {
@@ -960,6 +966,7 @@ def normalize_website_category(payload: Dict[str, Any], index: int = 0) -> Optio
 def normalize_website_home(payload: Any) -> Dict[str, Any]:
     source = payload if isinstance(payload, dict) else {}
     banner_source = source.get("banner") if isinstance(source.get("banner"), dict) else {}
+    section_banner_source = source.get("sectionBanner") if isinstance(source.get("sectionBanner"), dict) else {}
     raw_categories = source.get("categories") if isinstance(source.get("categories"), list) else []
     categories = [
         item
@@ -976,6 +983,12 @@ def normalize_website_home(payload: Any) -> Dict[str, Any]:
             "altText": str(banner_source.get("altText") or "بانر أڤيا فاشن").strip() or "بانر أڤيا فاشن",
             "linkUrl": str(banner_source.get("linkUrl") or "#collection").strip(),
             "enabled": bool(banner_source.get("enabled", True)),
+        },
+        "sectionBanner": {
+            "imageUrl": str(section_banner_source.get("imageUrl") or "").strip(),
+            "altText": str(section_banner_source.get("altText") or "بانر أحدث المنتجات والأكثر مبيعًا").strip() or "بانر أحدث المنتجات والأكثر مبيعًا",
+            "linkUrl": str(section_banner_source.get("linkUrl") or "#collection").strip(),
+            "enabled": bool(section_banner_source.get("enabled", True)),
         },
         "categories": categories,
     }
@@ -1050,6 +1063,7 @@ def public_app_content() -> Dict[str, Any]:
         "updatedAt": cfg.get("updatedAt", now_ms),
         "websiteHome": {
             "banner": cfg.get("websiteHome", {}).get("banner", {}),
+            "sectionBanner": cfg.get("websiteHome", {}).get("sectionBanner", {}),
             "categories": [
                 item
                 for item in cfg.get("websiteHome", {}).get("categories", [])

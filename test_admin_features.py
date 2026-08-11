@@ -52,13 +52,19 @@ class AdminFeatureTests(unittest.TestCase):
             },
         }
 
-    def test_website_home_normalizes_single_banner_and_ordered_categories(self):
+    def test_website_home_normalizes_banners_and_ordered_categories(self):
         config = server.normalize_marketing_config({
             "websiteHome": {
                 "banner": {
                     "imageUrl": " https://example.com/banner.jpg ",
                     "altText": "بانر الصيف",
                     "linkUrl": "#collection",
+                    "enabled": True,
+                },
+                "sectionBanner": {
+                    "imageUrl": " https://example.com/section.jpg ",
+                    "altText": "بين الأقسام",
+                    "linkUrl": "/category/?name=new",
                     "enabled": True,
                 },
                 "categories": [
@@ -85,6 +91,14 @@ class AdminFeatureTests(unittest.TestCase):
         self.assertEqual(
             home["banner"]["imageUrl"],
             "https://example.com/banner.jpg",
+        )
+        self.assertEqual(
+            home["sectionBanner"]["imageUrl"],
+            "https://example.com/section.jpg",
+        )
+        self.assertEqual(
+            home["sectionBanner"]["linkUrl"],
+            "/category/?name=new",
         )
         self.assertEqual(
             [item["id"] for item in home["categories"]],
