@@ -439,6 +439,33 @@ class AdminFeatureTests(unittest.TestCase):
         }])
         self.assertNotIn("createdBy", snapshot["timeline"][0])
 
+    def test_sabil_provider_status_mapping_includes_postponed_and_canceled(self):
+        self.assertEqual(server._local_status_for_sabil("postponed"), "postponed")
+        self.assertEqual(server._local_status_for_sabil("on-hold"), "postponed")
+        self.assertEqual(server._local_status_for_sabil("مؤجلة"), "postponed")
+        self.assertEqual(server._local_status_for_sabil("out for delivery"), "shipped")
+        self.assertEqual(server._local_status_for_sabil("canceled"), "canceled")
+        self.assertEqual(server._local_status_for_sabil("ملغي"), "canceled")
+        self.assertEqual(server._local_status_for_sabil("returning"), "returning")
+
+    def test_sabil_postponed_keeps_inventory_reserved(self):
+        products, orders, read_products, write_products, read_orders, write_orders = self._inventory_api_state()
+        with patch.object(server, "_SABIL_ENABLED", False), \
+             patch.object(server, "read_products", side_effect=read_products), \
+             patch.object(server, "write_products", side_effect=write_products), \
+             patch.object(server, "read_orders", side_effect=read_orders), \
+             patch.object(server, "write_orders", side_effect=write_orders), \
+             patch.object(server, "_notify_user_on_order_status_change"):
+            created = server.app.test_client().post("/orders", json=self._order_payload(order_id="provider-postponed", quantity=1))
+            self.assertEqual(created.status_code, 200)
+            updated = server._change_order_status("provider-postponed", "postponed", sabil_snapshot={
+                "providerStatus": "postponed", "deleted": False, "timeline": [],
+            })
+
+        self.assertEqual(updated["status"], "postponed")
+        self.assertTrue(orders[0]["inventoryReserved"])
+        self.assertEqual(products[0]["sizeQuantities"]["M"], 1)
+
     def test_sabil_returning_does_not_restore_until_returned(self):
         products, orders, read_products, write_products, read_orders, write_orders = self._inventory_api_state()
         with patch.object(server, "_SABIL_ENABLED", False), \
@@ -512,6 +539,34 @@ class AdminFeatureTests(unittest.TestCase):
         delivery = allowed.get_json()["item"]["externalDelivery"]
         self.assertEqual(delivery["providerStatus"], "processing")
         self.assertNotIn("lastError", delivery)
+
+    def test_customer_orders_endpoint_only_returns_authenticated_uid(self):
+        own = server.normalize_order_item({
+            **self._order_payload(order_id="customer-own"),
+            "uid": "customer-a",
+            "trackingToken": "own-token",
+            "externalDelivery": {
+                "provider": "darb_sabeel",
+                "providerStatus": "postponed",
+                "lastError": "private-provider-error",
+            },
+        })
+        other = server.normalize_order_item({
+            **self._order_payload(order_id="customer-other"),
+            "uid": "customer-b",
+            "trackingToken": "other-token",
+        })
+        with patch.object(server, "_firebase_user_from_request", return_value=({"uid": "customer-a"}, None)), \
+             patch.object(server, "read_orders", return_value=[other, own]):
+            response = server.app.test_client().get("/customers/me/orders")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["items"][0]["orderId"], "customer-own")
+        self.assertEqual(payload["items"][0]["trackingToken"], "own-token")
+        self.assertEqual(payload["items"][0]["externalDelivery"]["providerStatus"], "postponed")
+        self.assertNotIn("lastError", payload["items"][0]["externalDelivery"])
 
     def test_sabil_deleted_shipment_cancels_order_and_restores_stock_once(self):
         products, orders, read_products, write_products, read_orders, write_orders = self._inventory_api_state()

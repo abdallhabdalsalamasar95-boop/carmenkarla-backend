@@ -1069,7 +1069,7 @@ def normalize_order_item(payload: Dict[str, Any], current: Optional[Dict[str, An
 
     order_id = str(payload.get("orderId") or cur.get("orderId") or f"o_{now_ms}_{uuid.uuid4().hex[:8]}").strip()
     status = str(payload.get("status") or cur.get("status") or "pending").strip().lower()
-    if status not in {"pending", "processing", "shipped", "delivered", "canceled", "returning", "returned"}:
+    if status not in {"pending", "processing", "shipped", "postponed", "delivered", "canceled", "returning", "returned"}:
         status = "pending"
 
     payload_map = payload.get("payload") if isinstance(payload.get("payload"), dict) else cur.get("payload")
@@ -1703,18 +1703,22 @@ def _sabil_shipment_snapshot(shipment_id: str) -> Dict[str, Any]:
 
 
 def _local_status_for_sabil(provider_status: str) -> str:
-    normalized = str(provider_status or "").strip().lower()
+    normalized = re.sub(r"[\s-]+", "_", str(provider_status or "").strip().lower())
     if normalized == "pending":
         return "pending"
     if normalized in {"processing", "booked", "assigned", "accepted"}:
         return "processing"
+    if normalized in {"shipped", "dispatched", "out_for_delivery", "in_transit", "picked_up"}:
+        return "shipped"
+    if normalized in {"postponed", "deferred", "delayed", "rescheduled", "on_hold", "hold", "مؤجل", "مؤجلة", "مؤجله"}:
+        return "postponed"
     if normalized in {"completed", "released", "delivered"}:
         return "delivered"
-    if normalized in {"canceled", "cancelled", "returning"}:
+    if normalized in {"returning", "return_in_progress"}:
         return "returning"
-    if normalized == "returned":
+    if normalized in {"returned", "return_completed"}:
         return "returned"
-    if normalized == "deleted":
+    if normalized in {"canceled", "cancelled", "deleted", "ملغي", "ملغية", "ملغى", "ملغاة"}:
         return "canceled"
     return ""
 
@@ -2294,6 +2298,8 @@ def _status_label_ar(status: str) -> str:
         return "قيد المعالجة"
     if s == "shipped":
         return "تم الشحن"
+    if s == "postponed":
+        return "مؤجل من شركة التوصيل"
     if s == "delivered":
         return "تم التوصيل"
     if s == "canceled":
@@ -3401,6 +3407,44 @@ def public_order_tracking(order_id: str):
     })
 
 
+@app.get("/customers/me/orders")
+def list_current_customer_orders():
+    signed_user, auth_error = _firebase_user_from_request()
+    if auth_error is not None:
+        return auth_error
+    uid = str(signed_user.get("uid") or "").strip()
+    limit = max(1, min(as_int(request.args.get("limit", 500), 500), 1000))
+    out = []
+    for raw in read_orders():
+        if not isinstance(raw, dict):
+            continue
+        item = normalize_order_item(raw)
+        if str(item.get("uid") or "").strip() != uid:
+            continue
+        delivery = item.get("externalDelivery") if isinstance(item.get("externalDelivery"), dict) else {}
+        safe_delivery = {
+            key: delivery.get(key)
+            for key in (
+                "provider", "status", "shipmentId", "trackingNumber", "referenceCode",
+                "providerStatus", "syncStatus", "lastSyncAtMs", "timeline",
+            )
+            if delivery.get(key) not in (None, "")
+        }
+        out.append({
+            "orderId": str(item.get("orderId") or "").strip(),
+            "status": str(item.get("status") or "pending").strip().lower(),
+            "createdAtMs": as_int(item.get("createdAtMs", 0), 0),
+            "updatedAtMs": as_int(item.get("updatedAtMs", item.get("createdAtMs", 0)), 0),
+            "grandTotal": as_number(item.get("grandTotal", 0), 0),
+            "itemsCount": as_int(item.get("itemsCount", 0), 0),
+            "trackingToken": str(item.get("trackingToken") or "").strip(),
+            "externalDelivery": safe_delivery,
+        })
+    out = [item for item in out if item["orderId"]]
+    out.sort(key=lambda item: as_int(item.get("createdAtMs", 0), 0), reverse=True)
+    return jsonify({"ok": True, "count": len(out[:limit]), "items": out[:limit]})
+
+
 @app.get("/orders/feed")
 def list_orders_feed_for_app():
     limit = as_int(request.args.get("limit", 200), 200)
@@ -3708,7 +3752,7 @@ def update_order_status(order_id: str):
 
     payload = request.get_json(silent=True) or {}
     status = str(payload.get("status") or "").strip().lower()
-    allowed = {"pending", "processing", "shipped", "delivered", "canceled", "returning", "returned"}
+    allowed = {"pending", "processing", "shipped", "postponed", "delivered", "canceled", "returning", "returned"}
     if status not in allowed:
         return jsonify({"ok": False, "error": f"status must be one of {sorted(allowed)}"}), 400
 
