@@ -245,6 +245,30 @@ class AdminFeatureTests(unittest.TestCase):
         self.assertEqual(payload["pricing"]["shippingCost"], 0.0)
         self.assertEqual(payload["pricing"]["grandTotal"], 120.0)
 
+    def test_percent_coupon_can_also_enable_free_shipping(self):
+        payload, error = server.apply_order_coupon(
+            {
+                "customer": {"city": "بنغازي"},
+                "items": [{"productId": "dress-1", "quantity": 1}],
+                "couponCode": "VIP20",
+            },
+            [{"id": "dress-1", "price": 100}],
+            {"coupons": [{
+                "code": "VIP20",
+                "type": "percent",
+                "value": 20,
+                "freeShipping": 1,
+                "enabled": 1,
+            }]},
+        )
+        self.assertIsNone(error)
+        self.assertEqual(payload["pricing"], {
+            "subtotal": 100.0,
+            "discount": 20.0,
+            "shippingCost": 0.0,
+            "grandTotal": 80.0,
+        })
+
     def test_size_quantities_define_total_stock(self):
         item = server.normalize_product({
             "name": "فستان",

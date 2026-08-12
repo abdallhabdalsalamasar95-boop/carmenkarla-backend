@@ -1233,10 +1233,12 @@ def apply_order_coupon(order_payload: Dict[str, Any], products: List[Dict[str, A
             discount = min(discount, maximum)
     elif coupon_type == "fixed":
         discount = min(subtotal, value)
-    elif coupon_type == "freeShipping" or as_hidden_int(coupon.get("freeShipping", 0)) == 1:
-        shipping_cost = 0.0
+    elif coupon_type == "freeShipping":
+        pass
     else:
         return None, "نوع كود الخصم غير مدعوم"
+    if coupon_type == "freeShipping" or as_hidden_int(coupon.get("freeShipping", 0)) == 1:
+        shipping_cost = 0.0
 
     normalized = dict(order_payload)
     normalized["items"] = priced_items
