@@ -55,6 +55,12 @@ class AdminFeatureTests(unittest.TestCase):
     def test_website_home_normalizes_banners_and_ordered_categories(self):
         config = server.normalize_marketing_config({
             "websiteHome": {
+                "announcement": {
+                    "text": " توصيل سريع لكل ليبيا ",
+                    "enabled": True,
+                    "speedSeconds": 4,
+                    "style": "gold",
+                },
                 "banner": {
                     "imageUrl": " https://example.com/banner.jpg ",
                     "altText": "بانر الصيف",
@@ -66,6 +72,9 @@ class AdminFeatureTests(unittest.TestCase):
                     "altText": "بين الأقسام",
                     "linkUrl": "/category/?name=new",
                     "enabled": True,
+                    "widthMode": "full",
+                    "spacing": "tight",
+                    "height": "large",
                 },
                 "categories": [
                     {
@@ -93,6 +102,8 @@ class AdminFeatureTests(unittest.TestCase):
                 "showShare": True,
                 "checkoutButtonSize": "medium",
                 "checkoutConfirmPosition": "summary",
+                "showHomepageCategories": False,
+                "showOffersStrip": False,
             },
             "ambassadorSupport": {
                 "whatsappNumber": " +218 91-234-5678 ",
@@ -101,6 +112,9 @@ class AdminFeatureTests(unittest.TestCase):
         })
 
         home = config["websiteHome"]
+        self.assertEqual(home["announcement"]["text"], "توصيل سريع لكل ليبيا")
+        self.assertEqual(home["announcement"]["speedSeconds"], 6)
+        self.assertEqual(home["announcement"]["style"], "gold")
         self.assertEqual(
             home["banner"]["imageUrl"],
             "https://example.com/banner.jpg",
@@ -113,6 +127,9 @@ class AdminFeatureTests(unittest.TestCase):
             home["sectionBanner"]["linkUrl"],
             "/category/?name=new",
         )
+        self.assertEqual(home["sectionBanner"]["widthMode"], "full")
+        self.assertEqual(home["sectionBanner"]["spacing"], "tight")
+        self.assertEqual(home["sectionBanner"]["height"], "large")
         self.assertEqual(
             [item["id"] for item in home["categories"]],
             ["new", "evening"],
@@ -126,6 +143,8 @@ class AdminFeatureTests(unittest.TestCase):
         self.assertEqual(config["websiteAppearance"]["discountCorner"], "left")
         self.assertFalse(config["websiteAppearance"]["showFavorite"])
         self.assertEqual(config["websiteAppearance"]["checkoutConfirmPosition"], "summary")
+        self.assertFalse(config["websiteAppearance"]["showHomepageCategories"])
+        self.assertFalse(config["websiteAppearance"]["showOffersStrip"])
         self.assertEqual(config["ambassadorSupport"]["whatsappNumber"], "+218912345678")
         self.assertTrue(config["ambassadorSupport"]["enabled"])
 
@@ -162,6 +181,69 @@ class AdminFeatureTests(unittest.TestCase):
         self.assertEqual(appearance["discountCorner"], "right")
         self.assertEqual(appearance["checkoutButtonSize"], "small")
         self.assertEqual(appearance["checkoutConfirmPosition"], "afterCustomer")
+
+    def test_percent_coupon_uses_authoritative_product_price_and_cap(self):
+        payload, error = server.apply_order_coupon(
+            {
+                "customer": {"city": "طرابلس"},
+                "items": [{"productId": "dress-1", "quantity": 2, "price": 1}],
+                "couponCode": " save20 ",
+                "pricing": {"grandTotal": 1},
+            },
+            [{"id": "dress-1", "price": 100}],
+            {"coupons": [{
+                "code": "SAVE20",
+                "type": "percent",
+                "value": 20,
+                "minSubtotal": 150,
+                "maxDiscount": 30,
+                "enabled": 1,
+            }]},
+        )
+        self.assertIsNone(error)
+        self.assertEqual(payload["couponCode"], "SAVE20")
+        self.assertEqual(payload["items"][0]["price"], 100)
+        self.assertEqual(payload["pricing"], {
+            "subtotal": 200.0,
+            "discount": 30.0,
+            "shippingCost": 10.0,
+            "grandTotal": 180.0,
+        })
+
+    def test_coupon_rejects_invalid_or_below_minimum_codes(self):
+        base = {
+            "customer": {"city": "طرابلس"},
+            "items": [{"productId": "dress-1", "quantity": 1}],
+            "couponCode": "SAVE20",
+        }
+        config = {"coupons": [{
+            "code": "SAVE20",
+            "type": "percent",
+            "value": 20,
+            "minSubtotal": 150,
+            "enabled": 1,
+        }]}
+        payload, error = server.apply_order_coupon(base, [{"id": "dress-1", "price": 100}], config)
+        self.assertIsNone(payload)
+        self.assertIn("الحد الأدنى", error)
+
+        payload, error = server.apply_order_coupon({**base, "couponCode": "NOPE"}, [{"id": "dress-1", "price": 200}], config)
+        self.assertIsNone(payload)
+        self.assertIn("غير صالح", error)
+
+    def test_free_shipping_coupon_preserves_product_total(self):
+        payload, error = server.apply_order_coupon(
+            {
+                "customer": {"city": "بنغازي"},
+                "items": [{"productId": "dress-1", "quantity": 1}],
+                "couponCode": "FREESHIP",
+            },
+            [{"id": "dress-1", "price": 120}],
+            {"coupons": [{"code": "FREESHIP", "type": "freeShipping", "enabled": 1}]},
+        )
+        self.assertIsNone(error)
+        self.assertEqual(payload["pricing"]["shippingCost"], 0.0)
+        self.assertEqual(payload["pricing"]["grandTotal"], 120.0)
 
     def test_size_quantities_define_total_stock(self):
         item = server.normalize_product({

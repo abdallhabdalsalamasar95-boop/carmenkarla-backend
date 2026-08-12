@@ -648,6 +648,12 @@ if not EXPENSES_FILE.exists():
 def default_marketing_config() -> Dict[str, Any]:
     return {
         "websiteHome": {
+            "announcement": {
+                "text": "شحن لجميع المدن الليبية • الدفع عند الاستلام",
+                "enabled": True,
+                "speedSeconds": 18,
+                "style": "rose",
+            },
             "banner": {
                 "imageUrl": "",
                 "altText": "بانر أڤيا فاشن",
@@ -659,6 +665,9 @@ def default_marketing_config() -> Dict[str, Any]:
                 "altText": "بانر أحدث المنتجات والأكثر مبيعًا",
                 "linkUrl": "#collection",
                 "enabled": True,
+                "widthMode": "full",
+                "spacing": "tight",
+                "height": "medium",
             },
             "categories": [],
         },
@@ -670,6 +679,10 @@ def default_marketing_config() -> Dict[str, Any]:
             "showShare": True,
             "checkoutButtonSize": "small",
             "checkoutConfirmPosition": "afterCustomer",
+            "showHomepageCategories": True,
+            "showOffersStrip": True,
+            "showNewestSection": True,
+            "showBestSellingSection": True,
         },
         "ambassadorSupport": {
             "whatsappNumber": "+218921397674",
@@ -978,6 +991,7 @@ def normalize_website_category(payload: Dict[str, Any], index: int = 0) -> Optio
 
 def normalize_website_home(payload: Any) -> Dict[str, Any]:
     source = payload if isinstance(payload, dict) else {}
+    announcement_source = source.get("announcement") if isinstance(source.get("announcement"), dict) else {}
     banner_source = source.get("banner") if isinstance(source.get("banner"), dict) else {}
     section_banner_source = source.get("sectionBanner") if isinstance(source.get("sectionBanner"), dict) else {}
     raw_categories = source.get("categories") if isinstance(source.get("categories"), list) else []
@@ -990,7 +1004,26 @@ def normalize_website_home(payload: Any) -> Dict[str, Any]:
         if item
     ]
     categories.sort(key=lambda item: as_int(item.get("sortOrder", 0), 0))
+
+    announcement_style = str(announcement_source.get("style") or "rose").strip()
+    if announcement_style not in {"dark", "rose", "gold"}:
+        announcement_style = "rose"
+    section_width = str(section_banner_source.get("widthMode") or "full").strip()
+    if section_width not in {"full", "container"}:
+        section_width = "full"
+    section_spacing = str(section_banner_source.get("spacing") or "tight").strip()
+    if section_spacing not in {"tight", "normal", "wide"}:
+        section_spacing = "tight"
+    section_height = str(section_banner_source.get("height") or "medium").strip()
+    if section_height not in {"compact", "medium", "large"}:
+        section_height = "medium"
     return {
+        "announcement": {
+            "text": str(announcement_source.get("text") or "شحن لجميع المدن الليبية • الدفع عند الاستلام").strip()[:240],
+            "enabled": bool(announcement_source.get("enabled", True)),
+            "speedSeconds": max(6, min(60, as_int(announcement_source.get("speedSeconds", 18), 18))),
+            "style": announcement_style,
+        },
         "banner": {
             "imageUrl": str(banner_source.get("imageUrl") or "").strip(),
             "altText": str(banner_source.get("altText") or "بانر أڤيا فاشن").strip() or "بانر أڤيا فاشن",
@@ -1002,6 +1035,9 @@ def normalize_website_home(payload: Any) -> Dict[str, Any]:
             "altText": str(section_banner_source.get("altText") or "بانر أحدث المنتجات والأكثر مبيعًا").strip() or "بانر أحدث المنتجات والأكثر مبيعًا",
             "linkUrl": str(section_banner_source.get("linkUrl") or "#collection").strip(),
             "enabled": bool(section_banner_source.get("enabled", True)),
+            "widthMode": section_width,
+            "spacing": section_spacing,
+            "height": section_height,
         },
         "categories": categories,
     }
@@ -1022,6 +1058,10 @@ def normalize_website_appearance(payload: Any) -> Dict[str, Any]:
         "showShare": bool(source.get("showShare", True)),
         "checkoutButtonSize": choice("checkoutButtonSize", {"small", "medium"}, "small"),
         "checkoutConfirmPosition": choice("checkoutConfirmPosition", {"afterCustomer", "summary"}, "afterCustomer"),
+        "showHomepageCategories": bool(source.get("showHomepageCategories", True)),
+        "showOffersStrip": bool(source.get("showOffersStrip", True)),
+        "showNewestSection": bool(source.get("showNewestSection", True)),
+        "showBestSellingSection": bool(source.get("showBestSellingSection", True)),
     }
 
 
@@ -1104,6 +1144,7 @@ def public_app_content() -> Dict[str, Any]:
         "ok": True,
         "updatedAt": cfg.get("updatedAt", now_ms),
         "websiteHome": {
+            "announcement": cfg.get("websiteHome", {}).get("announcement", {}),
             "banner": cfg.get("websiteHome", {}).get("banner", {}),
             "sectionBanner": cfg.get("websiteHome", {}).get("sectionBanner", {}),
             "categories": [
@@ -1123,6 +1164,90 @@ def public_app_content() -> Dict[str, Any]:
         "gifts": public_gifts,
         "competitions": public_competitions,
     }
+
+
+_WEB_SHIPPING_COSTS = {
+    "طرابلس": 10.0,
+    "بنغازي": 15.0,
+    "مصراتة": 12.0,
+    "سبها": 20.0,
+    "الزاوية": 12.0,
+    "سرت": 18.0,
+    "درنة": 18.0,
+    "طبرق": 20.0,
+    "أخرى": 25.0,
+}
+
+
+def apply_order_coupon(order_payload: Dict[str, Any], products: List[Dict[str, Any]], config: Optional[Dict[str, Any]] = None) -> tuple[Optional[Dict[str, Any]], Optional[str]]:
+    coupon_code = str(order_payload.get("couponCode") or "").strip().upper()
+    if not coupon_code:
+        return dict(order_payload), None
+
+    cfg = config if isinstance(config, dict) else read_marketing_config()
+    now_ms = int(time.time() * 1000)
+    coupon = next((row for row in cfg.get("coupons", []) if str(row.get("code") or "").strip().upper() == coupon_code), None)
+    if not isinstance(coupon, dict) or as_hidden_int(coupon.get("enabled", 1)) != 1:
+        return None, "كود الخصم غير صالح أو متوقف"
+    if coupon.get("startAt") is not None and as_int(coupon.get("startAt"), 0) > now_ms:
+        return None, "كود الخصم لم يبدأ بعد"
+    if coupon.get("endAt") is not None and as_int(coupon.get("endAt"), now_ms) < now_ms:
+        return None, "انتهت صلاحية كود الخصم"
+
+    product_by_id = {str(row.get("id") or "").strip(): row for row in products if isinstance(row, dict)}
+    raw_items = order_payload.get("items") if isinstance(order_payload.get("items"), list) else []
+    priced_items: List[Dict[str, Any]] = []
+    subtotal = 0.0
+    for raw_line in raw_items:
+        if not isinstance(raw_line, dict):
+            continue
+        product_id = str(raw_line.get("productId") or "").strip()
+        product = product_by_id.get(product_id)
+        if product is None:
+            return None, "تعذر التحقق من أحد منتجات الكوبون"
+        quantity = max(0, as_int(raw_line.get("quantity", 0), 0))
+        price = max(0.0, as_number(product.get("price", 0), 0))
+        if quantity <= 0:
+            return None, "كمية المنتج غير صالحة"
+        line = dict(raw_line)
+        line["price"] = price
+        priced_items.append(line)
+        subtotal += price * quantity
+
+    if not priced_items:
+        return None, "لا يمكن تطبيق الكوبون على طلب فارغ"
+    minimum = max(0.0, as_number(coupon.get("minSubtotal", 0), 0))
+    if subtotal < minimum:
+        return None, f"الحد الأدنى لاستخدام الكوبون هو {minimum:.2f} د.ل"
+
+    customer = order_payload.get("customer") if isinstance(order_payload.get("customer"), dict) else {}
+    city = str(customer.get("city") or "أخرى").strip()
+    shipping_cost = _WEB_SHIPPING_COSTS.get(city, _WEB_SHIPPING_COSTS["أخرى"])
+    coupon_type = str(coupon.get("type") or "percent").strip()
+    value = max(0.0, as_number(coupon.get("value", 0), 0))
+    discount = 0.0
+    if coupon_type == "percent":
+        discount = subtotal * min(value, 100.0) / 100.0
+        maximum = max(0.0, as_number(coupon.get("maxDiscount", 0), 0))
+        if maximum > 0:
+            discount = min(discount, maximum)
+    elif coupon_type == "fixed":
+        discount = min(subtotal, value)
+    elif coupon_type == "freeShipping" or as_hidden_int(coupon.get("freeShipping", 0)) == 1:
+        shipping_cost = 0.0
+    else:
+        return None, "نوع كود الخصم غير مدعوم"
+
+    normalized = dict(order_payload)
+    normalized["items"] = priced_items
+    normalized["couponCode"] = coupon_code
+    normalized["pricing"] = {
+        "subtotal": round(subtotal, 2),
+        "discount": round(discount, 2),
+        "shippingCost": round(shipping_cost, 2),
+        "grandTotal": round(max(0.0, subtotal - discount + shipping_cost), 2),
+    }
+    return normalized, None
 
 
 def normalize_order_item(payload: Dict[str, Any], current: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -3303,6 +3428,16 @@ def create_order_from_app():
         entries = read_orders()
         idx = next((i for i, o in enumerate(entries) if str(o.get("orderId", "")).strip() == order_id), -1)
 
+        created = idx < 0
+        products = read_products()
+        if created:
+            priced_payload, coupon_error = apply_order_coupon(order_payload, products)
+            if coupon_error:
+                return jsonify({"ok": False, "error": coupon_error, "code": "invalid_coupon"}), 400
+            order_payload = priced_payload or order_payload
+            payload = dict(payload)
+            payload["payload"] = order_payload
+
         item_payload = dict(payload)
         item_payload["orderId"] = order_id
         item_payload["source"] = "app"
@@ -3311,9 +3446,9 @@ def create_order_from_app():
             (entries[idx].get("trackingToken") if idx >= 0 and isinstance(entries[idx], dict) else "")
             or secrets.token_urlsafe(24)
         )
+        if not created and isinstance(entries[idx], dict):
+            item_payload["payload"] = entries[idx].get("payload", order_payload)
 
-        created = idx < 0
-        products = read_products()
         if created:
             item = normalize_order_item(item_payload)
             item = snapshot_order_purchase_costs(item, products)
