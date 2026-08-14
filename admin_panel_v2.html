@@ -1145,6 +1145,7 @@
           <button class="campaign-subtab" data-campaign-tab="offers" onclick="setCampaignSubView('offers')">قسم العروض</button>
           <button class="campaign-subtab" data-campaign-tab="gifts" onclick="setCampaignSubView('gifts')">قسم الهدايا</button>
           <button class="campaign-subtab" data-campaign-tab="competitions" onclick="setCampaignSubView('competitions')">قسم المسابقات</button>
+          <button class="campaign-subtab" data-campaign-tab="social" onclick="setCampaignSubView('social')">روابط صفحات التواصل</button>
         </div>
         <div class="card" style="margin-bottom:16px">
           <div class="panel-head"><div><h3>إعدادات العمولة (متزامنة مع التطبيق)</h3><p>أي تعديل هنا يصل للتطبيق عبر <code>/app/content</code> تلقائيًا.</p></div></div>
@@ -1220,6 +1221,22 @@
             </div>
             <div class="list" id="competitionsList"></div>
             <div class="hero-actions"><button class="btn btn-soft" onclick="addCompetitionItem()">+ إضافة مسابقة</button></div>
+          </div>
+
+          <div class="card campaign-section campaign-section-panel" id="campaignSection-social">
+            <div class="panel-head">
+              <div><h3><span class="campaign-index">5</span> روابط صفحات التواصل</h3><p>أضيفي روابط صفحاتك، وستظهر أيقوناتها بشكل احترافي في الموقع.</p></div>
+              <button class="btn btn-primary" onclick="saveMarketingConfig()">حفظ الروابط</button>
+            </div>
+            <div class="split-2">
+              <div class="field"><label>Instagram</label><input id="socialInstagram" type="url" placeholder="https://instagram.com/..." /></div>
+              <div class="field"><label>Facebook</label><input id="socialFacebook" type="url" placeholder="https://facebook.com/..." /></div>
+              <div class="field"><label>WhatsApp</label><input id="socialWhatsapp" type="url" placeholder="https://wa.me/218..." /></div>
+              <div class="field"><label>Telegram</label><input id="socialTelegram" type="url" placeholder="https://t.me/..." /></div>
+              <div class="field"><label>TikTok</label><input id="socialTiktok" type="url" placeholder="https://tiktok.com/@..." /></div>
+              <div class="field"><label>رابط الموقع</label><input id="socialWebsite" type="url" placeholder="https://..." /></div>
+            </div>
+            <label class="toggle" style="margin-top:14px"><span>إظهار الأيقونات في الموقع</span><span class="switch"><input id="socialEnabled" type="checkbox" checked /><span class="slider"></span></span></label>
           </div>
         </div>
       </div>
@@ -1419,6 +1436,7 @@
       offers: { title: '', subtitle: '', ctaLabel: '', items: [] },
       gifts: [],
       competitions: [],
+      websiteSocial: { enabled: true, instagram: '', facebook: '', whatsapp: '', telegram: '', tiktok: '', website: '' },
       updatedAt: 0,
     };
 
@@ -1591,6 +1609,14 @@
       document.getElementById('offersTitle').value = offers.title || '';
       document.getElementById('offersSubtitle').value = offers.subtitle || '';
       document.getElementById('offersCtaLabel').value = offers.ctaLabel || '';
+      const social = marketingConfig.websiteSocial || {};
+      document.getElementById('socialInstagram').value = social.instagram || '';
+      document.getElementById('socialFacebook').value = social.facebook || '';
+      document.getElementById('socialWhatsapp').value = social.whatsapp || '';
+      document.getElementById('socialTelegram').value = social.telegram || '';
+      document.getElementById('socialTiktok').value = social.tiktok || '';
+      document.getElementById('socialWebsite').value = social.website || '';
+      document.getElementById('socialEnabled').checked = social.enabled !== false;
       renderCampaignEditor('couponList', marketingConfig.coupons || [], 'coupon');
       renderCampaignEditor('offersItemsList', offers.items || [], 'offer');
       renderCampaignEditor('giftsList', marketingConfig.gifts || [], 'gift');
@@ -1622,6 +1648,15 @@
         marketingConfig.offers.title = document.getElementById('offersTitle').value.trim();
         marketingConfig.offers.subtitle = document.getElementById('offersSubtitle').value.trim();
         marketingConfig.offers.ctaLabel = document.getElementById('offersCtaLabel').value.trim();
+        marketingConfig.websiteSocial = {
+          enabled: document.getElementById('socialEnabled').checked,
+          instagram: document.getElementById('socialInstagram').value.trim(),
+          facebook: document.getElementById('socialFacebook').value.trim(),
+          whatsapp: document.getElementById('socialWhatsapp').value.trim(),
+          telegram: document.getElementById('socialTelegram').value.trim(),
+          tiktok: document.getElementById('socialTiktok').value.trim(),
+          website: document.getElementById('socialWebsite').value.trim(),
+        };
         const data = await api('PUT', '/marketing/config', marketingConfig);
         if (!data.ok) throw new Error(data.error || 'فشل حفظ الحملات');
         marketingConfig = data.config || marketingConfig;
@@ -1956,7 +1991,7 @@
     }
 
     const ADMIN_VIEWS = ['overview', 'products', 'orders', 'ambassadors', 'notifications', 'devices', 'campaigns', 'settings'];
-    const CAMPAIGN_VIEWS = ['coupons', 'offers', 'gifts', 'competitions'];
+    const CAMPAIGN_VIEWS = ['coupons', 'offers', 'gifts', 'competitions', 'social'];
 
     function notifyAdminHost(type, payload = {}) {
       try {
