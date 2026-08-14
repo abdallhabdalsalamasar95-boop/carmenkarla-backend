@@ -1074,6 +1074,22 @@ def normalize_ambassador_support(payload: Any) -> Dict[str, Any]:
     }
 
 
+def normalize_website_social(payload: Any) -> Dict[str, Any]:
+    source = payload if isinstance(payload, dict) else {}
+    def url(key: str) -> str:
+        value = str(source.get(key) or "").strip()
+        return value[:500] if value.startswith(("https://", "http://")) else ""
+    return {
+        "enabled": bool(source.get("enabled", True)),
+        "instagram": url("instagram"),
+        "facebook": url("facebook"),
+        "whatsapp": url("whatsapp"),
+        "telegram": url("telegram"),
+        "tiktok": url("tiktok"),
+        "website": url("website"),
+    }
+
+
 def normalize_marketing_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     now_ms = int(time.time() * 1000)
     commission_src = payload.get("commission") if isinstance(payload.get("commission"), dict) else {}
@@ -1096,6 +1112,7 @@ def normalize_marketing_config(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         "websiteHome": normalize_website_home(payload.get("websiteHome")),
+        "websiteSocial": normalize_website_social(payload.get("websiteSocial")),
         "websiteAppearance": normalize_website_appearance(payload.get("websiteAppearance")),
         "ambassadorSupport": normalize_ambassador_support(payload.get("ambassadorSupport")),
         "commission": {
@@ -1154,6 +1171,7 @@ def public_app_content() -> Dict[str, Any]:
             ],
         },
         "websiteAppearance": cfg.get("websiteAppearance", normalize_website_appearance({})),
+        "websiteSocial": cfg.get("websiteSocial", normalize_website_social({})),
         "ambassadorSupport": cfg.get("ambassadorSupport", normalize_ambassador_support({})),
         "commission": {
             "defaultPercent": commission_default,
