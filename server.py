@@ -193,6 +193,16 @@ def _webp_image_urls(filename: str) -> tuple[str, str]:
     return f"{stem}.webp", f"{stem}_thumb.webp"
 
 
+def _thumbnail_url_for(image_url: Any) -> str:
+    url = str(image_url or "").strip()
+    if not url:
+        return ""
+    path = url.split("?", 1)[0]
+    if path.lower().endswith(".webp") and "/uploads/" in path:
+        return f"{path[:-5]}_thumb.webp"
+    return url
+
+
 def _init_firestore() -> None:
     global _FIRESTORE_DB, _FIREBASE_INIT_ERROR
 
@@ -3309,6 +3319,10 @@ def list_products():
         products = [p for p in products if as_hidden_int(p.get("isHidden", 0)) == 0]
 
     products.sort(key=lambda p: as_int(p.get("createdAt", 0)), reverse=True)
+    products = [
+        {**p, "thumbnailUrl": p.get("thumbnailUrl") or _thumbnail_url_for(p.get("imageUrl"))}
+        for p in products
+    ]
     total = len(products)
     # Keep existing mobile/admin clients compatible; callers opt into paging with page/limit.
     if request.args.get("page") is None and request.args.get("limit") is None:
