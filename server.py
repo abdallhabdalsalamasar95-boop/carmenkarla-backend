@@ -1,4 +1,5 @@
 import base64
+import io
 import json
 import hashlib
 import hmac
@@ -18,6 +19,12 @@ from dotenv import load_dotenv
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
+
+try:
+    from PIL import Image, ImageOps
+except Exception:  # pragma: no cover - reported by the upload endpoint
+    Image = None
+    ImageOps = None
 
 _FIREBASE_IMPORT_ERROR = ""
 
@@ -132,6 +139,14 @@ try:
     _MAX_IMAGE_UPLOAD_MB = max(1, int(float((os.getenv("MAX_IMAGE_UPLOAD_MB", "10") or "10").strip())))
 except Exception:
     _MAX_IMAGE_UPLOAD_MB = 10
+try:
+    _MAX_IMAGE_DIMENSION = max(512, int(float((os.getenv("MAX_IMAGE_DIMENSION", "1600") or "1600").strip())))
+except Exception:
+    _MAX_IMAGE_DIMENSION = 1600
+try:
+    _IMAGE_QUALITY = max(60, min(95, int(float((os.getenv("IMAGE_QUALITY", "82") or "82").strip()))))
+except Exception:
+    _IMAGE_QUALITY = 82
 
 ALLOWED_IMAGE_EXTENSIONS = {
     ".jpg",
@@ -171,6 +186,11 @@ def _request_public_base() -> str:
     if host_url and not re.search(r"://(?:127\.0\.0\.1|localhost)(?::|/|$)", host_url, re.I):
         return host_url
     return PUBLIC_BASE
+
+
+def _webp_image_urls(filename: str) -> tuple[str, str]:
+    stem = Path(filename).stem
+    return f"{stem}.webp", f"{stem}_thumb.webp"
 
 
 def _init_firestore() -> None:
@@ -3289,7 +3309,23 @@ def list_products():
         products = [p for p in products if as_hidden_int(p.get("isHidden", 0)) == 0]
 
     products.sort(key=lambda p: as_int(p.get("createdAt", 0)), reverse=True)
-    return jsonify({"ok": True, "count": len(products), "items": products})
+    total = len(products)
+    # Keep existing mobile/admin clients compatible; callers opt into paging with page/limit.
+    if request.args.get("page") is None and request.args.get("limit") is None:
+        return jsonify({"ok": True, "count": total, "total": total, "items": products})
+    page = max(1, as_int(request.args.get("page", 1), 1))
+    limit = max(1, min(as_int(request.args.get("limit", 40), 40), 100))
+    start = (page - 1) * limit
+    items = products[start:start + limit]
+    return jsonify({
+        "ok": True,
+        "count": len(items),
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "hasNext": start + len(items) < total,
+        "items": items,
+    })
 
 
 @app.get("/looks")
@@ -3553,8 +3589,9 @@ def list_orders():
     if _SABIL_ENABLED:
         sync_sabil_deleted_shipments()
 
-    limit = as_int(request.args.get("limit", 200), 200)
-    limit = max(1, min(limit, 1000))
+    page = max(1, as_int(request.args.get("page", 1), 1))
+    limit = as_int(request.args.get("limit", 100), 100)
+    limit = max(1, min(limit, 200))
     status = str(request.args.get("status", "") or "").strip().lower()
 
     items = [normalize_order_item(x) for x in read_orders() if isinstance(x, dict)]
@@ -3562,8 +3599,18 @@ def list_orders():
         items = [x for x in items if str(x.get("status", "")).strip().lower() == status]
 
     items.sort(key=lambda x: as_int(x.get("createdAtMs", 0), 0), reverse=True)
-    items = items[:limit]
-    return jsonify({"ok": True, "count": len(items), "items": items})
+    total = len(items)
+    start = (page - 1) * limit
+    items = items[start:start + limit]
+    return jsonify({
+        "ok": True,
+        "count": len(items),
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "hasNext": start + len(items) < total,
+        "items": items,
+    })
 
 
 @app.get("/admin/delivery/darb-sabeel/status")
@@ -4161,22 +4208,40 @@ def upload_image():
     if not blob:
         return jsonify({"ok": False, "error": "Uploaded image is empty"}), 400
 
-    # Content-addressed names make retries idempotent: the same image does not
-    # create duplicate files when a mobile connection drops after upload.
-    digest = hashlib.sha256(blob).hexdigest()
-    filename = f"{digest[:20]}_{safe}"
-    dest = UPLOAD_DIR / filename
-    created = not dest.exists()
-    if created:
-        dest.write_bytes(blob)
+    if Image is None or ImageOps is None:
+        return jsonify({"ok": False, "error": "Image processing is unavailable on the server"}), 503
+    try:
+        source = Image.open(io.BytesIO(blob))
+        source = ImageOps.exif_transpose(source).convert("RGB")
+        source.thumbnail((_MAX_IMAGE_DIMENSION, _MAX_IMAGE_DIMENSION), Image.Resampling.LANCZOS)
+        digest = hashlib.sha256(blob).hexdigest()
+        filename, thumb_filename = _webp_image_urls(f"{digest[:20]}_{Path(safe).stem}")
+        dest = UPLOAD_DIR / filename
+        thumb_dest = UPLOAD_DIR / thumb_filename
+        created = not dest.exists()
+        if created:
+            source.save(dest, "WEBP", quality=_IMAGE_QUALITY, method=6)
+        thumb = source.copy()
+        thumb.thumbnail((480, 480), Image.Resampling.LANCZOS)
+        if not thumb_dest.exists():
+            thumb.save(thumb_dest, "WEBP", quality=78, method=6)
+    except Exception as ex:
+        return jsonify({"ok": False, "error": f"Invalid or unsupported image: {str(ex)[:160]}"}), 400
 
-    url = f"{_request_public_base()}/uploads/{filename}"
+    base = _request_public_base()
+    url = f"{base}/uploads/{filename}"
+    thumbnail_url = f"{base}/uploads/{thumb_filename}"
     return jsonify({
         "ok": True,
         "created": created,
         "filename": filename,
         "url": url,
+        "thumbnailUrl": thumbnail_url,
+        "thumbnailFilename": thumb_filename,
+        "width": source.width,
+        "height": source.height,
         "sizeBytes": dest.stat().st_size if dest.exists() else 0,
+        "thumbnailSizeBytes": thumb_dest.stat().st_size if thumb_dest.exists() else 0,
     })
 
 
