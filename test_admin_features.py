@@ -3,6 +3,7 @@ import io
 import json
 import tempfile
 import unittest
+import urllib.request
 from pathlib import Path
 from unittest.mock import patch
 
@@ -539,6 +540,30 @@ class AdminFeatureTests(unittest.TestCase):
                 server._load_sabil_session()
                 self.assertEqual(server._SABIL_ACCESS_TOKEN, token(200))
                 self.assertEqual(server._SABIL_REFRESH_TOKEN, "newer-persisted-refresh")
+
+    def test_sabil_refresh_accepts_direct_access_and_refresh_response_shape(self):
+        class FakeResponse:
+            def __init__(self, payload):
+                self._payload = payload
+            def read(self):
+                return json.dumps(self._payload).encode("utf-8")
+            def __enter__(self):
+                return self
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        with patch.object(server, "_SABIL_ACCESS_TOKEN", "expired-access"), \
+             patch.object(server, "_SABIL_REFRESH_TOKEN", "old-refresh-token"), \
+             patch.object(server, "_save_sabil_session"), \
+             patch.object(urllib.request, "urlopen", return_value=FakeResponse({
+                 "data": {
+                     "accessToken": "fresh-access-token",
+                     "refreshToken": "fresh-refresh-token",
+                 }
+             })):
+            server._refresh_sabil_session(force=True)
+            self.assertEqual(server._SABIL_ACCESS_TOKEN, "fresh-access-token")
+            self.assertEqual(server._SABIL_REFRESH_TOKEN, "fresh-refresh-token")
 
     def test_sabil_shipment_captures_provider_underscore_id(self):
         order = server.normalize_order_item(self._order_payload(order_id="sabil-provider-shape"))

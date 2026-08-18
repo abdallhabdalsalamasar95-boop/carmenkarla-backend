@@ -1641,6 +1641,59 @@ def _save_sabil_session() -> None:
         pass
 
 
+def _extract_sabil_auth_tokens(payload: Any) -> tuple[str, str]:
+    if not isinstance(payload, dict):
+        return "", ""
+
+    candidates: List[Any] = [payload]
+    data = payload.get("data")
+    if isinstance(data, dict):
+        candidates.append(data)
+        for nested_key in ("access", "refresh", "auth"):
+            nested = data.get(nested_key)
+            if isinstance(nested, dict):
+                candidates.append(nested)
+
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+
+        access_token = str(
+            candidate.get("accessToken")
+            or candidate.get("access_token")
+            or ""
+        ).strip()
+        if not access_token and isinstance(candidate.get("access"), dict):
+            access_token = str(
+                candidate["access"].get("token")
+                or candidate["access"].get("accessToken")
+                or candidate["access"].get("access_token")
+                or ""
+            ).strip()
+        if not access_token and isinstance(candidate.get("token"), str):
+            access_token = str(candidate.get("token") or "").strip()
+
+        refresh_token = str(
+            candidate.get("refreshToken")
+            or candidate.get("refresh_token")
+            or ""
+        ).strip()
+        if not refresh_token and isinstance(candidate.get("refresh"), dict):
+            refresh_token = str(
+                candidate["refresh"].get("token")
+                or candidate["refresh"].get("refreshToken")
+                or candidate["refresh"].get("refresh_token")
+                or ""
+            ).strip()
+        if not refresh_token and isinstance(candidate.get("refresh"), str):
+            refresh_token = str(candidate.get("refresh") or "").strip()
+
+        if access_token or refresh_token:
+            return access_token, refresh_token
+
+    return "", ""
+
+
 def _refresh_sabil_session(*, force: bool = False) -> None:
     global _SABIL_ACCESS_TOKEN, _SABIL_REFRESH_TOKEN
     if not _SABIL_REFRESH_TOKEN:
@@ -1665,11 +1718,8 @@ def _refresh_sabil_session(*, force: bool = False) -> None:
                 decoded = json.loads(response.read().decode("utf-8"))
         except Exception as ex:
             raise RuntimeError("تعذر تجديد جلسة درب السبيل") from ex
-        authorization = decoded.get("data") if isinstance(decoded, dict) else None
-        access = authorization.get("access") if isinstance(authorization, dict) else None
-        refresh = authorization.get("refresh") if isinstance(authorization, dict) else None
-        access_token = str(access.get("token") or "").strip() if isinstance(access, dict) else ""
-        refresh_token = str(refresh.get("token") or "").strip() if isinstance(refresh, dict) else ""
+
+        access_token, refresh_token = _extract_sabil_auth_tokens(decoded)
         if not access_token:
             raise RuntimeError("لم يُرجع درب السبيل جلسة صالحة بعد التجديد")
         _SABIL_ACCESS_TOKEN = access_token
