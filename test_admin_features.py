@@ -630,6 +630,32 @@ class AdminFeatureTests(unittest.TestCase):
         self.assertEqual(cities["مصراتة"], ["مصراتة"])
         self.assertNotIn("تونس", cities)
 
+    def test_sabil_destinations_follow_pages_until_total_count_is_reached(self):
+        first_page = {
+            "data": {
+                "totalCount": 3,
+                "results": [{"countryCode": "lby", "city": "طرابلس", "area": "عين زارة"}],
+            },
+        }
+        second_page = {
+            "data": {
+                "totalCount": 3,
+                "results": [{"countryCode": "lby", "city": "زليتن", "area": "زليتن"}],
+            },
+        }
+        third_page = {
+            "data": {
+                "totalCount": 3,
+                "results": [{"countryCode": "lby", "city": "نالوت", "area": "نالوت"}],
+            },
+        }
+        with patch.object(server, "_SABIL_DESTINATIONS_CACHE", {"expiresAt": 0, "cities": {}}), \
+               patch.object(server, "_request_sabil_api", side_effect=[(200, first_page), (200, second_page), (200, third_page)]) as request_api:
+            cities = server.sabil_delivery_destinations()
+
+        self.assertEqual(request_api.call_count, 3)
+        self.assertEqual(sorted(cities), ["زليتن", "طرابلس", "نالوت"])
+
     def test_public_sabil_destinations_endpoint(self):
         with patch.object(server, "sabil_delivery_destinations", return_value={"بنغازي": ["البركة"]}):
             response = server.app.test_client().get("/delivery/darb-sabeel/destinations")

@@ -1924,6 +1924,66 @@ def _collect_sabil_destinations(data: Any, result: Dict[str, set[str]]) -> None:
             _collect_sabil_destinations(value, result)
 
 
+def _count_sabil_branch_records(data: Any) -> int:
+    if isinstance(data, dict):
+        own = 1 if str(data.get("countryCode") or "").strip() and str(data.get("city") or "").strip() else 0
+        return own + sum(_count_sabil_branch_records(value) for value in data.values())
+    if isinstance(data, list):
+        return sum(_count_sabil_branch_records(value) for value in data)
+    return 0
+
+
+def _sabil_total_count(data: Any) -> int:
+    if isinstance(data, dict):
+        for key, value in data.items():
+            if str(key).strip().lower() in {"totalcount", "total", "count", "totalitems", "totalrecords"}:
+                try:
+                    return int(value)
+                except (TypeError, ValueError):
+                    continue
+        for value in data.values():
+            found = _sabil_total_count(value)
+            if found:
+                return found
+    elif isinstance(data, list):
+        for value in data:
+            found = _sabil_total_count(value)
+            if found:
+                return found
+    return 0
+
+
+def _fetch_sabil_branch_pages() -> Dict[str, set[str]]:
+    """Sabil paginates branches, so keep pulling pages until nothing new arrives."""
+    base = "/api/local/branches/public?includeTotalCount=true"
+    _, decoded = _request_sabil_api(base)
+    collected: Dict[str, set[str]] = {}
+    _collect_sabil_destinations(decoded, collected)
+    fetched = _count_sabil_branch_records(decoded)
+    total = _sabil_total_count(decoded)
+    if not fetched or not total or total <= fetched:
+        return collected
+
+    page_size = max(fetched, 100)
+    page = 2
+    while page <= 40:
+        try:
+            _, more = _request_sabil_api(
+                f"{base}&page={page}&pageNumber={page}&limit={page_size}&pageSize={page_size}"
+            )
+        except RuntimeError:
+            break
+        before = sum(len(areas) for areas in collected.values())
+        _collect_sabil_destinations(more, collected)
+        fetched += _count_sabil_branch_records(more)
+        if sum(len(areas) for areas in collected.values()) == before:
+            break
+        if fetched >= total:
+            break
+        page += 1
+    return collected
+
+
 def sabil_delivery_destinations() -> Dict[str, List[str]]:
     def display_area(value: Any) -> str:
         return "المدينة" if str(value or "").strip() == "المدينة القديمة" else str(value or "").strip()
@@ -1942,11 +2002,7 @@ def sabil_delivery_destinations() -> Dict[str, List[str]]:
         cached = _SABIL_DESTINATIONS_CACHE.get("cities")
         if isinstance(cached, dict) and cached and float(_SABIL_DESTINATIONS_CACHE.get("expiresAt") or 0) > time.time():
             return display_cities(cached)
-        _, decoded = _request_sabil_api(
-            "/api/local/branches/public?includeTotalCount=true",
-        )
-        collected: Dict[str, set[str]] = {}
-        _collect_sabil_destinations(decoded, collected)
+        collected = _fetch_sabil_branch_pages()
         cities = {
             city: sorted(areas, key=lambda value: (value != city, value))
             for city, areas in sorted(collected.items())
@@ -3888,7 +3944,7 @@ def public_sabil_destinations():
             },
             "warning": str(ex)[:300],
         })
-    return jsonify({"ok": True, "providerAvailable": True, "cities": cities})
+    return jsonify({"ok": True, "providerAvailable": True, "cityCount": len(cities), "cities": cities})
 
 
 @app.post("/orders/<order_id>/delivery/darb-sabeel")
