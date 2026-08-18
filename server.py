@@ -1782,7 +1782,13 @@ def _request_sabil_api(
             break
         except urllib.error.HTTPError as ex:
             error_body = ex.read().decode("utf-8", errors="replace").strip()
-            if ex.code == 401 and attempt == 0 and _SABIL_ACCESS_TOKEN and _SABIL_REFRESH_TOKEN:
+            if (
+                ex.code == 401
+                and attempt == 0
+                and not _SABIL_API_KEY
+                and _SABIL_ACCESS_TOKEN
+                and _SABIL_REFRESH_TOKEN
+            ):
                 _refresh_sabil_session(force=True)
                 continue
             detail = ""
