@@ -1138,6 +1138,18 @@
               </div>
               <label class="toggle"><span>إظهار الشريط</span><span class="switch"><input id="websiteAnnouncementEnabled" type="checkbox" checked /><span class="slider"></span></span></label>
             </div>
+            <div class="card" style="margin-bottom:12px">
+              <h3>البانر العلوي الكبير</h3>
+              <p>الصورة الكبيرة التي تظهر في أعلى الصفحة تحت الشريط المتحرك.</p>
+              <div class="split-2">
+                <div class="field" style="grid-column:1 / -1"><label>رابط الصورة</label><input id="websiteTopBannerImage" type="url" placeholder="https://..." /></div>
+                <div class="field" style="grid-column:1 / -1"><label>أو ارفعي صورة من الجهاز</label><div class="quick-row"><input class="native-file-input" type="file" id="websiteTopBannerFile" accept="image/*,.heic,.heif,.avif,.jfif" onchange="uploadWebsiteTopBanner(event)" /><span class="minimal-note" id="websiteTopBannerUploadStatus">اختاري صورة وسيتم رفعها تلقائيًا</span></div></div>
+                <div class="field form-full" id="websiteTopBannerPreviewWrap" style="display:none"><label>المعاينة</label><img id="websiteTopBannerPreview" alt="معاينة البانر العلوي" style="display:block;width:100%;max-height:280px;object-fit:cover;border-radius:14px" /></div>
+                <div class="field"><label>وصف الصورة</label><input id="websiteTopBannerAlt" type="text" placeholder="أحدث تشكيلات كارمن كارلا" /></div>
+                <div class="field"><label>الرابط عند الضغط</label><input id="websiteTopBannerLink" type="text" placeholder="#collection" /></div>
+              </div>
+              <label class="toggle"><span>إظهار البانر العلوي</span><span class="switch"><input id="websiteTopBannerEnabled" type="checkbox" checked /><span class="slider"></span></span></label>
+            </div>
             <div class="card">
               <h3>البانر الأوسط — صورة العبايات</h3>
               <div class="split-2">
@@ -1554,11 +1566,17 @@
       document.getElementById('socialEnabled').checked = social.enabled !== false;
       const websiteHome = marketingConfig.websiteHome || {};
       const announcement = websiteHome.announcement || {};
+      const topBanner = websiteHome.banner || {};
       const sectionBanner = websiteHome.sectionBanner || {};
       document.getElementById('websiteAnnouncementText').value = announcement.text || '';
       document.getElementById('websiteAnnouncementSpeed').value = Math.max(6, Math.min(60, Number(announcement.speedSeconds || 18)));
       document.getElementById('websiteAnnouncementStyle').value = ['rose', 'dark', 'gold'].includes(announcement.style) ? announcement.style : 'rose';
       document.getElementById('websiteAnnouncementEnabled').checked = announcement.enabled !== false;
+      document.getElementById('websiteTopBannerImage').value = topBanner.imageUrl || '';
+      document.getElementById('websiteTopBannerAlt').value = topBanner.altText || '';
+      document.getElementById('websiteTopBannerLink').value = topBanner.linkUrl || '#collection';
+      document.getElementById('websiteTopBannerEnabled').checked = topBanner.enabled !== false;
+      updateWebsiteTopBannerPreview(topBanner.imageUrl || '');
       document.getElementById('websiteSectionBannerImage').value = sectionBanner.imageUrl || '';
       document.getElementById('websiteSectionBannerAlt').value = sectionBanner.altText || '';
       document.getElementById('websiteSectionBannerLink').value = sectionBanner.linkUrl || '#collection';
@@ -1613,6 +1631,13 @@
           speedSeconds: Math.max(6, Math.min(60, Number(document.getElementById('websiteAnnouncementSpeed').value || 18))),
           style: document.getElementById('websiteAnnouncementStyle').value,
         };
+        marketingConfig.websiteHome.banner = {
+          ...(marketingConfig.websiteHome.banner || {}),
+          imageUrl: document.getElementById('websiteTopBannerImage').value.trim(),
+          altText: document.getElementById('websiteTopBannerAlt').value.trim(),
+          linkUrl: document.getElementById('websiteTopBannerLink').value.trim(),
+          enabled: document.getElementById('websiteTopBannerEnabled').checked,
+        };
         marketingConfig.websiteHome.sectionBanner = {
           ...(marketingConfig.websiteHome.sectionBanner || {}),
           imageUrl: document.getElementById('websiteSectionBannerImage').value.trim(),
@@ -1641,6 +1666,32 @@
       if (!wrap || !image) return;
       image.src = value;
       wrap.style.display = value ? '' : 'none';
+    }
+
+    function updateWebsiteTopBannerPreview(url) {
+      const value = String(url || '').trim();
+      const wrap = document.getElementById('websiteTopBannerPreviewWrap');
+      const image = document.getElementById('websiteTopBannerPreview');
+      if (!wrap || !image) return;
+      image.src = value;
+      wrap.style.display = value ? '' : 'none';
+    }
+
+    async function uploadWebsiteTopBanner(event) {
+      const file = event?.target?.files?.[0];
+      if (!file) return;
+      const status = document.getElementById('websiteTopBannerUploadStatus');
+      if (status) status.textContent = 'جاري رفع الصورة...';
+      try {
+        const url = await uploadOneImage(file);
+        document.getElementById('websiteTopBannerImage').value = url;
+        updateWebsiteTopBannerPreview(url);
+        if (status) status.textContent = 'تم رفع الصورة، اضغطي حفظ الواجهة';
+      } catch (error) {
+        if (status) status.textContent = 'تعذر رفع الصورة';
+        toast(String(error?.message || 'تعذر رفع الصورة'), 'error');
+      }
+      event.target.value = '';
     }
 
     async function uploadWebsiteSectionBanner(event) {
