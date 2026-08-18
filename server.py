@@ -1867,14 +1867,23 @@ def _collect_sabil_destinations(data: Any, result: Dict[str, set[str]]) -> None:
 
 
 def sabil_delivery_destinations() -> Dict[str, List[str]]:
+    def display_area(value: Any) -> str:
+        return "المدينة" if str(value or "").strip() == "المدينة القديمة" else str(value or "").strip()
+
+    def display_cities(value: Dict[str, List[str]]) -> Dict[str, List[str]]:
+        return {
+            str(city): list(dict.fromkeys(display_area(area) for area in areas if display_area(area)))
+            for city, areas in value.items()
+        }
+
     now = time.time()
     cached = _SABIL_DESTINATIONS_CACHE.get("cities")
     if isinstance(cached, dict) and cached and float(_SABIL_DESTINATIONS_CACHE.get("expiresAt") or 0) > now:
-        return {str(city): list(areas) for city, areas in cached.items()}
+        return display_cities(cached)
     with _SABIL_DESTINATIONS_LOCK:
         cached = _SABIL_DESTINATIONS_CACHE.get("cities")
         if isinstance(cached, dict) and cached and float(_SABIL_DESTINATIONS_CACHE.get("expiresAt") or 0) > time.time():
-            return {str(city): list(areas) for city, areas in cached.items()}
+            return display_cities(cached)
         _, decoded = _request_sabil_api(
             "/api/local/branches/public?includeTotalCount=true",
         )
@@ -1889,7 +1898,7 @@ def sabil_delivery_destinations() -> Dict[str, List[str]]:
             raise RuntimeError("لم يُرجع درب السبيل قائمة مدن صالحة")
         _SABIL_DESTINATIONS_CACHE["cities"] = cities
         _SABIL_DESTINATIONS_CACHE["expiresAt"] = time.time() + 6 * 60 * 60
-        return {city: list(areas) for city, areas in cities.items()}
+        return display_cities(cities)
 
 
 def _request_sabil_shipment(order: Dict[str, Any]) -> Dict[str, Any]:
