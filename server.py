@@ -3657,7 +3657,24 @@ def create_order_from_app():
 
     delivery = item.get("externalDelivery", {})
     if created and _SABIL_ENABLED:
-        delivery = dispatch_order_to_sabil(order_id)
+        try:
+            delivery = dispatch_order_to_sabil(order_id)
+        except Exception as ex:
+            delivery = {
+                "provider": "darb_sabeel",
+                "status": "failed",
+                "lastError": str(ex)[:700],
+                "retryable": True,
+            }
+            with _INVENTORY_LOCK:
+                entries = read_orders()
+                idx = next((i for i, row in enumerate(entries) if str(row.get("orderId") or "").strip() == order_id), -1)
+                if idx >= 0:
+                    updated = normalize_order_item(entries[idx])
+                    updated["externalDelivery"] = delivery
+                    updated["updatedAtMs"] = int(time.time() * 1000)
+                    entries[idx] = updated
+                    write_orders(entries)
     return jsonify({
         "ok": True,
         "created": created,
