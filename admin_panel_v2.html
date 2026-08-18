@@ -30,6 +30,7 @@
       width: 100%;
       min-height: 100%;
       overflow-x: hidden;
+      overflow-y: auto;
     }
     body {
       font-family: Inter, "Segoe UI", Tahoma, sans-serif;
@@ -39,8 +40,8 @@
         linear-gradient(180deg, #07090d, #0d131b 38%, #0b1118 100%);
       color: var(--text);
       min-height: 100vh;
-      overscroll-behavior: none;
-      touch-action: pan-x pan-y;
+      overscroll-behavior-y: auto;
+      touch-action: pan-y;
       -webkit-text-size-adjust: 100%;
       -webkit-touch-callout: none;
     }
@@ -179,6 +180,7 @@
       display: grid;
       gap: 16px;
       grid-template-columns: 1fr;
+      touch-action: pan-y;
     }
     .campaign-subnav {
       display: flex;
