@@ -521,6 +521,7 @@
     .drop-zone strong { display: block; margin-bottom: 8px; }
     .drop-zone p { color: var(--muted); font-size: .84rem; }
     .native-file-input { position: fixed; top: 0; left: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+    .file-picker-button { cursor: pointer; user-select: none; display: inline-flex; align-items: center; justify-content: center; }
     .gallery-item { position: relative; width: 84px; }
     .gallery-thumb, .pending-thumb { width: 84px; height: 84px; }
     .remove-btn { position: absolute; top: -6px; left: -6px; width: 24px; height: 24px; border: none; border-radius: 50%; background: var(--err); color: #fff; font-weight: 900; cursor: pointer; }
@@ -1143,7 +1144,7 @@
               <p>الصورة الكبيرة التي تظهر في أعلى الصفحة تحت الشريط المتحرك.</p>
               <div class="split-2">
                 <div class="field" style="grid-column:1 / -1"><label>رابط الصورة</label><input id="websiteTopBannerImage" type="url" placeholder="https://..." /></div>
-                <div class="field" style="grid-column:1 / -1"><label>أو ارفعي صورة من الجهاز</label><div class="quick-row"><input class="native-file-input" type="file" id="websiteTopBannerFile" accept="image/*,.heic,.heif,.avif,.jfif" onchange="uploadWebsiteTopBanner(event)" /><span class="minimal-note" id="websiteTopBannerUploadStatus">اختاري صورة وسيتم رفعها تلقائيًا</span></div></div>
+                <div class="field" style="grid-column:1 / -1"><label>أو ارفعي صورة من الجهاز</label><div class="quick-row"><label class="btn btn-soft file-picker-button" for="websiteTopBannerFile">📁 اختيار صورة من اللاب</label><input class="native-file-input" type="file" id="websiteTopBannerFile" accept="image/*,.heic,.heif,.avif,.jfif" onchange="uploadWebsiteTopBanner(event)" /><span class="minimal-note" id="websiteTopBannerUploadStatus">لم يتم اختيار صورة</span></div></div>
                 <div class="field form-full" id="websiteTopBannerPreviewWrap" style="display:none"><label>المعاينة</label><img id="websiteTopBannerPreview" alt="معاينة البانر العلوي" style="display:block;width:100%;max-height:280px;object-fit:cover;border-radius:14px" /></div>
                 <div class="field"><label>وصف الصورة</label><input id="websiteTopBannerAlt" type="text" placeholder="أحدث تشكيلات كارمن كارلا" /></div>
                 <div class="field"><label>الرابط عند الضغط</label><input id="websiteTopBannerLink" type="text" placeholder="#collection" /></div>
@@ -1154,7 +1155,7 @@
               <h3>البانر الأوسط — صورة العبايات</h3>
               <div class="split-2">
                 <div class="field" style="grid-column:1 / -1"><label>رابط الصورة</label><input id="websiteSectionBannerImage" type="url" placeholder="https://..." /></div>
-                <div class="field" style="grid-column:1 / -1"><label>أو ارفعي صورة من الجهاز</label><div class="quick-row"><input class="native-file-input" type="file" id="websiteSectionBannerFile" accept="image/*,.heic,.heif,.avif,.jfif" onchange="uploadWebsiteSectionBanner(event)" /><span class="minimal-note" id="websiteSectionBannerUploadStatus">اختاري صورة وسيتم رفعها تلقائيًا</span></div></div>
+                <div class="field" style="grid-column:1 / -1"><label>أو ارفعي صورة من الجهاز</label><div class="quick-row"><label class="btn btn-soft file-picker-button" for="websiteSectionBannerFile">📁 اختيار صورة من اللاب</label><input class="native-file-input" type="file" id="websiteSectionBannerFile" accept="image/*,.heic,.heif,.avif,.jfif" onchange="uploadWebsiteSectionBanner(event)" /><span class="minimal-note" id="websiteSectionBannerUploadStatus">لم يتم اختيار صورة</span></div></div>
                 <div class="field form-full" id="websiteSectionBannerPreviewWrap" style="display:none"><label>المعاينة</label><img id="websiteSectionBannerPreview" alt="معاينة بانر العبايات" style="display:block;width:100%;max-height:260px;object-fit:cover;border-radius:14px" /></div>
                 <div class="field"><label>وصف الصورة</label><input id="websiteSectionBannerAlt" type="text" placeholder="عبايات جديدة" /></div>
                 <div class="field"><label>الرابط عند الضغط</label><input id="websiteSectionBannerLink" type="text" placeholder="#collection" /></div>

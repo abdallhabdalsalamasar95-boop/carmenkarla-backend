@@ -184,7 +184,7 @@ def _resolve_public_base() -> str:
 
 def _request_public_base() -> str:
     host_url = (request.host_url or "").strip().rstrip("/")
-    if host_url and not re.search(r"://(?:127\.0\.0\.1|localhost)(?::|/|$)", host_url, re.I):
+    if host_url:
         return host_url
     return PUBLIC_BASE
 
