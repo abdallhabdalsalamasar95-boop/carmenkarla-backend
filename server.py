@@ -3929,6 +3929,41 @@ def admin_sync_sabil_shipments():
     return jsonify({"ok": True, **sync_sabil_deleted_shipments()})
 
 
+@app.get("/delivery/darb-sabeel/shape")
+def public_sabil_destinations_shape():
+    """Temporary diagnostic: reports the provider payload shape, never any credentials."""
+    try:
+        _, decoded = _request_sabil_api("/api/local/branches/public?includeTotalCount=true")
+    except Exception as ex:
+        return jsonify({"ok": False, "error": str(ex)[:300]})
+
+    country_codes: Dict[str, int] = {}
+    record_keys: set[str] = set()
+
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            if str(node.get("city") or "").strip():
+                code = str(node.get("countryCode") or "<empty>").strip()
+                country_codes[code] = country_codes.get(code, 0) + 1
+                record_keys.update(str(key) for key in node.keys())
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(decoded)
+    return jsonify({
+        "ok": True,
+        "topLevelKeys": sorted(decoded.keys()) if isinstance(decoded, dict) else str(type(decoded)),
+        "detectedTotal": _sabil_total_count(decoded),
+        "matchedRecords": _count_sabil_branch_records(decoded),
+        "cityRecordsByCountryCode": country_codes,
+        "recordKeys": sorted(record_keys),
+        "expectedCountryCode": _SABIL_COUNTRY_CODE,
+    })
+
+
 @app.get("/delivery/darb-sabeel/destinations")
 def public_sabil_destinations():
     try:
