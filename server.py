@@ -1502,7 +1502,7 @@ def safe_customer_order_lines(value: Any) -> List[Dict[str, Any]]:
 def sabil_config_status() -> Dict[str, Any]:
     missing = []
     for key, value in {
-        "SABIL_AUTH": _SABIL_ACCESS_TOKEN or _SABIL_API_KEY,
+        "SABIL_AUTH": _SABIL_API_KEY or _SABIL_ACCESS_TOKEN,
         "SABIL_ACCOUNT_ID": _SABIL_ACCOUNT_ID,
         "SABIL_SERVICE_ID": _SABIL_SERVICE_ID,
     }.items():
@@ -1514,7 +1514,7 @@ def sabil_config_status() -> Dict[str, Any]:
         "configured": not missing,
         "ready": _SABIL_ENABLED and not missing,
         "missing": missing,
-        "authMode": "session" if _SABIL_ACCESS_TOKEN else ("api_key" if _SABIL_API_KEY else ""),
+        "authMode": "api_key" if _SABIL_API_KEY else ("session" if _SABIL_ACCESS_TOKEN else ""),
         "sessionRefreshConfigured": bool(_SABIL_REFRESH_TOKEN),
         "endpoint": f"{_SABIL_API_BASE_URL}{_SABIL_CREATE_SHIPMENT_PATH}",
     }
@@ -1732,7 +1732,9 @@ _load_sabil_session()
 
 
 def _sabil_headers() -> Dict[str, str]:
-    if _SABIL_ACCESS_TOKEN:
+    if _SABIL_API_KEY:
+        authorization = f"apikey {_SABIL_API_KEY}"
+    elif _SABIL_ACCESS_TOKEN:
         expiry = _decode_jwt_expiry(_SABIL_ACCESS_TOKEN)
         if expiry and expiry <= time.time() + 60:
             _refresh_sabil_session()

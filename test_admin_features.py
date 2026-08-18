@@ -503,7 +503,7 @@ class AdminFeatureTests(unittest.TestCase):
         self.assertEqual(response.get_json()["preview"]["httpStatus"], 200)
         preview.assert_called_once_with("order-preview")
 
-    def test_sabil_portal_session_is_preferred_and_counts_as_configured(self):
+    def test_sabil_api_key_is_preferred_over_portal_session(self):
         with patch.object(server, "_SABIL_ENABLED", True), \
              patch.object(server, "_SABIL_API_KEY", "restricted-api-key"), \
              patch.object(server, "_SABIL_ACCESS_TOKEN", "session-access-token"), \
@@ -514,9 +514,9 @@ class AdminFeatureTests(unittest.TestCase):
             headers = server._sabil_headers()
 
         self.assertTrue(config["ready"])
-        self.assertEqual(config["authMode"], "session")
+        self.assertEqual(config["authMode"], "api_key")
         self.assertTrue(config["sessionRefreshConfigured"])
-        self.assertEqual(headers["Authorization"], "Bearer session-access-token")
+        self.assertEqual(headers["Authorization"], "apikey restricted-api-key")
 
     def test_sabil_newest_complete_session_wins_across_restart(self):
         def token(issued_at):
