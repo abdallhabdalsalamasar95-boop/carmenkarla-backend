@@ -3782,8 +3782,17 @@ def public_sabil_destinations():
     try:
         cities = sabil_delivery_destinations()
     except Exception as ex:
-        return jsonify({"ok": False, "error": str(ex)[:300]}), 502
-    return jsonify({"ok": True, "cities": cities})
+        # Keep checkout usable while the provider session/API is unavailable.
+        # The order can still be saved and queued for a later delivery retry.
+        return jsonify({
+            "ok": True,
+            "providerAvailable": False,
+            "cities": {
+                "طرابلس": ["المدينة"],
+            },
+            "warning": str(ex)[:300],
+        })
+    return jsonify({"ok": True, "providerAvailable": True, "cities": cities})
 
 
 @app.post("/orders/<order_id>/delivery/darb-sabeel")
