@@ -3508,9 +3508,32 @@ def list_products():
     if not include_hidden:
         products = [p for p in products if as_hidden_int(p.get("isHidden", 0)) == 0]
 
+    sold_pieces_by_product: Dict[str, int] = {}
+    for raw_order in read_orders():
+        if not isinstance(raw_order, dict):
+            continue
+        order_status = str(raw_order.get("status") or "pending").strip().lower()
+        if order_status in {"canceled", "cancelled", "returned", "returning"}:
+            continue
+        payload = raw_order.get("payload") if isinstance(raw_order.get("payload"), dict) else raw_order
+        lines = payload.get("items") if isinstance(payload, dict) else []
+        if not isinstance(lines, list):
+            continue
+        for line in lines:
+            if not isinstance(line, dict):
+                continue
+            product_id = str(line.get("productId") or line.get("id") or "").strip()
+            quantity = max(0, as_int(line.get("quantity"), 0))
+            if product_id and quantity:
+                sold_pieces_by_product[product_id] = sold_pieces_by_product.get(product_id, 0) + quantity
+
     products.sort(key=lambda p: as_int(p.get("createdAt", 0)), reverse=True)
     products = [
-        {**p, "thumbnailUrl": p.get("thumbnailUrl") or _thumbnail_url_for(p.get("imageUrl"))}
+        {
+            **p,
+            "soldPieces": sold_pieces_by_product.get(str(p.get("id") or "").strip(), 0),
+            "thumbnailUrl": p.get("thumbnailUrl") or _thumbnail_url_for(p.get("imageUrl")),
+        }
         for p in products
     ]
     total = len(products)
