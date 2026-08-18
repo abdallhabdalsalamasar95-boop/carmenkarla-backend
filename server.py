@@ -2329,6 +2329,21 @@ def _trigger_sabil_sync_if_due() -> None:
     threading.Thread(target=sync_sabil_deleted_shipments, name="sabil-sync", daemon=True).start()
 
 
+def _sync_sabil_for_customer_view() -> None:
+    """Refresh provider statuses before returning customer order data.
+
+    The periodic background sync remains enabled, but customer-facing order
+    views should not have to wait for the next interval to show Sabil's latest
+    status. A provider outage must never hide the locally saved order.
+    """
+    if not _SABIL_ENABLED:
+        return
+    try:
+        sync_sabil_deleted_shipments()
+    except Exception:
+        pass
+
+
 @app.before_request
 def trigger_sabil_sync() -> None:
     if request.path == "/orders" or request.path.startswith("/admin/delivery/darb-sabeel/"):
@@ -3938,6 +3953,7 @@ def list_order_statuses_for_app():
 
 @app.get("/orders/<order_id>/tracking")
 def public_order_tracking(order_id: str):
+    _sync_sabil_for_customer_view()
     token = str(request.args.get("token") or "").strip()
     item = next(
         (normalize_order_item(row) for row in read_orders() if str(row.get("orderId") or "").strip() == str(order_id).strip()),
@@ -3969,6 +3985,7 @@ def public_order_tracking(order_id: str):
 
 @app.get("/customers/me/orders")
 def list_current_customer_orders():
+    _sync_sabil_for_customer_view()
     signed_user, auth_error = _firebase_user_from_request()
     if auth_error is not None:
         return auth_error
