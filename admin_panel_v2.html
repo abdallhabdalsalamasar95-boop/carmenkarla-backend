@@ -796,13 +796,11 @@
           <button class="tab" data-tab="products" onclick="setView('products')">إدارة المنتجات</button>
           <button class="tab" data-tab="orders" onclick="setView('orders')">طلبات العملاء</button>
           <button class="tab" data-tab="ambassadors" onclick="setView('ambassadors')">المندوبات</button>
-          <button class="tab" data-tab="notifications" onclick="setView('notifications')">إشعارات الزباين</button>
-          <button class="tab" data-tab="devices" onclick="setView('devices')">الأجهزة</button>
+          <button class="tab" data-tab="website" onclick="setView('website')">واجهة الموقع</button>
           <button class="tab" data-tab="settings" onclick="setView('settings')">الاتصال</button>
         </div>
         <div class="quick-row">
           <button class="btn btn-primary" onclick="openAddModal()">+ منتج جديد</button>
-          <button class="btn btn-soft" onclick="setView('notifications')">إرسال إشعار</button>
           <button class="btn btn-soft" onclick="loadProducts()">تحديث البيانات</button>
         </div>
       </div>
@@ -840,32 +838,12 @@
               </div>
               <div class="module-link">فتح القسم <span>←</span></div>
             </div>
-            <div class="module-card" onclick="setView('notifications')">
+            <div class="module-card" onclick="setView('website')">
               <div>
-                <div class="module-icon">🔔</div>
+                <div class="module-icon">🖼️</div>
                 <div class="module-copy">
-                  <h3>إشعارات الزباين</h3>
-                  <p>إرسال إشعارات سريعة لجميع الزباين أو لمستخدم محدد.</p>
-                </div>
-              </div>
-              <div class="module-link">فتح القسم <span>←</span></div>
-            </div>
-            <div class="module-card" onclick="setView('devices')">
-              <div>
-                <div class="module-icon">📱</div>
-                <div class="module-copy">
-                  <h3>الأجهزة</h3>
-                  <p>مراقبة الأجهزة النشطة والمنصات وآخر النشاطات.</p>
-                </div>
-              </div>
-              <div class="module-link">فتح القسم <span>←</span></div>
-            </div>
-            <div class="module-card" onclick="setView('campaigns')">
-              <div>
-                <div class="module-icon">🎁</div>
-                <div class="module-copy">
-                  <h3>العروض والحملات</h3>
-                  <p>إدارة أكواد الخصم والعروض والهدايا والمسابقات.</p>
+                  <h3>واجهة الموقع</h3>
+                  <p>التحكم في الشريط العلوي وبانر العبايات الأوسط.</p>
                 </div>
               </div>
               <div class="module-link">فتح القسم <span>←</span></div>
@@ -1026,7 +1004,7 @@
         </div>
       </div>
 
-      <div class="panel" id="panel-notifications">
+      <div class="panel" id="panel-notifications" style="display:none">
         <div class="card">
           <div class="panel-head"><div><h3>إرسال إشعار</h3><p>إرسال مباشر إلى جميع الزباين أو مستخدم محدد.</p></div></div>
             <div class="form-grid">
@@ -1073,51 +1051,6 @@
         </div>
       </div>
 
-      <div class="panel" id="panel-devices">
-        <div class="panel-head">
-          <div><h3>إحصائيات الأجهزة</h3><p>عدد الأجهزة المثبّت عليها التطبيق + نوع الجهاز + النظام.</p></div>
-          <div class="quick-row"><button class="btn btn-soft" onclick="loadDeviceStats(true)">تحديث الإحصائيات</button></div>
-        </div>
-        <div class="stats" style="margin-bottom:16px">
-          <div class="stat"><div class="label">إجمالي الأجهزة المثبتة</div><div class="num" id="devTotal">–</div></div>
-          <div class="stat"><div class="label">الأجهزة النشطة (1 يوم)</div><div class="num" id="devActive1d">–</div></div>
-          <div class="stat"><div class="label">الأجهزة النشطة (7 أيام)</div><div class="num" id="devActive7d">–</div></div>
-          <div class="stat"><div class="label">الأجهزة النشطة (30 يوم)</div><div class="num" id="devActive30d">–</div></div>
-          <div class="stat"><div class="label">Android</div><div class="num" id="devAndroid">–</div></div>
-          <div class="stat"><div class="label">iOS</div><div class="num" id="devIos">–</div></div>
-        </div>
-        <div class="overview-grid">
-          <div class="card">
-            <div class="panel-head"><div><h3>أكثر أنواع الأجهزة</h3><p>حسب بيانات آخر اتصال من التطبيق.</p></div></div>
-            <div class="list" id="topModelsList"></div>
-          </div>
-          <div class="card">
-            <div class="panel-head"><div><h3>توزيع المنصات</h3><p>Android / iOS / غيرها</p></div></div>
-            <div class="list" id="platformsList"></div>
-          </div>
-        </div>
-        <div class="table-wrap" style="margin-top:16px">
-          <table>
-            <thead>
-              <tr>
-                <th>النظام</th>
-                <th>الجهاز</th>
-                <th>المستخدم</th>
-                <th>اللغة</th>
-                <th>نسخة التطبيق</th>
-                <th>آخر ظهور</th>
-                <th>آخر حدث</th>
-                <th>IP</th>
-                <th>مرات الظهور</th>
-                <th>المعرّف</th>
-              </tr>
-            </thead>
-            <tbody id="devicesTableBody"><tr><td colspan="10" class="empty">لا توجد بيانات أجهزة بعد.</td></tr></tbody>
-          </table>
-        </div>
-        <div class="mobile-only-block mobile-list" id="devicesMobileList" style="margin-top:12px"></div>
-      </div>
-
       <div class="panel" id="panel-settings">
         <div class="card">
           <div class="panel-head"><div><h3>إعدادات الاتصال</h3><p>تحديث رابط الخدمة والتوكن.</p></div></div>
@@ -1132,23 +1065,18 @@
         </div>
       </div>
 
-      <div class="panel" id="panel-campaigns">
+      <div class="panel" id="panel-website">
         <div class="panel-head">
-          <div><h3>العروض والحملات</h3><p>إدارة كل ما يظهر للعميل من خصومات وهدايا ومسابقات.</p></div>
+          <div><h3>واجهة الموقع</h3><p>التحكم في الشريط العلوي والبانر الأوسط الخاص بالعبايات.</p></div>
           <div class="quick-row">
             <button class="btn btn-primary" onclick="saveMarketingConfig()">حفظ التغييرات</button>
-            <button class="btn btn-soft" onclick="setCampaignSubView('social')">🔗 روابط الصفحات</button>
             <button class="btn btn-soft" onclick="loadMarketingConfig(true)">تحديث</button>
           </div>
         </div>
         <div class="campaign-subnav">
-          <button class="campaign-subtab active" data-campaign-tab="coupons" onclick="setCampaignSubView('coupons')">قسم الأكواد</button>
-          <button class="campaign-subtab" data-campaign-tab="offers" onclick="setCampaignSubView('offers')">قسم العروض</button>
-          <button class="campaign-subtab" data-campaign-tab="gifts" onclick="setCampaignSubView('gifts')">قسم الهدايا</button>
-          <button class="campaign-subtab" data-campaign-tab="competitions" onclick="setCampaignSubView('competitions')">قسم المسابقات</button>
-          <button class="campaign-subtab" data-campaign-tab="social" onclick="setCampaignSubView('social')">روابط صفحات التواصل</button>
+          <button class="campaign-subtab active" data-campaign-tab="website" onclick="setCampaignSubView('website')">إعدادات واجهة الموقع</button>
         </div>
-        <div class="card" style="margin-bottom:16px">
+        <div class="card" style="display:none;margin-bottom:16px">
           <div class="panel-head"><div><h3>إعدادات العمولة (متزامنة مع التطبيق)</h3><p>أي تعديل هنا يصل للتطبيق عبر <code>/app/content</code> تلقائيًا.</p></div></div>
           <div class="split-2">
             <div class="field">
@@ -1165,7 +1093,7 @@
           </div>
         </div>
         <div class="campaign-sections">
-          <div class="card campaign-section campaign-section-panel active" id="campaignSection-coupons">
+          <div class="card campaign-section campaign-section-panel" id="campaignSection-coupons" style="display:none">
             <div class="panel-head">
               <div>
                 <h3><span class="campaign-index">1</span> أكواد الخصم</h3>
@@ -1179,7 +1107,7 @@
             <div class="hero-actions"><button class="btn btn-soft" onclick="addCouponItem()">+ إضافة كود</button></div>
           </div>
 
-          <div class="card campaign-section campaign-section-panel" id="campaignSection-offers">
+          <div class="card campaign-section campaign-section-panel" id="campaignSection-offers" style="display:none">
             <div class="panel-head">
               <div>
                 <h3><span class="campaign-index">2</span> العروض الرئيسية</h3>
@@ -1196,37 +1124,43 @@
             <div class="hero-actions"><button class="btn btn-soft" onclick="addOfferItem()">+ إضافة عرض</button></div>
           </div>
 
-          <div class="card campaign-section campaign-section-panel" id="campaignSection-gifts">
+          <div class="card campaign-section campaign-section-panel" id="campaignSection-website">
             <div class="panel-head">
-              <div>
-                <h3><span class="campaign-index">3</span> الهدايا</h3>
-                <p>قسم مستقل للهدايا والحوافز فقط.</p>
-              </div>
-              <div class="quick-row">
-                <button class="btn btn-primary" onclick="saveMarketingConfig()">حفظ القسم</button>
-              </div>
+              <div><h3><span class="campaign-index">3</span> التحكم في واجهة الموقع</h3><p>عدّلي الشريط العلوي والبانر الأوسط الذي يظهر بين أحدث المنتجات والأكثر مبيعًا.</p></div>
+              <button class="btn btn-primary" onclick="saveMarketingConfig()">حفظ الواجهة</button>
             </div>
-            <div class="list" id="giftsList"></div>
-            <div class="hero-actions"><button class="btn btn-soft" onclick="addGiftItem()">+ إضافة هدية</button></div>
+            <div class="card" style="margin-bottom:12px">
+              <h3>الشريط العلوي</h3>
+              <div class="split-2">
+                <div class="field" style="grid-column:1 / -1"><label>النص</label><input id="websiteAnnouncementText" type="text" maxlength="240" placeholder="توصيل سريع لكل ليبيا ✨" /></div>
+                <div class="field"><label>السرعة بالثواني</label><input id="websiteAnnouncementSpeed" type="number" min="6" max="60" value="18" /></div>
+                <div class="field"><label>اللون</label><select id="websiteAnnouncementStyle"><option value="rose">وردي</option><option value="dark">داكن</option><option value="gold">ذهبي</option></select></div>
+              </div>
+              <label class="toggle"><span>إظهار الشريط</span><span class="switch"><input id="websiteAnnouncementEnabled" type="checkbox" checked /><span class="slider"></span></span></label>
+            </div>
+            <div class="card">
+              <h3>البانر الأوسط — صورة العبايات</h3>
+              <div class="split-2">
+                <div class="field" style="grid-column:1 / -1"><label>رابط الصورة</label><input id="websiteSectionBannerImage" type="url" placeholder="https://..." /></div>
+                <div class="field" style="grid-column:1 / -1"><label>أو ارفعي صورة من الجهاز</label><div class="quick-row"><input class="native-file-input" type="file" id="websiteSectionBannerFile" accept="image/*,.heic,.heif,.avif,.jfif" onchange="uploadWebsiteSectionBanner(event)" /><span class="minimal-note" id="websiteSectionBannerUploadStatus">اختاري صورة وسيتم رفعها تلقائيًا</span></div></div>
+                <div class="field form-full" id="websiteSectionBannerPreviewWrap" style="display:none"><label>المعاينة</label><img id="websiteSectionBannerPreview" alt="معاينة بانر العبايات" style="display:block;width:100%;max-height:260px;object-fit:cover;border-radius:14px" /></div>
+                <div class="field"><label>وصف الصورة</label><input id="websiteSectionBannerAlt" type="text" placeholder="عبايات جديدة" /></div>
+                <div class="field"><label>الرابط عند الضغط</label><input id="websiteSectionBannerLink" type="text" placeholder="#collection" /></div>
+                <div class="field"><label>العرض</label><select id="websiteSectionBannerWidth"><option value="full">بعرض الشاشة</option><option value="container">داخل حدود المنتجات</option></select></div>
+                <div class="field"><label>الارتفاع</label><select id="websiteSectionBannerHeight"><option value="compact">منخفض</option><option value="medium">متوسط</option><option value="large">كبير</option></select></div>
+                <div class="field"><label>المسافة</label><select id="websiteSectionBannerSpacing"><option value="tight">قريبة</option><option value="normal">عادية</option><option value="wide">واسعة</option></select></div>
+              </div>
+              <label class="toggle"><span>إظهار البانر الأوسط</span><span class="switch"><input id="websiteSectionBannerEnabled" type="checkbox" checked /><span class="slider"></span></span></label>
+            </div>
+            <div class="card" style="margin-top:12px">
+              <div class="panel-head"><div><h3>تصنيفات الصفحة الرئيسية</h3><p>تحكمي في الأقسام التي تظهر للزبونة وروابط تصفية المنتجات.</p></div><button class="btn btn-soft" onclick="addWebsiteCategory()">+ إضافة تصنيف</button></div>
+              <div class="list" id="websiteCategoriesList"></div>
+            </div>
           </div>
 
-          <div class="card campaign-section campaign-section-panel" id="campaignSection-competitions">
+          <div class="card campaign-section campaign-section-panel" id="campaignSection-social" style="display:none">
             <div class="panel-head">
-              <div>
-                <h3><span class="campaign-index">4</span> المسابقات</h3>
-                <p>قسم مستقل للمسابقات التفاعلية وربطها بالتطبيق.</p>
-              </div>
-              <div class="quick-row">
-                <button class="btn btn-primary" onclick="saveMarketingConfig()">حفظ القسم</button>
-              </div>
-            </div>
-            <div class="list" id="competitionsList"></div>
-            <div class="hero-actions"><button class="btn btn-soft" onclick="addCompetitionItem()">+ إضافة مسابقة</button></div>
-          </div>
-
-          <div class="card campaign-section campaign-section-panel" id="campaignSection-social">
-            <div class="panel-head">
-              <div><h3><span class="campaign-index">5</span> روابط صفحات التواصل</h3><p>أضيفي روابط صفحاتك، وستظهر أيقوناتها بشكل احترافي في الموقع.</p></div>
+              <div><h3><span class="campaign-index">4</span> روابط صفحات التواصل</h3><p>أضيفي روابط صفحاتك، وستظهر أيقوناتها بشكل احترافي في الموقع.</p></div>
               <button class="btn btn-primary" onclick="saveMarketingConfig()">حفظ الروابط</button>
             </div>
             <div class="split-2">
@@ -1618,10 +1552,24 @@
       document.getElementById('socialTiktok').value = social.tiktok || '';
       document.getElementById('socialWebsite').value = social.website || '';
       document.getElementById('socialEnabled').checked = social.enabled !== false;
+      const websiteHome = marketingConfig.websiteHome || {};
+      const announcement = websiteHome.announcement || {};
+      const sectionBanner = websiteHome.sectionBanner || {};
+      document.getElementById('websiteAnnouncementText').value = announcement.text || '';
+      document.getElementById('websiteAnnouncementSpeed').value = Math.max(6, Math.min(60, Number(announcement.speedSeconds || 18)));
+      document.getElementById('websiteAnnouncementStyle').value = ['rose', 'dark', 'gold'].includes(announcement.style) ? announcement.style : 'rose';
+      document.getElementById('websiteAnnouncementEnabled').checked = announcement.enabled !== false;
+      document.getElementById('websiteSectionBannerImage').value = sectionBanner.imageUrl || '';
+      document.getElementById('websiteSectionBannerAlt').value = sectionBanner.altText || '';
+      document.getElementById('websiteSectionBannerLink').value = sectionBanner.linkUrl || '#collection';
+      document.getElementById('websiteSectionBannerWidth').value = ['full', 'container'].includes(sectionBanner.widthMode) ? sectionBanner.widthMode : 'full';
+      document.getElementById('websiteSectionBannerHeight').value = ['compact', 'medium', 'large'].includes(sectionBanner.height) ? sectionBanner.height : 'medium';
+      document.getElementById('websiteSectionBannerSpacing').value = ['tight', 'normal', 'wide'].includes(sectionBanner.spacing) ? sectionBanner.spacing : 'tight';
+      document.getElementById('websiteSectionBannerEnabled').checked = sectionBanner.enabled !== false;
+      updateWebsiteSectionBannerPreview(sectionBanner.imageUrl || '');
+      renderWebsiteCategories(websiteHome.categories || []);
       renderCampaignEditor('couponList', marketingConfig.coupons || [], 'coupon');
       renderCampaignEditor('offersItemsList', offers.items || [], 'offer');
-      renderCampaignEditor('giftsList', marketingConfig.gifts || [], 'gift');
-      renderCampaignEditor('competitionsList', marketingConfig.competitions || [], 'competition');
     }
 
     async function loadMarketingConfig(forceToast = false) {
@@ -1658,14 +1606,108 @@
           tiktok: document.getElementById('socialTiktok').value.trim(),
           website: document.getElementById('socialWebsite').value.trim(),
         };
+        marketingConfig.websiteHome = marketingConfig.websiteHome || {};
+        marketingConfig.websiteHome.announcement = {
+          text: document.getElementById('websiteAnnouncementText').value.trim(),
+          enabled: document.getElementById('websiteAnnouncementEnabled').checked,
+          speedSeconds: Math.max(6, Math.min(60, Number(document.getElementById('websiteAnnouncementSpeed').value || 18))),
+          style: document.getElementById('websiteAnnouncementStyle').value,
+        };
+        marketingConfig.websiteHome.sectionBanner = {
+          ...(marketingConfig.websiteHome.sectionBanner || {}),
+          imageUrl: document.getElementById('websiteSectionBannerImage').value.trim(),
+          altText: document.getElementById('websiteSectionBannerAlt').value.trim(),
+          linkUrl: document.getElementById('websiteSectionBannerLink').value.trim(),
+          enabled: document.getElementById('websiteSectionBannerEnabled').checked,
+          widthMode: document.getElementById('websiteSectionBannerWidth').value,
+          height: document.getElementById('websiteSectionBannerHeight').value,
+          spacing: document.getElementById('websiteSectionBannerSpacing').value,
+        };
+        marketingConfig.websiteHome.categories = readWebsiteCategoriesFromDom();
         const data = await api('PUT', '/marketing/config', marketingConfig);
         if (!data.ok) throw new Error(data.error || 'فشل حفظ الحملات');
         marketingConfig = data.config || marketingConfig;
         renderMarketingConfig();
-        toast('تم حفظ العروض والحملات', 'success');
+        toast('تم حفظ إعدادات واجهة الموقع', 'success');
       } catch (err) {
         toast(String(err?.message || 'فشل حفظ الحملات'), 'error');
       }
+    }
+
+    function updateWebsiteSectionBannerPreview(url) {
+      const value = String(url || '').trim();
+      const wrap = document.getElementById('websiteSectionBannerPreviewWrap');
+      const image = document.getElementById('websiteSectionBannerPreview');
+      if (!wrap || !image) return;
+      image.src = value;
+      wrap.style.display = value ? '' : 'none';
+    }
+
+    async function uploadWebsiteSectionBanner(event) {
+      const file = event?.target?.files?.[0];
+      if (!file) return;
+      const status = document.getElementById('websiteSectionBannerUploadStatus');
+      if (status) status.textContent = 'جاري رفع الصورة...';
+      try {
+        const url = await uploadOneImage(file);
+        document.getElementById('websiteSectionBannerImage').value = url;
+        updateWebsiteSectionBannerPreview(url);
+        if (status) status.textContent = 'تم رفع الصورة، اضغطي حفظ الواجهة';
+      } catch (error) {
+        if (status) status.textContent = 'تعذر رفع الصورة';
+        toast(String(error?.message || 'تعذر رفع الصورة'), 'error');
+      }
+      event.target.value = '';
+    }
+
+    function renderWebsiteCategories(items) {
+      const box = document.getElementById('websiteCategoriesList');
+      if (!box) return;
+      const rows = Array.isArray(items) ? items : [];
+      if (!rows.length) {
+        box.innerHTML = '<div class="empty" style="padding:18px 0">لا توجد تصنيفات مخصصة بعد.</div>';
+        return;
+      }
+      box.innerHTML = rows.map((item, index) => `
+        <div class="campaign-item website-category-item" data-id="${escHtml(item.id || `category_${Date.now()}_${index}`)}">
+          <div class="split-2">
+            <div class="field"><label>اسم القسم</label><input data-category-field="title" data-index="${index}" value="${escHtml(item.title || '')}" /></div>
+            <div class="field"><label>فلتر تصنيف المنتجات</label><input data-category-field="productCategoryFilter" data-index="${index}" value="${escHtml(item.productCategoryFilter || '')}" /></div>
+            <div class="field"><label>رابط صورة القسم</label><input data-category-field="imageUrl" data-index="${index}" value="${escHtml(item.imageUrl || '')}" /></div>
+            <div class="field"><label>الترتيب</label><input type="number" data-category-field="sortOrder" data-index="${index}" value="${Number(item.sortOrder || index)}" /></div>
+            <label class="toggle"><span>إظهار القسم</span><span class="switch"><input type="checkbox" data-category-field="enabled" data-index="${index}" ${item.enabled !== false ? 'checked' : ''} /><span class="slider"></span></span></label>
+          </div>
+          <div class="quick-row"><button class="btn btn-danger" onclick="removeWebsiteCategory(${index})">حذف التصنيف</button></div>
+        </div>`).join('');
+    }
+
+    function readWebsiteCategoriesFromDom() {
+      const rows = [...document.querySelectorAll('.website-category-item')];
+      return rows.map((row, index) => {
+        const value = field => row.querySelector(`[data-category-field="${field}"]`);
+        return {
+          id: row.dataset.id || `category_${Date.now()}_${index}`,
+          title: value('title')?.value.trim() || '',
+          productCategoryFilter: value('productCategoryFilter')?.value.trim() || '',
+          imageUrl: value('imageUrl')?.value.trim() || '',
+          sortOrder: Number(value('sortOrder')?.value || index),
+          enabled: Boolean(value('enabled')?.checked),
+        };
+      }).filter(item => item.title);
+    }
+
+    function addWebsiteCategory() {
+      const items = readWebsiteCategoriesFromDom();
+      items.push({ id: `category_${Date.now()}`, title: 'قسم جديد', productCategoryFilter: '', imageUrl: '', sortOrder: items.length, enabled: true });
+      renderWebsiteCategories(items);
+    }
+
+    function removeWebsiteCategory(index) {
+      const item = readWebsiteCategoriesFromDom()[index];
+      if (!item || !confirm(`هل تريدين حذف تصنيف «${item.title}»؟`)) return;
+      const items = readWebsiteCategoriesFromDom();
+      items.splice(index, 1);
+      renderWebsiteCategories(items);
     }
 
     function updateCouponField(index, field, value) {
@@ -1991,8 +2033,8 @@
       });
     }
 
-    const ADMIN_VIEWS = ['overview', 'products', 'orders', 'ambassadors', 'notifications', 'devices', 'campaigns', 'settings'];
-    const CAMPAIGN_VIEWS = ['coupons', 'offers', 'gifts', 'competitions', 'social'];
+    const ADMIN_VIEWS = ['overview', 'products', 'orders', 'ambassadors', 'website', 'settings'];
+    const CAMPAIGN_VIEWS = ['website'];
 
     function notifyAdminHost(type, payload = {}) {
       try {
@@ -2006,9 +2048,6 @@
 
     function adminRoute(view, campaignView = '') {
       const safeView = ADMIN_VIEWS.includes(view) ? view : 'overview';
-      if (safeView === 'campaigns' && CAMPAIGN_VIEWS.includes(campaignView)) {
-        return `#/${safeView}/${campaignView}`;
-      }
       return `#/${safeView}`;
     }
 
@@ -2057,11 +2096,8 @@
       if (next === 'ambassadors') {
         loadAmbassadors();
       }
-      if (next === 'devices') {
-        loadDeviceStats();
-      }
-      if (next === 'campaigns') {
-        setCampaignSubView('coupons', false);
+      if (next === 'website') {
+        setCampaignSubView('website', false);
         loadMarketingConfig();
       }
     }
@@ -2075,22 +2111,20 @@
       const target = document.getElementById(`campaignSection-${next}`);
       if (target) target.classList.add('active');
       sessionStorage.setItem('ck_admin_campaign_view', next);
-      if (syncRoute) syncAdminRoute('campaigns', next);
-      notifyAdminHost('campaignViewChanged', { view: next, route: adminRoute('campaigns', next) });
+      if (syncRoute) syncAdminRoute('website');
+      notifyAdminHost('campaignViewChanged', { view: next, route: adminRoute('website') });
     }
 
     function adminNavigate(view, campaignView = '') {
       const next = ADMIN_VIEWS.includes(String(view || '').trim()) ? view : 'overview';
       setView(next);
-      if (next === 'campaigns' && CAMPAIGN_VIEWS.includes(campaignView)) {
-        setCampaignSubView(campaignView);
-      }
+      if (next === 'website') setCampaignSubView('website');
     }
 
     function applyAdminRoute(loadData = true) {
       const state = adminRouteState();
       setView(state.view, false, loadData);
-      if (state.view === 'campaigns') setCampaignSubView(state.campaignView, false);
+      if (state.view === 'website') setCampaignSubView('website', false);
     }
 
     window.addEventListener('hashchange', () => applyAdminRoute(true));

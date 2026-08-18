@@ -30,12 +30,13 @@ _FIREBASE_IMPORT_ERROR = ""
 
 try:
     import firebase_admin
-    from firebase_admin import auth as firebase_auth, credentials, firestore
+    from firebase_admin import auth as firebase_auth, credentials, firestore, messaging as firebase_messaging
 except Exception as _ex:  # pragma: no cover - optional dependency at runtime
     firebase_admin = None
     firebase_auth = None
     credentials = None
     firestore = None
+    firebase_messaging = None
     _FIREBASE_IMPORT_ERROR = str(_ex)
 
 ROOT = Path(__file__).resolve().parent
@@ -259,6 +260,89 @@ def _firestore_db() -> tuple[Optional[Any], str]:
     if _FIRESTORE_DB is not None:
         return _FIRESTORE_DB, ""
     return None, (_FIREBASE_INIT_ERROR or "Failed to initialize Firestore")
+
+
+def _registered_device_tokens_for_uid(uid: str) -> List[str]:
+    uid = str(uid or "").strip()
+    if not uid:
+        return []
+
+    tokens: List[str] = []
+    seen = set()
+    for device in read_devices():
+        if not isinstance(device, dict):
+            continue
+        if str(device.get("uid") or "").strip() != uid:
+            continue
+        token = str(
+            device.get("fcmToken")
+            or device.get("deviceToken")
+            or device.get("pushToken")
+            or device.get("token")
+            or ""
+        ).strip()
+        if token and token not in seen:
+            seen.add(token)
+            tokens.append(token)
+    return tokens
+
+
+def _send_fcm_to_tokens(tokens: List[str], *, title: str, body: str, image_url: str = "", target: str = "", target_id: str = "") -> int:
+    normalized = []
+    seen = set()
+    for token in tokens:
+        value = str(token or "").strip()
+        if value and value not in seen:
+            seen.add(value)
+            normalized.append(value)
+
+    if not normalized:
+        return 0
+    if firebase_admin is None or firebase_messaging is None:
+        return 0
+
+    _init_firestore()
+
+    sent = 0
+    for token in normalized:
+        message = firebase_messaging.Message(
+            token=token,
+            notification=firebase_messaging.Notification(
+                title=title,
+                body=body,
+            ),
+            data={
+                "title": title,
+                "body": body,
+                "imageUrl": image_url,
+                "target": target,
+                "targetId": target_id,
+                "sound": "default",
+            },
+            android=firebase_messaging.AndroidConfig(
+                priority="high",
+                notification=firebase_messaging.AndroidNotification(
+                    sound="default",
+                    channel_id="avea_fashion_customer_updates",
+                    priority=2,
+                ),
+            ),
+            apns=firebase_messaging.APNSConfig(
+                payload=firebase_messaging.APNSPayload(
+                    aps=firebase_messaging.Aps(
+                        sound="default",
+                        content_available=True,
+                        mutable_content=True,
+                    )
+                )
+            ),
+        )
+        try:
+            firebase_messaging.send(message)
+            sent += 1
+        except Exception:
+            continue
+    return sent
 
 
 def _firebase_user_from_request() -> tuple[Optional[Dict[str, Any]], Optional[Any]]:
@@ -818,7 +902,10 @@ else:
 
 def read_products() -> List[Dict[str, Any]]:
     fs_items = _read_products_firestore()
-    products = fs_items if fs_items is not None else _read_products_local()
+    if fs_items is not None and len(fs_items) > 0:
+        products = fs_items
+    else:
+        products = _read_products_local()
     normalized, changed = ensure_products_have_codes(products)
     if changed:
         write_products(normalized)
@@ -2537,6 +2624,7 @@ def normalize_device_item(payload: Dict[str, Any], current: Optional[Dict[str, A
 
     return {
         "installationId": installation_id,
+        "fcmToken": str(payload.get("fcmToken") or payload.get("deviceToken") or payload.get("pushToken") or payload.get("token") or cur.get("fcmToken") or cur.get("deviceToken") or cur.get("pushToken") or cur.get("token") or "").strip(),
         "platform": platform,
         "deviceType": device_type,
         "isPhysicalDevice": bool(payload.get("isPhysicalDevice", cur.get("isPhysicalDevice", True))),
@@ -2644,6 +2732,8 @@ def _extract_order_image_url(order_item: Dict[str, Any]) -> str:
 
 
 def _notify_user_on_order_status_change(order_item: Dict[str, Any], *, old_status: str, new_status: str) -> None:
+    return
+
     if str(old_status or "").strip().lower() == str(new_status or "").strip().lower():
         return
 
@@ -2698,6 +2788,20 @@ def _notify_user_on_order_status_change(order_item: Dict[str, Any], *, old_statu
         write_notifications(entries)
     except Exception:
         pass
+
+    tokens = _registered_device_tokens_for_uid(uid)
+    if tokens:
+        try:
+            _send_fcm_to_tokens(
+                tokens,
+                title=title,
+                body=body,
+                image_url=image_url,
+                target="orders",
+                target_id=order_id,
+            )
+        except Exception:
+            pass
 
 
 def as_number(v: Any, fallback: float = 0.0) -> float:
@@ -3075,6 +3179,8 @@ def app_content():
 
 @app.post("/devices/register")
 def register_device_installation():
+    return jsonify({"ok": False, "error": "ميزة الأجهزة متوقفة"}), 410
+
     payload = request.get_json(silent=True) or {}
     installation_id = str(payload.get("installationId") or payload.get("deviceId") or "").strip()
     if not installation_id:
@@ -3121,6 +3227,8 @@ def register_device_installation():
 
 @app.get("/devices/stats")
 def devices_stats():
+    return jsonify({"ok": False, "error": "ميزة الأجهزة متوقفة"}), 410
+
     ok, err = require_admin()
     if not ok:
         return err
@@ -4332,6 +4440,8 @@ def delete_product(pid: str):
 
 @app.post("/notifications/send")
 def send_customer_notifications():
+    return jsonify({"ok": False, "error": "إشعارات الزباين متوقفة"}), 410
+
     ok, err = require_admin()
     if not ok:
         return err
@@ -4473,6 +4583,8 @@ def send_customer_notifications():
 
 @app.get("/notifications/feed")
 def notifications_feed():
+    return jsonify({"ok": False, "error": "إشعارات الزباين متوقفة"}), 410
+
     since_ms = as_int(request.args.get("sinceMs", 0), 0)
     limit = as_int(request.args.get("limit", 50), 50)
     limit = max(1, min(limit, 300))

@@ -52,6 +52,41 @@ class AdminFeatureTests(unittest.TestCase):
             },
         }
 
+    def test_register_device_installation_keeps_fcm_token(self):
+        with patch.object(server, "read_devices", return_value=[]), \
+             patch.object(server, "write_devices") as write_devices:
+            response = server.app.test_client().post("/devices/register", json={
+                "installationId": "device-1",
+                "fcmToken": "token-abc",
+                "uid": "customer-1",
+                "platform": "android",
+            })
+
+        self.assertEqual(response.status_code, 200)
+        saved_devices = write_devices.call_args.args[0]
+        self.assertEqual(saved_devices[0]["fcmToken"], "token-abc")
+        self.assertEqual(saved_devices[0]["uid"], "customer-1")
+
+    def test_order_status_notification_sends_to_registered_fcm_tokens(self):
+        with patch.object(server, "read_devices", return_value=[{
+            "installationId": "device-1",
+            "uid": "customer-1",
+            "fcmToken": "token-abc",
+        }]), \
+             patch.object(server, "_send_fcm_to_tokens") as send_push:
+            order = server.normalize_order_item({
+                "orderId": "notif-order-1",
+                "uid": "customer-1",
+                "status": "pending",
+                "payload": {"customer": {"name": "زبونة"}, "items": [{"name": "فستان", "imageUrl": "https://example.com/p.jpg"}]},
+            })
+
+            server._notify_user_on_order_status_change(order, old_status="pending", new_status="processing")
+
+        send_push.assert_called_once()
+        self.assertIn("token-abc", send_push.call_args.args[0])
+        self.assertEqual(send_push.call_args.kwargs["title"], "تحديث حالة الطلب #notif-order-1")
+
     def test_website_home_normalizes_banners_and_ordered_categories(self):
         config = server.normalize_marketing_config({
             "websiteHome": {
@@ -155,6 +190,15 @@ class AdminFeatureTests(unittest.TestCase):
         })
         self.assertEqual(support["whatsappNumber"], "")
         self.assertFalse(support["enabled"])
+
+    def test_read_products_falls_back_to_local_file_when_firestore_is_empty(self):
+        local_products = [{"id": "local-1", "name": "فستان محلي", "isHidden": 0}]
+        with patch.object(server, "_read_products_firestore", return_value=[]), \
+             patch.object(server, "_read_products_local", return_value=local_products), \
+             patch.object(server, "ensure_products_have_codes", return_value=(local_products, False)):
+            products = server.read_products()
+        self.assertEqual(len(products), 1)
+        self.assertEqual(products[0]["id"], "local-1")
 
     def test_public_content_exposes_ambassador_support(self):
         with patch.object(server, "read_marketing_config", return_value={
