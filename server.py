@@ -761,6 +761,10 @@ if not EXPENSES_FILE.exists():
 
 def default_marketing_config() -> Dict[str, Any]:
     return {
+        "presence": {
+            "enabled": True,
+            "showNames": True,
+        },
         "websiteHome": {
             "announcement": {
                 "text": "شحن لجميع المدن الليبية • الدفع عند الاستلام",
@@ -1207,6 +1211,14 @@ def normalize_website_social(payload: Any) -> Dict[str, Any]:
     }
 
 
+def normalize_presence_settings(payload: Any) -> Dict[str, Any]:
+    source = payload if isinstance(payload, dict) else {}
+    return {
+        "enabled": bool(source.get("enabled", True)),
+        "showNames": bool(source.get("showNames", True)),
+    }
+
+
 def normalize_marketing_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     now_ms = int(time.time() * 1000)
     commission_src = payload.get("commission") if isinstance(payload.get("commission"), dict) else {}
@@ -1228,6 +1240,7 @@ def normalize_marketing_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     competitions = [x for x in (normalize_campaign_item(i if isinstance(i, dict) else {}, fallback_id_prefix="competition") for i in raw_competitions) if x]
 
     return {
+        "presence": normalize_presence_settings(payload.get("presence")),
         "websiteHome": normalize_website_home(payload.get("websiteHome")),
         "websiteSocial": normalize_website_social(payload.get("websiteSocial")),
         "websiteAppearance": normalize_website_appearance(payload.get("websiteAppearance")),
@@ -1277,6 +1290,7 @@ def public_app_content() -> Dict[str, Any]:
     return {
         "ok": True,
         "updatedAt": cfg.get("updatedAt", now_ms),
+        "presence": normalize_presence_settings(cfg.get("presence")),
         "websiteHome": {
             "announcement": cfg.get("websiteHome", {}).get("announcement", {}),
             "banner": cfg.get("websiteHome", {}).get("banner", {}),
@@ -3537,12 +3551,16 @@ def devices_stats():
     })
 
 
-# Anonymous live-visitor presence. Held in memory only: it is a "right now" signal,
-# so losing it on restart is fine and it never touches disk or personal data.
+# Live-visitor presence. Held in memory only: it is a "right now" signal, so losing
+# it on restart is fine and it never touches disk.
 _PRESENCE_LOCK = threading.RLock()
 _PRESENCE: Dict[str, Dict[str, Any]] = {}
 _PRESENCE_ONLINE_SECONDS = 90
 _PRESENCE_MAX_ENTRIES = 20000
+
+
+def _presence_settings() -> Dict[str, Any]:
+    return normalize_presence_settings(read_marketing_config().get("presence"))
 
 
 def _prune_presence(now: float) -> None:
@@ -3556,6 +3574,10 @@ def _prune_presence(now: float) -> None:
 
 @app.post("/presence/ping")
 def presence_ping():
+    if not _presence_settings()["enabled"]:
+        # Tells the client to stop pinging so a disabled feature costs nothing.
+        return jsonify({"ok": True, "enabled": False, "intervalSeconds": 0})
+
     payload = request.get_json(silent=True) or {}
     session_id = str(payload.get("sid") or "").strip()[:64]
     if not session_id:
@@ -3567,8 +3589,17 @@ def presence_ping():
     now = time.time()
     with _PRESENCE_LOCK:
         _prune_presence(now)
-        _PRESENCE[session_id] = {"ts": now, "platform": platform}
-    return jsonify({"ok": True, "intervalSeconds": 30})
+        previous = _PRESENCE.get(session_id) or {}
+        _PRESENCE[session_id] = {
+            "ts": now,
+            "platform": platform,
+            "startedAt": previous.get("startedAt", now),
+            "uid": str(payload.get("uid") or "").strip()[:64],
+            "name": str(payload.get("name") or "").strip()[:60],
+            "city": str(payload.get("city") or "").strip()[:40],
+            "screen": str(payload.get("screen") or "").strip()[:40],
+        }
+    return jsonify({"ok": True, "enabled": True, "intervalSeconds": 30})
 
 
 @app.get("/admin/presence")
@@ -3577,20 +3608,60 @@ def admin_presence():
     if not ok:
         return err
 
+    settings = _presence_settings()
     now = time.time()
     with _PRESENCE_LOCK:
         _prune_presence(now)
         live = [v for v in _PRESENCE.values() if now - v["ts"] <= _PRESENCE_ONLINE_SECONDS]
         last_hour = len(_PRESENCE)
 
+    visitors = []
+    if settings["showNames"]:
+        for row in sorted(live, key=lambda v: v.get("startedAt", v["ts"])):
+            visitors.append({
+                "name": row.get("name") or "",
+                "city": row.get("city") or "",
+                "screen": row.get("screen") or "",
+                "platform": row.get("platform", "web"),
+                "signedIn": bool(row.get("uid")),
+                "secondsHere": int(max(0, now - row.get("startedAt", now))),
+                "secondsAgo": int(max(0, now - row["ts"])),
+            })
+
     return jsonify({
         "ok": True,
+        "enabled": settings["enabled"],
+        "showNames": settings["showNames"],
         "online": len(live),
         "onlineApp": sum(1 for v in live if v["platform"] in {"android", "ios"}),
         "onlineWeb": sum(1 for v in live if v["platform"] == "web"),
+        "signedIn": sum(1 for v in live if v.get("uid")),
         "lastHour": last_hour,
         "windowSeconds": _PRESENCE_ONLINE_SECONDS,
+        "visitors": visitors,
     })
+
+
+@app.post("/admin/presence/settings")
+def admin_presence_settings():
+    ok, err = require_admin()
+    if not ok:
+        return err
+
+    payload = request.get_json(silent=True) or {}
+    config = read_marketing_config()
+    current = normalize_presence_settings(config.get("presence"))
+    config["presence"] = normalize_presence_settings({
+        "enabled": payload.get("enabled", current["enabled"]),
+        "showNames": payload.get("showNames", current["showNames"]),
+    })
+    write_marketing_config(config)
+
+    settings = normalize_presence_settings(config["presence"])
+    if not settings["enabled"]:
+        with _PRESENCE_LOCK:
+            _PRESENCE.clear()
+    return jsonify({"ok": True, "presence": settings})
 
 
 @app.get("/dashboard/summary")
