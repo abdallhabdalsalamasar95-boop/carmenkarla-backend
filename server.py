@@ -3170,14 +3170,6 @@ def normalize_product(payload: Dict[str, Any], current: Optional[Dict[str, Any]]
     stock_quantity = max(0, as_int(payload.get("stockQuantity", cur.get("stockQuantity", 0)), 0))
     low_stock_threshold = max(0, as_int(payload.get("lowStockThreshold", cur.get("lowStockThreshold", 0)), 0))
 
-    # Supplier-sourced items are bought on demand, so they carry no local stock.
-    source = str(payload.get("source") or cur.get("source") or "local").strip().lower()
-    if source not in {"local", "shein"}:
-        source = "local"
-    supplier_url = str(
-        payload.get("supplierUrl") if payload.get("supplierUrl") is not None else cur.get("supplierUrl", "")
-    ).strip()
-
     if not image_url and image_urls:
         image_url = image_urls[0]
 
@@ -3197,8 +3189,6 @@ def normalize_product(payload: Dict[str, Any], current: Optional[Dict[str, Any]]
         or bool(color_quantities)
     )
     out_of_stock = has_inventory_tracking and available_stock <= 0
-    if source != "local":
-        out_of_stock = False
     low_stock = (not out_of_stock) and low_stock_threshold > 0 and available_stock <= low_stock_threshold
     low_stock_sizes = [k for k, v in size_quantities.items() if low_stock_threshold > 0 and v <= low_stock_threshold]
     low_stock_colors = [k for k, v in color_quantities.items() if low_stock_threshold > 0 and v <= low_stock_threshold]
@@ -3234,8 +3224,6 @@ def normalize_product(payload: Dict[str, Any], current: Optional[Dict[str, Any]]
         "lowStockColors": low_stock_colors,
         "sabilEnabled": as_hidden_int(payload.get("sabilEnabled", cur.get("sabilEnabled", 0))),
         "sabilReferenceCode": str(payload.get("sabilReferenceCode") if payload.get("sabilReferenceCode") is not None else cur.get("sabilReferenceCode", "")).strip(),
-        "source": source,
-        "supplierUrl": supplier_url,
         "createdAt": created_at,
         "updatedAt": as_int(payload.get("updatedAt", now), now),
     }
@@ -4425,6 +4413,76 @@ def list_admin_ambassadors():
         "items": items,
         "source": "firestore" if not profiles_error else "unavailable",
         "warning": profiles_error,
+    })
+
+
+@app.get("/admin/customers")
+def list_admin_customers():
+    """Customer directory rebuilt from orders, keyed by phone number."""
+    ok, err = require_admin()
+    if not ok:
+        return err
+
+    now_ms = int(time.time() * 1000)
+    active_window_ms = max(1, as_int(request.args.get("activeDays", 60), 60)) * 86400000
+    profiles: Dict[str, Dict[str, Any]] = {}
+
+    for raw in read_orders():
+        if not isinstance(raw, dict):
+            continue
+        item = normalize_order_item(raw)
+        phone = re.sub(r"[^0-9+]", "", str(item.get("customerPhone") or "").strip())
+        if not phone:
+            continue
+        status = str(item.get("status") or "pending").strip().lower()
+        created = as_int(item.get("createdAtMs", 0), 0)
+        total = as_number(item.get("grandTotal", 0), 0)
+
+        entry = profiles.setdefault(phone, {
+            "phone": phone,
+            "name": "",
+            "city": "",
+            "address": "",
+            "uid": "",
+            "ordersCount": 0,
+            "deliveredCount": 0,
+            "canceledCount": 0,
+            "openCount": 0,
+            "totalSpent": 0.0,
+            "firstOrderMs": created,
+            "lastOrderMs": 0,
+        })
+
+        entry["ordersCount"] += 1
+        if status == "delivered":
+            entry["deliveredCount"] += 1
+            entry["totalSpent"] += total
+        elif status in {"canceled", "cancelled", "returned"}:
+            entry["canceledCount"] += 1
+        else:
+            entry["openCount"] += 1
+
+        if created and created > as_int(entry.get("lastOrderMs", 0), 0):
+            entry["lastOrderMs"] = created
+            entry["name"] = str(item.get("customerName") or entry["name"]).strip()
+            entry["city"] = str(item.get("city") or entry["city"]).strip()
+            entry["address"] = str(item.get("customerAddress") or entry["address"]).strip()
+            entry["uid"] = str(item.get("uid") or entry["uid"]).strip()
+        if created and (not entry.get("firstOrderMs") or created < as_int(entry["firstOrderMs"], 0)):
+            entry["firstOrderMs"] = created
+
+    items = sorted(profiles.values(), key=lambda x: as_int(x.get("lastOrderMs", 0), 0), reverse=True)
+    for entry in items:
+        entry["totalSpent"] = round(as_number(entry.get("totalSpent", 0), 0), 2)
+        entry["active"] = (now_ms - as_int(entry.get("lastOrderMs", 0), 0)) <= active_window_ms
+        entry["repeat"] = as_int(entry.get("ordersCount", 0), 0) > 1
+
+    return jsonify({
+        "ok": True,
+        "count": len(items),
+        "activeCount": sum(1 for x in items if x.get("active")),
+        "repeatCount": sum(1 for x in items if x.get("repeat")),
+        "items": items,
     })
 
 
