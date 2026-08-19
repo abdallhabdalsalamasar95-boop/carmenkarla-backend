@@ -2198,6 +2198,41 @@ def _cancel_sabil_shipment_for_order(order: Dict[str, Any]) -> Optional[Dict[str
     }
 
 
+_SABIL_FORWARD_CHAIN = ["pending", "processing", "shipped", "delivered"]
+
+# Darb Al Sabeel keeps a shipment "pending" for a while after a branch has
+# already booked or picked it up, so timeline events decide the visible step.
+_SABIL_EVENT_STEP = {
+    "booked": "processing",
+    "accepted": "processing",
+    "referenced": "processing",
+    "assigned": "shipped",
+    "picked_up": "shipped",
+    "shipped": "shipped",
+    "out_for_delivery": "shipped",
+    "in_transit": "shipped",
+    "delivered": "delivered",
+    "completed": "delivered",
+}
+
+
+def _status_from_sabil_snapshot(snapshot: Dict[str, Any]) -> str:
+    """Pick the furthest step Darb Al Sabeel reports, header status or timeline."""
+    mapped = _local_status_for_sabil(snapshot.get("providerStatus"))
+    if mapped and mapped not in _SABIL_FORWARD_CHAIN:
+        return mapped
+
+    furthest = _SABIL_FORWARD_CHAIN.index(mapped) if mapped else -1
+    timeline = snapshot.get("timeline") if isinstance(snapshot.get("timeline"), list) else []
+    for event in timeline:
+        if not isinstance(event, dict):
+            continue
+        step = _SABIL_EVENT_STEP.get(re.sub(r"[\s-]+", "_", str(event.get("type") or "").strip().lower()))
+        if step:
+            furthest = max(furthest, _SABIL_FORWARD_CHAIN.index(step))
+    return _SABIL_FORWARD_CHAIN[furthest] if furthest >= 0 else ""
+
+
 def _mark_order_accepted(order_id: str) -> None:
     """A booked Darb Al Sabeel shipment means the order moved past "قيد الانتظار"."""
     current = next(
@@ -2387,7 +2422,7 @@ def sync_sabil_deleted_shipments() -> Dict[str, Any]:
             if not snapshot:
                 continue
             try:
-                mapped_status = _local_status_for_sabil(snapshot.get("providerStatus"))
+                mapped_status = _status_from_sabil_snapshot(snapshot)
                 if snapshot.get("deleted"):
                     mapped_status = "canceled"
                 if not mapped_status:
