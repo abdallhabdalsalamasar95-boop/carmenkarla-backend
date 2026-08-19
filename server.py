@@ -3170,6 +3170,14 @@ def normalize_product(payload: Dict[str, Any], current: Optional[Dict[str, Any]]
     stock_quantity = max(0, as_int(payload.get("stockQuantity", cur.get("stockQuantity", 0)), 0))
     low_stock_threshold = max(0, as_int(payload.get("lowStockThreshold", cur.get("lowStockThreshold", 0)), 0))
 
+    # Supplier-sourced items are bought on demand, so they carry no local stock.
+    source = str(payload.get("source") or cur.get("source") or "local").strip().lower()
+    if source not in {"local", "shein"}:
+        source = "local"
+    supplier_url = str(
+        payload.get("supplierUrl") if payload.get("supplierUrl") is not None else cur.get("supplierUrl", "")
+    ).strip()
+
     if not image_url and image_urls:
         image_url = image_urls[0]
 
@@ -3189,6 +3197,8 @@ def normalize_product(payload: Dict[str, Any], current: Optional[Dict[str, Any]]
         or bool(color_quantities)
     )
     out_of_stock = has_inventory_tracking and available_stock <= 0
+    if source != "local":
+        out_of_stock = False
     low_stock = (not out_of_stock) and low_stock_threshold > 0 and available_stock <= low_stock_threshold
     low_stock_sizes = [k for k, v in size_quantities.items() if low_stock_threshold > 0 and v <= low_stock_threshold]
     low_stock_colors = [k for k, v in color_quantities.items() if low_stock_threshold > 0 and v <= low_stock_threshold]
@@ -3224,6 +3234,8 @@ def normalize_product(payload: Dict[str, Any], current: Optional[Dict[str, Any]]
         "lowStockColors": low_stock_colors,
         "sabilEnabled": as_hidden_int(payload.get("sabilEnabled", cur.get("sabilEnabled", 0))),
         "sabilReferenceCode": str(payload.get("sabilReferenceCode") if payload.get("sabilReferenceCode") is not None else cur.get("sabilReferenceCode", "")).strip(),
+        "source": source,
+        "supplierUrl": supplier_url,
         "createdAt": created_at,
         "updatedAt": as_int(payload.get("updatedAt", now), now),
     }
