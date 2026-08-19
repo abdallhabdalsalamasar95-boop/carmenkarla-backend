@@ -3466,12 +3466,67 @@ def devices_stats():
     })
 
 
+# Anonymous live-visitor presence. Held in memory only: it is a "right now" signal,
+# so losing it on restart is fine and it never touches disk or personal data.
+_PRESENCE_LOCK = threading.RLock()
+_PRESENCE: Dict[str, Dict[str, Any]] = {}
+_PRESENCE_ONLINE_SECONDS = 90
+_PRESENCE_MAX_ENTRIES = 20000
+
+
+def _prune_presence(now: float) -> None:
+    stale = [key for key, value in _PRESENCE.items() if now - value["ts"] > 3600]
+    for key in stale:
+        _PRESENCE.pop(key, None)
+    if len(_PRESENCE) > _PRESENCE_MAX_ENTRIES:
+        for key, _ in sorted(_PRESENCE.items(), key=lambda kv: kv[1]["ts"])[:len(_PRESENCE) - _PRESENCE_MAX_ENTRIES]:
+            _PRESENCE.pop(key, None)
+
+
+@app.post("/presence/ping")
+def presence_ping():
+    payload = request.get_json(silent=True) or {}
+    session_id = str(payload.get("sid") or "").strip()[:64]
+    if not session_id:
+        return jsonify({"ok": False, "error": "sid is required"}), 400
+    platform = str(payload.get("platform") or "web").strip().lower()
+    if platform not in {"web", "android", "ios"}:
+        platform = "web"
+
+    now = time.time()
+    with _PRESENCE_LOCK:
+        _prune_presence(now)
+        _PRESENCE[session_id] = {"ts": now, "platform": platform}
+    return jsonify({"ok": True, "intervalSeconds": 30})
+
+
+@app.get("/admin/presence")
+def admin_presence():
+    ok, err = require_admin()
+    if not ok:
+        return err
+
+    now = time.time()
+    with _PRESENCE_LOCK:
+        _prune_presence(now)
+        live = [v for v in _PRESENCE.values() if now - v["ts"] <= _PRESENCE_ONLINE_SECONDS]
+        last_hour = len(_PRESENCE)
+
+    return jsonify({
+        "ok": True,
+        "online": len(live),
+        "onlineApp": sum(1 for v in live if v["platform"] in {"android", "ios"}),
+        "onlineWeb": sum(1 for v in live if v["platform"] == "web"),
+        "lastHour": last_hour,
+        "windowSeconds": _PRESENCE_ONLINE_SECONDS,
+    })
+
+
 @app.get("/dashboard/summary")
 def dashboard_summary():
     ok, err = require_admin()
     if not ok:
         return err
-
     now_ms = int(time.time() * 1000)
     cutoff_1d = now_ms - (1 * 24 * 60 * 60 * 1000)
     cutoff_7d = now_ms - (7 * 24 * 60 * 60 * 1000)
