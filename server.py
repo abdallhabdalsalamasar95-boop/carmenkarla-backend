@@ -2096,6 +2096,8 @@ def dispatch_order_to_sabil(order_id: str, force: bool = False) -> Dict[str, Any
             updated["updatedAtMs"] = int(time.time() * 1000)
             entries[idx] = updated
             write_orders(entries)
+    if str(result.get("status") or "") == "created":
+        _mark_order_accepted(order_id)
     return result
 
 
@@ -2131,6 +2133,7 @@ def attach_sabil_shipment(order_id: str, shipment: Dict[str, Any]) -> Dict[str, 
         order["updatedAtMs"] = now_ms
         entries[idx] = order
         write_orders(entries)
+    _mark_order_accepted(order_id)
     return delivery
 
 
@@ -2195,17 +2198,50 @@ def _cancel_sabil_shipment_for_order(order: Dict[str, Any]) -> Optional[Dict[str
     }
 
 
+def _mark_order_accepted(order_id: str) -> None:
+    """A booked Darb Al Sabeel shipment means the order moved past "قيد الانتظار"."""
+    current = next(
+        (
+            str(normalize_order_item(row).get("status") or "pending").strip().lower()
+            for row in read_orders()
+            if str(row.get("orderId") or "").strip() == str(order_id or "").strip()
+        ),
+        "",
+    )
+    if current != "pending":
+        return
+    try:
+        _change_order_status(order_id, "processing")
+    except Exception:
+        pass
+
+
 def _local_status_for_sabil(provider_status: str) -> str:
+    """Map a Darb Al Sabeel status onto the four customer-facing steps.
+
+    pending -> processing (تم القبول) -> shipped (قيد التوصيل) -> delivered.
+    The provider's own "processing" means the parcel is already moving, so it
+    maps to "قيد التوصيل" rather than to the acceptance step.
+    """
     normalized = re.sub(r"[\s-]+", "_", str(provider_status or "").strip().lower())
-    if normalized == "pending":
+    if normalized in {"pending", "new", "created", "قيد_الانتظار"}:
         return "pending"
-    if normalized in {"processing", "booked", "assigned", "accepted"}:
+    if normalized in {"booked", "assigned", "accepted", "confirmed", "received", "تم_القبول", "مقبول"}:
         return "processing"
-    if normalized in {"shipped", "dispatched", "out_for_delivery", "in_transit", "picked_up"}:
+    if normalized in {
+        "processing",
+        "shipped",
+        "dispatched",
+        "out_for_delivery",
+        "in_transit",
+        "picked_up",
+        "قيد_المعالجة",
+        "قيد_التوصيل",
+    }:
         return "shipped"
     if normalized in {"postponed", "deferred", "delayed", "rescheduled", "on_hold", "hold", "مؤجل", "مؤجلة", "مؤجله"}:
         return "postponed"
-    if normalized in {"completed", "released", "delivered"}:
+    if normalized in {"completed", "released", "delivered", "تم_التوصيل"}:
         return "delivered"
     if normalized in {"returning", "return_in_progress"}:
         return "returning"
@@ -2839,9 +2875,9 @@ def _status_label_ar(status: str) -> str:
     if s == "pending":
         return "قيد الانتظار"
     if s == "processing":
-        return "قيد المعالجة"
+        return "تم القبول"
     if s == "shipped":
-        return "تم الشحن"
+        return "قيد التوصيل"
     if s == "postponed":
         return "مؤجل من شركة التوصيل"
     if s == "delivered":
