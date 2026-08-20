@@ -765,6 +765,14 @@ def default_marketing_config() -> Dict[str, Any]:
             "enabled": True,
             "showNames": True,
         },
+        "wholesale": {
+            "enabled": False,
+            "title": "قسم الجملة",
+            "subtitle": "أسعار خاصة عند شراء الكمية",
+            "note": "",
+            "defaultMinQty": 6,
+            "whatsappNumber": "",
+        },
         "websiteHome": {
             "announcement": {
                 "text": "شحن لجميع المدن الليبية • الدفع عند الاستلام",
@@ -1219,6 +1227,18 @@ def normalize_presence_settings(payload: Any) -> Dict[str, Any]:
     }
 
 
+def normalize_wholesale_settings(payload: Any) -> Dict[str, Any]:
+    source = payload if isinstance(payload, dict) else {}
+    return {
+        "enabled": bool(source.get("enabled", False)),
+        "title": str(source.get("title") or "قسم الجملة").strip() or "قسم الجملة",
+        "subtitle": str(source.get("subtitle") or "أسعار خاصة عند شراء الكمية").strip(),
+        "note": str(source.get("note") or "").strip(),
+        "defaultMinQty": max(1, as_int(source.get("defaultMinQty", 6), 6)),
+        "whatsappNumber": re.sub(r"[^0-9+]", "", str(source.get("whatsappNumber") or "").strip())[:24],
+    }
+
+
 def normalize_marketing_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     now_ms = int(time.time() * 1000)
     commission_src = payload.get("commission") if isinstance(payload.get("commission"), dict) else {}
@@ -1241,6 +1261,7 @@ def normalize_marketing_config(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         "presence": normalize_presence_settings(payload.get("presence")),
+        "wholesale": normalize_wholesale_settings(payload.get("wholesale")),
         "websiteHome": normalize_website_home(payload.get("websiteHome")),
         "websiteSocial": normalize_website_social(payload.get("websiteSocial")),
         "websiteAppearance": normalize_website_appearance(payload.get("websiteAppearance")),
@@ -1291,6 +1312,7 @@ def public_app_content() -> Dict[str, Any]:
         "ok": True,
         "updatedAt": cfg.get("updatedAt", now_ms),
         "presence": normalize_presence_settings(cfg.get("presence")),
+        "wholesale": normalize_wholesale_settings(cfg.get("wholesale")),
         "websiteHome": {
             "announcement": cfg.get("websiteHome", {}).get("announcement", {}),
             "banner": cfg.get("websiteHome", {}).get("banner", {}),
@@ -3278,6 +3300,10 @@ def normalize_product(payload: Dict[str, Any], current: Optional[Dict[str, Any]]
     low_stock_sizes = [k for k, v in size_quantities.items() if low_stock_threshold > 0 and v <= low_stock_threshold]
     low_stock_colors = [k for k, v in color_quantities.items() if low_stock_threshold > 0 and v <= low_stock_threshold]
 
+    wholesale_enabled = as_hidden_int(payload.get("wholesaleEnabled", cur.get("wholesaleEnabled", 0)))
+    wholesale_price = max(0.0, as_number(payload.get("wholesalePrice", cur.get("wholesalePrice", 0))))
+    wholesale_min_qty = max(1, as_int(payload.get("wholesaleMinQty", cur.get("wholesaleMinQty", 0)), 1))
+
     product = {
         "id": pid,
         "productCode": product_code,
@@ -3308,6 +3334,9 @@ def normalize_product(payload: Dict[str, Any], current: Optional[Dict[str, Any]]
         "lowStockSizes": low_stock_sizes,
         "lowStockColors": low_stock_colors,
         "sabilEnabled": as_hidden_int(payload.get("sabilEnabled", cur.get("sabilEnabled", 0))),
+        "wholesaleEnabled": wholesale_enabled,
+        "wholesalePrice": wholesale_price,
+        "wholesaleMinQty": wholesale_min_qty,
         "sabilReferenceCode": str(payload.get("sabilReferenceCode") if payload.get("sabilReferenceCode") is not None else cur.get("sabilReferenceCode", "")).strip(),
         "createdAt": created_at,
         "updatedAt": as_int(payload.get("updatedAt", now), now),
