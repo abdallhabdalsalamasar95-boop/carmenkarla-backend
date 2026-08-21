@@ -1436,11 +1436,58 @@ def _shipping_rate_map(config: Optional[Dict[str, Any]] = None) -> tuple[Dict[st
     return rate_map, default_cost
 
 
+def _normalize_geo_label(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    text = re.sub(r"[\u064B-\u0652\u0640]", "", text)
+    text = text.replace("أ", "ا").replace("إ", "ا").replace("آ", "ا").replace("ٱ", "ا")
+    text = text.replace("ى", "ي").replace("ة", "ه")
+    text = re.sub(r"\s+", " ", text)
+    return text
+
+
+def _lookup_shipping_rate(rates: Dict[str, float], city: str, area: str) -> Optional[float]:
+    city = str(city or "").strip()
+    area = str(area or "").strip()
+
+    if area:
+        direct = rates.get(f"{city}|{area}")
+        if direct is not None:
+            return direct
+
+    direct_city = rates.get(city)
+    if direct_city is not None:
+        if not area:
+            return direct_city
+
+    normalized_city = _normalize_geo_label(city)
+    normalized_area = _normalize_geo_label(area)
+
+    if area:
+        for key, value in rates.items():
+            if "|" not in key:
+                continue
+            key_city, key_area = key.split("|", 1)
+            if _normalize_geo_label(key_city) != normalized_city:
+                continue
+            mapped = _normalize_geo_label(key_area)
+            if mapped == normalized_area or normalized_area in mapped or mapped in normalized_area:
+                return value
+
+    for key, value in rates.items():
+        if "|" in key:
+            continue
+        if _normalize_geo_label(key) == normalized_city:
+            return value
+
+    return None
+
+
 def _fallback_shipping_cost(city: Any, area: Any = "", config: Optional[Dict[str, Any]] = None) -> float:
     normalized_city = str(city or "").strip()
     rates, default_cost = _shipping_rate_map(config or read_marketing_config())
     normalized_area = str(area or "").strip()
-    return rates.get(f"{normalized_city}|{normalized_area}", rates.get(normalized_city, default_cost))
+    matched = _lookup_shipping_rate(rates, normalized_city, normalized_area)
+    return matched if matched is not None else default_cost
 
 
 def _extract_sabil_shipping_amount(data: Any) -> float:
