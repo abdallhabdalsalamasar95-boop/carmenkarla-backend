@@ -1428,9 +1428,10 @@ def _shipping_rate_map(config: Optional[Dict[str, Any]] = None) -> tuple[Dict[st
         area = str(row.get("area") or "").strip()
         if not city:
             continue
-        rate_map[city] = round(max(0.0, as_number(row.get("cost", 0), 0)), 2)
+        if not area or city not in rate_map:
+            rate_map[city] = round(max(0.0, as_number(row.get("cost", 0), 0)), 2)
         if area:
-            rate_map[f"{city}|{area}"] = rate_map[city]
+            rate_map[f"{city}|{area}"] = round(max(0.0, as_number(row.get("cost", 0), 0)), 2)
     default_cost = round(max(0.0, as_number(cfg.get("defaultCost", DEFAULT_CITY_SHIPPING_COSTS["أخرى"]), DEFAULT_CITY_SHIPPING_COSTS["أخرى"])), 2)
     return rate_map, default_cost
 
