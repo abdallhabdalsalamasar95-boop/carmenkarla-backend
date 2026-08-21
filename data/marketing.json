@@ -1,0 +1,273 @@
+{
+  "websiteHome": {
+    "announcement": {
+      "text": "شحن لجميع المدن الليبية • الدفع عند الاستلام",
+      "enabled": true,
+      "speedSeconds": 18,
+      "style": "rose"
+    },
+    "banner": {
+      "imageUrl": "https://intention-gained-solving-bit.trycloudflare.com/uploads/970dd614934d3443d55e_2026-08-17_203814.webp",
+      "altText": "بانر أڤيا فاشن",
+      "linkUrl": "#collection",
+      "enabled": true
+    },
+    "sectionBanner": {
+      "imageUrl": "",
+      "altText": "بانر أحدث المنتجات والأكثر مبيعًا",
+      "linkUrl": "#collection",
+      "enabled": true,
+      "widthMode": "full",
+      "spacing": "tight",
+      "height": "medium"
+    },
+    "categories": []
+  },
+  "websiteSocial": {
+    "enabled": true,
+    "instagram": "",
+    "facebook": "",
+    "whatsapp": "",
+    "telegram": "",
+    "tiktok": "",
+    "website": ""
+  },
+  "websiteAppearance": {
+    "productCardSize": "small",
+    "productImageRatio": "portrait",
+    "discountCorner": "right",
+    "showFavorite": true,
+    "showShare": true,
+    "checkoutButtonSize": "small",
+    "checkoutConfirmPosition": "afterCustomer",
+    "showHomepageCategories": true,
+    "showOffersStrip": true,
+    "showNewestSection": true,
+    "showBestSellingSection": true
+  },
+  "ambassadorSupport": {
+    "whatsappNumber": "+218921397674",
+    "enabled": true
+  },
+  "commission": {
+    "defaultPercent": 9.5,
+    "perProductEnabled": false
+  },
+  "shippingPricing": {
+    "mode": "manual",
+    "defaultCost": 25.0,
+    "cityRates": [
+      {
+        "city": "طرابلس",
+        "cost": 15.0
+      },
+      {
+        "city": "ترهونة",
+        "cost": 30.0
+      },
+      {
+        "city": "بني وليد",
+        "cost": 30.0
+      },
+      {
+        "city": "سرت",
+        "cost": 30.0
+      },
+      {
+        "city": "بنغازي",
+        "cost": 30.0
+      },
+      {
+        "city": "جالو",
+        "cost": 50.0
+      },
+      {
+        "city": "أوجلة",
+        "cost": 50.0
+      },
+      {
+        "city": "أجخرة",
+        "cost": 50.0
+      },
+      {
+        "city": "غريان",
+        "cost": 25.0
+      },
+      {
+        "city": "سبها",
+        "cost": 35.0
+      },
+      { "city": "طرابلس", "area": "إنجيلة", "cost": 25.0 },
+      { "city": "طرابلس", "area": "السواني", "cost": 25.0 },
+      { "city": "طرابلس", "area": "الزهراء", "cost": 25.0 },
+      { "city": "طرابلس", "area": "الساعدية", "cost": 25.0 },
+      { "city": "طرابلس", "area": "العزيزية", "cost": 25.0 },
+      { "city": "طرابلس", "area": "السبيعة", "cost": 25.0 },
+      { "city": "طرابلس", "area": "قصر بن غشير", "cost": 25.0 },
+      { "city": "طرابلس", "area": "سوق الخميس مسيحل", "cost": 25.0 },
+      { "city": "طرابلس", "area": "خلة الفرجان", "cost": 25.0 },
+      { "city": "طرابلس", "area": "الكريمية", "cost": 25.0 },
+      { "city": "طرابلس", "area": "وادي الربيع", "cost": 25.0 },
+      { "city": "طرابلس", "area": "الباعيش", "cost": 25.0 },
+      { "city": "طرابلس", "area": "سوق السبت", "cost": 25.0 },
+      { "city": "طرابلس", "area": "ورشفانة", "cost": 30.0 },
+      { "city": "سرت", "area": "هراوة", "cost": 30.0 },
+      { "city": "سرت", "area": "بن جواد", "cost": 30.0 },
+      { "city": "سرت", "area": "النوفلية", "cost": 30.0 },
+      { "city": "سرت", "area": "رأس لانوف", "cost": 35.0 },
+      { "city": "سرت", "area": "البريقة", "cost": 35.0 },
+      { "city": "سرت", "area": "العقيلة", "cost": 35.0 },
+      { "city": "سرت", "area": "اجدابيا", "cost": 35.0 },
+      { "city": "الجفرة", "area": "هون", "cost": 35.0 },
+      { "city": "الجفرة", "area": "سوكنة", "cost": 35.0 },
+      { "city": "الجفرة", "area": "ودان", "cost": 35.0 },
+      { "city": "الجفرة", "area": "الجفرة", "cost": 35.0 },
+      { "city": "الجفرة", "area": "زلة", "cost": 40.0 },
+      { "city": "بنغازي", "area": "توكرة", "cost": 35.0 },
+      { "city": "بنغازي", "area": "المرج", "cost": 35.0 },
+      { "city": "بنغازي", "area": "الأبيار", "cost": 35.0 },
+      { "city": "بنغازي", "area": "البيضاء", "cost": 35.0 },
+      { "city": "بنغازي", "area": "قمينس", "cost": 40.0 },
+      { "city": "بنغازي", "area": "سلوق", "cost": 40.0 },
+      { "city": "بنغازي", "area": "شحات", "cost": 40.0 },
+      { "city": "بنغازي", "area": "سوسة", "cost": 40.0 },
+      { "city": "بنغازي", "area": "درنة", "cost": 40.0 },
+      { "city": "بنغازي", "area": "القبة", "cost": 40.0 },
+      { "city": "بنغازي", "area": "طبرق", "cost": 40.0 },
+      { "city": "بنغازي", "area": "امساعد", "cost": 50.0 },
+      { "city": "جالو", "area": "واحات الكفرة", "cost": 50.0 },
+      { "city": "غريان", "area": "الأصابعة", "cost": 35.0 },
+      { "city": "غريان", "area": "الرابطة", "cost": 35.0 },
+      { "city": "غريان", "area": "القواليش", "cost": 35.0 },
+      { "city": "غريان", "area": "العوينية", "cost": 35.0 },
+      { "city": "غريان", "area": "القلعة / يفرن", "cost": 35.0 },
+      { "city": "غريان", "area": "ككلة", "cost": 35.0 },
+      { "city": "غريان", "area": "الرياينة", "cost": 35.0 },
+      { "city": "غريان", "area": "الرجبان / الزنتان", "cost": 35.0 },
+      { "city": "غريان", "area": "الرحيبات", "cost": 40.0 },
+      { "city": "غريان", "area": "جادو", "cost": 40.0 },
+      { "city": "غريان", "area": "كاباو", "cost": 40.0 },
+      { "city": "غريان", "area": "نالوت", "cost": 40.0 },
+      { "city": "غريان", "area": "الرويس", "cost": 40.0 },
+      { "city": "غريان", "area": "تيجي", "cost": 45.0 },
+      { "city": "غريان", "area": "بدر", "cost": 45.0 },
+      { "city": "غريان", "area": "الجوش", "cost": 45.0 },
+      { "city": "سبها", "area": "الشويرف", "cost": 35.0 },
+      { "city": "سبها", "area": "القريات", "cost": 35.0 },
+      { "city": "سبها", "area": "براك الشاطئ", "cost": 40.0 },
+      { "city": "سبها", "area": "أوباري", "cost": 45.0 },
+      { "city": "سبها", "area": "أم الأرانب", "cost": 45.0 },
+      { "city": "سبها", "area": "وادي عتبة", "cost": 45.0 },
+      { "city": "سبها", "area": "مرزق", "cost": 45.0 },
+      { "city": "سبها", "area": "تراغن", "cost": 45.0 },
+      { "city": "سبها", "area": "القطرون", "cost": 45.0 },
+      { "city": "سبها", "area": "غات", "cost": 50.0 }
+    ]
+  },
+  "coupons": [
+    {
+      "code": "CK10",
+      "type": "percent",
+      "value": 10.0,
+      "minSubtotal": 0.0,
+      "maxDiscount": 50.0,
+      "freeShipping": 0,
+      "enabled": 1,
+      "startAt": null,
+      "endAt": null,
+      "createdAt": 1784580543762
+    },
+    {
+      "code": "CK20",
+      "type": "percent",
+      "value": 20.0,
+      "minSubtotal": 200.0,
+      "maxDiscount": 80.0,
+      "freeShipping": 0,
+      "enabled": 1,
+      "startAt": null,
+      "endAt": null,
+      "createdAt": 1784580543763
+    },
+    {
+      "code": "FREESHIP",
+      "type": "freeShipping",
+      "value": 0.0,
+      "minSubtotal": 0.0,
+      "maxDiscount": 0.0,
+      "freeShipping": 1,
+      "enabled": 1,
+      "startAt": null,
+      "endAt": null,
+      "createdAt": 1784580543764
+    }
+  ],
+  "offers": {
+    "title": "💎 عروض لفترة محدودة",
+    "subtitle": "تُطبق العروض تلقائياً عند الدفع — والأفضل لك يتفعل مباشرة.",
+    "ctaLabel": "تسوقي العروض",
+    "items": [
+      {
+        "id": "buy2",
+        "text": "اشتري فستانين واحصلي على خصم إضافي 7%",
+        "kind": "discount",
+        "enabled": true,
+        "productIds": []
+      },
+      {
+        "id": "gold",
+        "text": "خصم 10% على كل الفساتين الذهبية",
+        "kind": "discount",
+        "enabled": true,
+        "productIds": []
+      },
+      {
+        "id": "vip",
+        "text": "تغليف VIP مجاني لمشتريات فوق 400 د.ل",
+        "kind": "vip",
+        "enabled": true,
+        "productIds": []
+      },
+      {
+        "id": "ship",
+        "text": "شحن مجاني لمشتريات فوق 250 د.ل داخل ليبيا",
+        "kind": "shipping",
+        "enabled": true,
+        "productIds": []
+      }
+    ]
+  },
+  "gifts": [
+    {
+      "id": "gift_welcome",
+      "title": "هدية الترحيب",
+      "description": "أول طلب مؤهل يحصل على هدية رمزية أو تغليف مجاني.",
+      "enabled": true,
+      "badge": "جديد",
+      "ctaLabel": "تسوقي الآن",
+      "giftType": "welcome",
+      "giftValue": "تغليف مجاني",
+      "minOrderTotal": 0.0,
+      "prize": "",
+      "endAt": null,
+      "imageUrl": ""
+    }
+  ],
+  "competitions": [
+    {
+      "id": "comp_monthly",
+      "title": "مسابقة الشهر",
+      "description": "كل عملية شراء مؤهلة تمنح فرصة دخول السحب الشهري.",
+      "enabled": true,
+      "badge": "",
+      "ctaLabel": "شاركي الآن",
+      "giftType": "",
+      "giftValue": "",
+      "minOrderTotal": 0.0,
+      "prize": "قسيمة شراء",
+      "endAt": null,
+      "imageUrl": ""
+    }
+  ],
+  "updatedAt": 1787047252968
+}
