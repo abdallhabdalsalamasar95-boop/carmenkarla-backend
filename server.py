@@ -162,6 +162,21 @@ ALLOWED_IMAGE_EXTENSIONS = {
     ".avif",
 }
 
+DEFAULT_CITY_SHIPPING_COSTS = {
+    "طرابلس": 10.0,
+    "بنغازي": 15.0,
+    "مصراتة": 12.0,
+    "سبها": 20.0,
+    "الزاوية": 12.0,
+    "سرت": 18.0,
+    "درنة": 18.0,
+    "طبرق": 20.0,
+    # Darb Al Sabeel destination name: "جالو اوجلة" (Jalu/Oujla).
+    "جالو اوجلة": 50.0,
+    "جالو أوجلة": 50.0,
+    "أخرى": 25.0,
+}
+
 _FIRESTORE_DB = None
 _FIREBASE_INIT_ERROR = ""
 
@@ -818,6 +833,15 @@ def default_marketing_config() -> Dict[str, Any]:
             "defaultPercent": 7.0,
             "perProductEnabled": True,
         },
+        "shippingPricing": {
+            "mode": "darb",
+            "defaultCost": DEFAULT_CITY_SHIPPING_COSTS["أخرى"],
+            "cityRates": [
+                {"city": city, "cost": float(cost)}
+                for city, cost in DEFAULT_CITY_SHIPPING_COSTS.items()
+                if city != "أخرى"
+            ],
+        },
         "coupons": [
             {
                 "code": "CK10",
@@ -1239,6 +1263,60 @@ def normalize_wholesale_settings(payload: Any) -> Dict[str, Any]:
     }
 
 
+def normalize_shipping_pricing(payload: Any) -> Dict[str, Any]:
+    source = payload if isinstance(payload, dict) else {}
+    mode = str(source.get("mode") or "darb").strip().lower()
+    if mode not in {"darb", "manual"}:
+        mode = "darb"
+
+    default_cost = max(0.0, as_number(source.get("defaultCost", DEFAULT_CITY_SHIPPING_COSTS["أخرى"]), DEFAULT_CITY_SHIPPING_COSTS["أخرى"]))
+
+    rows: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+
+    raw_list = source.get("cityRates") if isinstance(source.get("cityRates"), list) else []
+    for raw in raw_list:
+        if not isinstance(raw, dict):
+            continue
+        city = str(raw.get("city") or "").strip()
+        area = str(raw.get("area") or "").strip()
+        key = f"{city}|{area}" if area else city
+        if not city or key in seen:
+            continue
+        seen.add(key)
+        rows.append({
+            "city": city,
+            **({"area": area} if area else {}),
+            "cost": round(max(0.0, as_number(raw.get("cost", 0), 0)), 2),
+        })
+
+    # Backward-compatible shape support if a map is sent by any old client.
+    raw_map = source.get("cityCosts") if isinstance(source.get("cityCosts"), dict) else {}
+    for city, cost in raw_map.items():
+        city_name = str(city or "").strip()
+        if not city_name or city_name in seen:
+            continue
+        seen.add(city_name)
+        rows.append({
+            "city": city_name,
+            "cost": round(max(0.0, as_number(cost, 0),), 2),
+        })
+
+    if not rows:
+        rows = [
+            {"city": city, "cost": float(cost)}
+            for city, cost in DEFAULT_CITY_SHIPPING_COSTS.items()
+            if city != "أخرى"
+        ]
+
+    rows.sort(key=lambda row: str(row.get("city") or ""))
+    return {
+        "mode": mode,
+        "defaultCost": round(default_cost, 2),
+        "cityRates": rows,
+    }
+
+
 def normalize_marketing_config(payload: Dict[str, Any]) -> Dict[str, Any]:
     now_ms = int(time.time() * 1000)
     commission_src = payload.get("commission") if isinstance(payload.get("commission"), dict) else {}
@@ -1270,6 +1348,7 @@ def normalize_marketing_config(payload: Dict[str, Any]) -> Dict[str, Any]:
             "defaultPercent": commission_default,
             "perProductEnabled": commission_per_product,
         },
+        "shippingPricing": normalize_shipping_pricing(payload.get("shippingPricing")),
         "coupons": coupons,
         "offers": {
             "title": str(offers_src.get("title") or "💎 عروض لفترة محدودة").strip() or "💎 عروض لفترة محدودة",
@@ -1330,6 +1409,7 @@ def public_app_content() -> Dict[str, Any]:
             "defaultPercent": commission_default,
             "perProductEnabled": commission_per_product,
         },
+        "shippingPricing": normalize_shipping_pricing(cfg.get("shippingPricing")),
         "coupons": public_coupons,
         "offers": public_offers,
         "gifts": public_gifts,
@@ -1337,17 +1417,119 @@ def public_app_content() -> Dict[str, Any]:
     }
 
 
-_WEB_SHIPPING_COSTS = {
-    "طرابلس": 10.0,
-    "بنغازي": 15.0,
-    "مصراتة": 12.0,
-    "سبها": 20.0,
-    "الزاوية": 12.0,
-    "سرت": 18.0,
-    "درنة": 18.0,
-    "طبرق": 20.0,
-    "أخرى": 25.0,
-}
+def _shipping_rate_map(config: Optional[Dict[str, Any]] = None) -> tuple[Dict[str, float], float]:
+    cfg = normalize_shipping_pricing((config or {}).get("shippingPricing") if isinstance(config, dict) else None)
+    city_rates = cfg.get("cityRates") if isinstance(cfg.get("cityRates"), list) else []
+    rate_map: Dict[str, float] = {}
+    for row in city_rates:
+        if not isinstance(row, dict):
+            continue
+        city = str(row.get("city") or "").strip()
+        area = str(row.get("area") or "").strip()
+        if not city:
+            continue
+        rate_map[city] = round(max(0.0, as_number(row.get("cost", 0), 0)), 2)
+        if area:
+            rate_map[f"{city}|{area}"] = rate_map[city]
+    default_cost = round(max(0.0, as_number(cfg.get("defaultCost", DEFAULT_CITY_SHIPPING_COSTS["أخرى"]), DEFAULT_CITY_SHIPPING_COSTS["أخرى"])), 2)
+    return rate_map, default_cost
+
+
+def _fallback_shipping_cost(city: Any, area: Any = "", config: Optional[Dict[str, Any]] = None) -> float:
+    normalized_city = str(city or "").strip()
+    rates, default_cost = _shipping_rate_map(config or read_marketing_config())
+    normalized_area = str(area or "").strip()
+    return rates.get(f"{normalized_city}|{normalized_area}", rates.get(normalized_city, default_cost))
+
+
+def _extract_sabil_shipping_amount(data: Any) -> float:
+    candidates: List[float] = []
+
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                lowered = str(key or "").strip().lower()
+                if lowered in {
+                    "shipping", "shippingcost", "shipping_cost", "delivery", "deliverycost",
+                    "delivery_cost", "shippingamount", "shipping_amount", "amount",
+                    "totalshipping", "total_shipping", "cost", "price",
+                }:
+                    number = as_number(value, -1)
+                    if number >= 0:
+                        candidates.append(number)
+                walk(value)
+        elif isinstance(node, list):
+            for child in node:
+                walk(child)
+
+    walk(data)
+    positives = [value for value in candidates if value > 0]
+    if positives:
+        return min(positives)
+    return 0.0
+
+
+def resolve_shipping_cost(city: Any, area: Any = "") -> tuple[float, bool, str]:
+    config = read_marketing_config()
+    shipping_cfg = normalize_shipping_pricing(config.get("shippingPricing"))
+    fallback = _fallback_shipping_cost(city, area, config)
+    mode = str(shipping_cfg.get("mode") or "darb").strip().lower()
+    target_city = str(city or "").strip()
+    target_area = str(area or "").strip()
+    if not target_city:
+        return fallback, False, "manual" if mode == "manual" else "fallback"
+
+    if mode == "manual":
+        return fallback, False, "manual"
+
+    sabil = sabil_config_status()
+    if not (_SABIL_ENABLED and sabil.get("ready") and _SABIL_CONTACT_IDS):
+        return fallback, False, "fallback"
+
+    quote_payload = {
+        "isPickup": False,
+        "service": _SABIL_SERVICE_ID,
+        "contacts": [_SABIL_CONTACT_IDS[0]],
+        "paymentBy": _SABIL_PAYMENT_BY if _SABIL_PAYMENT_BY in {"sender", "receiver", "sales"} else "receiver",
+        "allowCardPayment": False,
+        "allowSplitting": True,
+        "allowedBankNotes": {"50": False},
+        "to": {
+            "countryCode": _SABIL_COUNTRY_CODE,
+            "city": target_city,
+            **({"area": target_area} if target_area else {}),
+            "address": "Tripoli",
+        },
+        "products": [
+            {
+                "title": "Shipping Quote",
+                "quantity": 1,
+                "widthCM": 10,
+                "heightCM": 10,
+                "lengthCM": 10,
+                "allowInspection": False,
+                "allowTesting": False,
+                "isFragile": False,
+                "amount": 1.0,
+                "currency": _SABIL_CURRENCY,
+                "isChargeable": True,
+            }
+        ],
+        "tags": [],
+        "metadata": {},
+    }
+
+    try:
+        _, decoded = _request_sabil_with_branch_fallback(
+            "/api/local/shipments/calculate/shipping",
+            quote_payload,
+        )
+        amount = round(_extract_sabil_shipping_amount(decoded), 2)
+        if amount > 0:
+            return amount, True, "api"
+    except Exception:
+        pass
+    return fallback, False, "fallback"
 
 
 def apply_order_coupon(order_payload: Dict[str, Any], products: List[Dict[str, Any]], config: Optional[Dict[str, Any]] = None) -> tuple[Optional[Dict[str, Any]], Optional[str]]:
@@ -1393,7 +1575,8 @@ def apply_order_coupon(order_payload: Dict[str, Any], products: List[Dict[str, A
 
     customer = order_payload.get("customer") if isinstance(order_payload.get("customer"), dict) else {}
     city = str(customer.get("city") or "أخرى").strip()
-    shipping_cost = _WEB_SHIPPING_COSTS.get(city, _WEB_SHIPPING_COSTS["أخرى"])
+    area = str(customer.get("area") or "").strip()
+    shipping_cost, _, _ = resolve_shipping_cost(city, area)
     coupon_type = str(coupon.get("type") or "percent").strip()
     value = max(0.0, as_number(coupon.get("value", 0), 0))
     discount = 0.0
@@ -3937,7 +4120,7 @@ def create_order_from_app():
 
     share_claims = verify_ambassador_share_token(payload.get("ambassadorShareToken"))
     if payload.get("ambassadorShareToken") and share_claims is None:
-        return jsonify({"ok": False, "error": "رابط المندوبة غير صالح أو انتهت صلاحيته", "code": "invalid_ambassador_share"}), 400
+        return jsonify({"ok": False, "error": "رابط المندوب غير صالح أو انتهت صلاحيته", "code": "invalid_ambassador_share"}), 400
 
     auth_header = str(request.headers.get("Authorization", "") or "").strip()
     if auth_header.startswith("Bearer "):
@@ -3971,7 +4154,7 @@ def create_order_from_app():
             str(ambassador_profile.get("accountRole") or "").strip().lower() != "ambassador"
             or str(ambassador_profile.get("status") or "active").strip().lower() != "active"
         ):
-            return jsonify({"ok": False, "error": "حساب المندوبة غير متاح حاليًا", "code": "inactive_ambassador_share"}), 400
+            return jsonify({"ok": False, "error": "حساب المندوب غير متاح حاليًا", "code": "inactive_ambassador_share"}), 400
         customer = order_payload.get("customer") if isinstance(order_payload.get("customer"), dict) else {}
         customer = dict(customer)
         customer.update({
@@ -4074,7 +4257,7 @@ def create_current_ambassador_share_token():
         str(profile.get("accountRole") or "").strip().lower() != "ambassador"
         or str(profile.get("status") or "active").strip().lower() != "active"
     ):
-        return jsonify({"ok": False, "error": "هذه الخدمة متاحة للمندوبات فقط"}), 403
+        return jsonify({"ok": False, "error": "هذه الخدمة متاحة للمندوبين فقط"}), 403
     name = str(profile.get("ambassadorName") or profile.get("name") or "").strip()
     try:
         token = create_ambassador_share_token(uid, name)
@@ -4171,6 +4354,26 @@ def public_sabil_destinations():
             "warning": str(ex)[:300],
         })
     return jsonify({"ok": True, "providerAvailable": True, "cityCount": len(cities), "cities": cities})
+
+
+@app.get("/delivery/darb-sabeel/shipping-cost")
+def public_sabil_shipping_cost():
+    city = str(request.args.get("city") or "").strip()
+    area = str(request.args.get("area") or "").strip()
+    if not city:
+        return jsonify({"ok": False, "error": "city is required"}), 400
+    amount, provider_available, source = resolve_shipping_cost(city, area)
+    shipping_cfg = normalize_shipping_pricing(read_marketing_config().get("shippingPricing"))
+    return jsonify({
+        "ok": True,
+        "city": city,
+        "area": area,
+        "amount": round(amount, 2),
+        "currency": "LYD",
+        "mode": str(shipping_cfg.get("mode") or "darb"),
+        "providerAvailable": provider_available,
+        "source": source,
+    })
 
 
 @app.post("/orders/<order_id>/delivery/darb-sabeel")
@@ -4404,7 +4607,7 @@ def list_current_ambassador_orders():
     uid = str(signed_user.get("uid") or "").strip()
     profile = _firebase_user_profile(uid)
     if str(profile.get("accountRole") or "").strip().lower() != "ambassador":
-        return jsonify({"ok": False, "error": "أكملي تسجيل بيانات المندوبة أولًا"}), 403
+        return jsonify({"ok": False, "error": "أكمل تسجيل بيانات المندوب أولًا"}), 403
 
     limit = max(1, min(as_int(request.args.get("limit", 500), 500), 1000))
     items = [normalize_order_item(x) for x in read_orders() if isinstance(x, dict)]
