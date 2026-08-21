@@ -1479,6 +1479,17 @@ def _lookup_shipping_rate(rates: Dict[str, float], city: str, area: str) -> Opti
         if _normalize_geo_label(key) == normalized_city:
             return value
 
+    # Some clients/providers may send the selected area name as `city`
+    # (e.g. "زلة"), with an empty `area`. In that case, match against
+    # area-specific rows and reuse their configured price.
+    for key, value in rates.items():
+        if "|" not in key:
+            continue
+        _, key_area = key.split("|", 1)
+        mapped_area = _normalize_geo_label(key_area)
+        if mapped_area == normalized_city or normalized_city in mapped_area or mapped_area in normalized_city:
+            return value
+
     return None
 
 
