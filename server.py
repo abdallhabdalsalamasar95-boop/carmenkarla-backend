@@ -82,6 +82,10 @@ ORDERS_FILE = DATA_DIR / "orders.json"
 AMBASSADOR_WITHDRAWALS_FILE = DATA_DIR / "ambassador_withdrawals.json"
 EXPENSES_FILE = DATA_DIR / "expenses.json"
 MARKETING_FILE = DATA_DIR / "marketing.json"
+# Shipping tariffs are release-controlled.  On hosted deployments DATA_DIR can
+# point at a persistent volume whose old marketing.json would otherwise mask
+# the tariff table shipped with the current backend release.
+BUNDLED_MARKETING_FILE = ROOT / "data" / "marketing.json"
 AMBASSADOR_WITHDRAWAL_MINIMUM = 100.0
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -1051,6 +1055,17 @@ def read_marketing_config() -> Dict[str, Any]:
         if isinstance(data, dict):
             base = default_marketing_config()
             base.update(data)
+            # Shipping is intentionally fixed by the deployed tariff table.
+            # This also prevents a stale /var/data/data/marketing.json on
+            # Render from silently restoring the old default prices.
+            try:
+                bundled_raw = BUNDLED_MARKETING_FILE.read_text(encoding="utf-8")
+                bundled = json.loads(bundled_raw)
+                bundled_shipping = bundled.get("shippingPricing") if isinstance(bundled, dict) else None
+                if isinstance(bundled_shipping, dict):
+                    base["shippingPricing"] = bundled_shipping
+            except Exception:
+                pass
             return normalize_marketing_config(base)
     except Exception:
         pass
