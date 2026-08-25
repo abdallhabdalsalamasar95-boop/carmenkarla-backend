@@ -4349,6 +4349,87 @@ def create_order_from_app():
     })
 
 
+@app.post("/admin/orders/external-sale")
+def create_external_sale():
+    ok, err = require_admin()
+    if not ok:
+        return err
+
+    payload = request.get_json(silent=True) or {}
+    product_id = str(payload.get("productId") or "").strip()
+    quantity = max(1, as_int(payload.get("quantity"), 1))
+    sale_price = max(0.0, as_number(payload.get("salePrice"), 0.0))
+    if not product_id or sale_price <= 0:
+        return jsonify({"ok": False, "error": "المنتج وسعر البيع مطلوبان"}), 400
+
+    with _INVENTORY_LOCK:
+        products = read_products()
+        product = next((row for row in products if str(row.get("id") or "").strip() == product_id), None)
+        if product is None:
+            return jsonify({"ok": False, "error": "المنتج غير موجود"}), 404
+        available = max(0, as_int(product.get("availableStock", product.get("stockQuantity", 0)), 0))
+        if available < quantity:
+            return jsonify({"ok": False, "error": f"المخزون المتاح {available} فقط"}), 409
+
+        now_ms = int(time.time() * 1000)
+        order_id = f"external_{now_ms}_{uuid.uuid4().hex[:8]}"
+        customer = payload.get("customer") if isinstance(payload.get("customer"), dict) else {}
+        image_url = str(product.get("imageUrl") or (product.get("imageUrls") or [""])[0] or "").strip()
+        line = {
+            "productId": product_id,
+            "productCode": str(product.get("productCode") or "").strip(),
+            "name": str(product.get("name") or "").strip(),
+            "imageUrl": image_url,
+            "size": str(payload.get("size") or "").strip(),
+            "color": str(payload.get("color") or "").strip(),
+            "quantity": quantity,
+            "price": round(sale_price, 2),
+        }
+        order_payload = {
+            "customer": {
+                "name": str(customer.get("name") or "مبيعات خارجية").strip(),
+                "phone": str(customer.get("phone") or "").strip(),
+                "city": str(customer.get("city") or "").strip(),
+                "area": str(customer.get("area") or "").strip(),
+                "address": str(customer.get("address") or "مبيعات خارجية").strip(),
+            },
+            "items": [line],
+            "pricing": {
+                "subtotal": round(sale_price * quantity, 2),
+                "discount": 0.0,
+                "shippingCost": 0.0,
+                "grandTotal": round(sale_price * quantity, 2),
+            },
+            "paymentMethod": str(payload.get("paymentMethod") or "نقدي").strip(),
+            "note": str(payload.get("note") or "مبيعة خارجية").strip(),
+        }
+        item = normalize_order_item({
+            "orderId": order_id,
+            "status": "delivered",
+            "createdAtMs": now_ms,
+            "updatedAtMs": now_ms,
+            "source": "external_sale",
+            "payload": order_payload,
+            "trackingToken": secrets.token_urlsafe(24),
+        })
+        item["inventoryReserved"] = True
+        item["inventoryReservation"] = [{
+            "productId": product_id,
+            "quantity": quantity,
+            "size": line["size"],
+            "color": line["color"],
+        }]
+        product["availableStock"] = available - quantity
+        product["stockQuantity"] = available - quantity
+        entries = read_orders()
+        entries.append(item)
+        entries.sort(key=lambda row: as_int(row.get("createdAtMs"), 0), reverse=True)
+        write_products(products)
+        write_orders(entries[:5000])
+
+    return jsonify({"ok": True, "orderId": order_id, "item": item})
+
+
 @app.post("/ambassadors/me/share-token")
 def create_current_ambassador_share_token():
     signed_user, auth_error = _firebase_user_from_request()
