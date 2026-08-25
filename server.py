@@ -4367,9 +4367,6 @@ def create_external_sale():
         product = next((row for row in products if str(row.get("id") or "").strip() == product_id), None)
         if product is None:
             return jsonify({"ok": False, "error": "المنتج غير موجود"}), 404
-        available = max(0, as_int(product.get("availableStock", product.get("stockQuantity", 0)), 0))
-        if available < quantity:
-            return jsonify({"ok": False, "error": f"المخزون المتاح {available} فقط"}), 409
 
         now_ms = int(time.time() * 1000)
         order_id = f"external_{now_ms}_{uuid.uuid4().hex[:8]}"
@@ -4412,15 +4409,11 @@ def create_external_sale():
             "payload": order_payload,
             "trackingToken": secrets.token_urlsafe(24),
         })
+        reserved, inventory_error, movements = reserve_order_inventory(products, item)
+        if not reserved:
+            return jsonify({"ok": False, "error": inventory_error, "code": "insufficient_stock"}), 409
         item["inventoryReserved"] = True
-        item["inventoryReservation"] = [{
-            "productId": product_id,
-            "quantity": quantity,
-            "size": line["size"],
-            "color": line["color"],
-        }]
-        product["availableStock"] = available - quantity
-        product["stockQuantity"] = available - quantity
+        item["inventoryReservation"] = movements
         entries = read_orders()
         entries.append(item)
         entries.sort(key=lambda row: as_int(row.get("createdAtMs"), 0), reverse=True)
