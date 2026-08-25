@@ -2508,15 +2508,44 @@ _SABIL_EVENT_STEP = {
     "completed": "delivered",
 }
 
+_SABIL_RETURN_EVENT_TYPES = {
+    "returning", "return_in_progress", "return_requested", "returned",
+    "return_completed", "customer_returned", "rejected", "refused",
+}
+
 
 def _status_from_sabil_snapshot(snapshot: Dict[str, Any]) -> str:
-    """Pick the furthest step Darb Al Sabeel reports, header status or timeline."""
+    """Pick the provider status, giving return events priority over delivery."""
     mapped = _local_status_for_sabil(snapshot.get("providerStatus"))
+    if mapped in {"returning", "returned"}:
+        return mapped
+
+    timeline = snapshot.get("timeline") if isinstance(snapshot.get("timeline"), list) else []
+    return_event_found = False
+    return_completed = False
+    for event in timeline:
+        if not isinstance(event, dict):
+            continue
+        event_type = re.sub(r"[\s-]+", "_", str(event.get("type") or "").strip().lower())
+        description = " ".join(
+            str(event.get(key) or "").strip().lower()
+            for key in ("descriptionAr", "descriptionEn", "description")
+        )
+        if event_type in _SABIL_RETURN_EVENT_TYPES or any(
+            word in description for word in ("return", "راجع", "مرتجع", "رفض", "مرفوض")
+        ):
+            return_event_found = True
+            if event_type in {"returned", "return_completed", "customer_returned"} or any(
+                word in description for word in ("returned", "return completed", "مرتجع", "تم الإرجاع")
+            ):
+                return_completed = True
+    if return_event_found:
+        return "returned" if return_completed else "returning"
+
     if mapped and mapped not in _SABIL_FORWARD_CHAIN:
         return mapped
 
     furthest = _SABIL_FORWARD_CHAIN.index(mapped) if mapped else -1
-    timeline = snapshot.get("timeline") if isinstance(snapshot.get("timeline"), list) else []
     for event in timeline:
         if not isinstance(event, dict):
             continue
