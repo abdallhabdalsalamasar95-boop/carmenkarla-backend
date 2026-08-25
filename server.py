@@ -4423,6 +4423,28 @@ def create_external_sale():
     return jsonify({"ok": True, "orderId": order_id, "item": item})
 
 
+@app.delete("/admin/orders/<order_id>")
+def delete_admin_order(order_id: str):
+    ok, err = require_admin()
+    if not ok:
+        return err
+    with _INVENTORY_LOCK:
+        entries = read_orders()
+        idx = next((i for i, row in enumerate(entries) if str(row.get("orderId") or "").strip() == order_id), -1)
+        if idx < 0:
+            return jsonify({"ok": False, "error": "الطلب غير موجود"}), 404
+        item = normalize_order_item(entries[idx])
+        if str(item.get("source") or "").strip().lower() != "external_sale":
+            return jsonify({"ok": False, "error": "يمكن حذف المبيعات الخارجية فقط"}), 409
+        products = read_products()
+        if bool(item.get("inventoryReserved")):
+            restore_order_inventory(products, item.get("inventoryReservation") or [])
+            write_products(products)
+        deleted = entries.pop(idx)
+        write_orders(entries)
+    return jsonify({"ok": True, "deleted": deleted})
+
+
 @app.post("/ambassadors/me/share-token")
 def create_current_ambassador_share_token():
     signed_user, auth_error = _firebase_user_from_request()
