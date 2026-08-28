@@ -1608,17 +1608,15 @@ def resolve_shipping_cost(city: Any, area: Any = "") -> tuple[float, bool, str]:
 
 def apply_order_coupon(order_payload: Dict[str, Any], products: List[Dict[str, Any]], config: Optional[Dict[str, Any]] = None) -> tuple[Optional[Dict[str, Any]], Optional[str]]:
     coupon_code = str(order_payload.get("couponCode") or "").strip().upper()
-    if not coupon_code:
-        return dict(order_payload), None
 
     cfg = config if isinstance(config, dict) else read_marketing_config()
     now_ms = int(time.time() * 1000)
     coupon = next((row for row in cfg.get("coupons", []) if str(row.get("code") or "").strip().upper() == coupon_code), None)
-    if not isinstance(coupon, dict) or as_hidden_int(coupon.get("enabled", 1)) != 1:
+    if coupon_code and (not isinstance(coupon, dict) or as_hidden_int(coupon.get("enabled", 1)) != 1):
         return None, "كود الخصم غير صالح أو متوقف"
-    if coupon.get("startAt") is not None and as_int(coupon.get("startAt"), 0) > now_ms:
+    if isinstance(coupon, dict) and coupon.get("startAt") is not None and as_int(coupon.get("startAt"), 0) > now_ms:
         return None, "كود الخصم لم يبدأ بعد"
-    if coupon.get("endAt") is not None and as_int(coupon.get("endAt"), now_ms) < now_ms:
+    if isinstance(coupon, dict) and coupon.get("endAt") is not None and as_int(coupon.get("endAt"), now_ms) < now_ms:
         return None, "انتهت صلاحية كود الخصم"
 
     product_by_id = {str(row.get("id") or "").strip(): row for row in products if isinstance(row, dict)}
@@ -1643,18 +1641,20 @@ def apply_order_coupon(order_payload: Dict[str, Any], products: List[Dict[str, A
 
     if not priced_items:
         return None, "لا يمكن تطبيق الكوبون على طلب فارغ"
-    minimum = max(0.0, as_number(coupon.get("minSubtotal", 0), 0))
-    if subtotal < minimum:
+    minimum = max(0.0, as_number(coupon.get("minSubtotal", 0), 0)) if isinstance(coupon, dict) else 0.0
+    if isinstance(coupon, dict) and subtotal < minimum:
         return None, f"الحد الأدنى لاستخدام الكوبون هو {minimum:.2f} د.ل"
 
     customer = order_payload.get("customer") if isinstance(order_payload.get("customer"), dict) else {}
     city = str(customer.get("city") or "أخرى").strip()
     area = str(customer.get("area") or "").strip()
     shipping_cost, _, _ = resolve_shipping_cost(city, area)
-    coupon_type = str(coupon.get("type") or "percent").strip()
-    value = max(0.0, as_number(coupon.get("value", 0), 0))
+    coupon_type = str(coupon.get("type") or "percent").strip() if isinstance(coupon, dict) else ""
+    value = max(0.0, as_number(coupon.get("value", 0), 0)) if isinstance(coupon, dict) else 0.0
     discount = 0.0
-    if coupon_type == "percent":
+    if not coupon:
+        pass
+    elif coupon_type == "percent":
         discount = subtotal * min(value, 100.0) / 100.0
         maximum = max(0.0, as_number(coupon.get("maxDiscount", 0), 0))
         if maximum > 0:
@@ -1665,7 +1665,7 @@ def apply_order_coupon(order_payload: Dict[str, Any], products: List[Dict[str, A
         pass
     else:
         return None, "نوع كود الخصم غير مدعوم"
-    if coupon_type == "freeShipping" or as_hidden_int(coupon.get("freeShipping", 0)) == 1:
+    if isinstance(coupon, dict) and (coupon_type == "freeShipping" or as_hidden_int(coupon.get("freeShipping", 0)) == 1):
         shipping_cost = 0.0
 
     normalized = dict(order_payload)
@@ -1675,7 +1675,8 @@ def apply_order_coupon(order_payload: Dict[str, Any], products: List[Dict[str, A
         "subtotal": round(subtotal, 2),
         "discount": round(discount, 2),
         "shippingCost": round(shipping_cost, 2),
-        "grandTotal": round(max(0.0, subtotal - discount + shipping_cost), 2),
+        # Shipping is collected separately by the courier and is not store revenue.
+        "grandTotal": round(max(0.0, subtotal - discount), 2),
     }
     return normalized, None
 

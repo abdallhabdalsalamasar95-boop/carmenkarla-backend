@@ -252,8 +252,23 @@ class AdminFeatureTests(unittest.TestCase):
             "subtotal": 200.0,
             "discount": 30.0,
             "shippingCost": 10.0,
-            "grandTotal": 180.0,
+            "grandTotal": 170.0,
         })
+
+    def test_order_without_coupon_keeps_shipping_out_of_store_total(self):
+        payload, error = server.apply_order_coupon(
+            {
+                "customer": {"city": "طرابلس"},
+                "items": [{"productId": "dress-1", "quantity": 1}],
+                "pricing": {"grandTotal": 9999.0},
+            },
+            [{"id": "dress-1", "price": 100}],
+            {"coupons": []},
+        )
+        self.assertIsNone(error)
+        self.assertEqual(payload["pricing"]["subtotal"], 100.0)
+        self.assertEqual(payload["pricing"]["shippingCost"], 15.0)
+        self.assertEqual(payload["pricing"]["grandTotal"], 100.0)
 
     def test_coupon_rejects_invalid_or_below_minimum_codes(self):
         base = {
@@ -289,6 +304,20 @@ class AdminFeatureTests(unittest.TestCase):
         self.assertIsNone(error)
         self.assertEqual(payload["pricing"]["shippingCost"], 0.0)
         self.assertEqual(payload["pricing"]["grandTotal"], 120.0)
+
+    def test_jalu_oujla_uses_darb_al_sabeel_shipping_rate(self):
+        payload, error = server.apply_order_coupon(
+            {
+                "customer": {"city": "جالو اوجلة"},
+                "items": [{"productId": "dress-1", "quantity": 1}],
+                "couponCode": "SAVE10",
+            },
+            [{"id": "dress-1", "price": 100}],
+            {"coupons": [{"code": "SAVE10", "type": "percent", "value": 10, "enabled": 1}]},
+        )
+        self.assertIsNone(error)
+        self.assertEqual(payload["pricing"]["shippingCost"], 50.0)
+        self.assertEqual(payload["pricing"]["grandTotal"], 90.0)
 
     def test_percent_coupon_can_also_enable_free_shipping(self):
         payload, error = server.apply_order_coupon(
@@ -1249,7 +1278,20 @@ class AdminFeatureTests(unittest.TestCase):
         expenses = [{"id": "e1", "amount": 30, "description": "توصيل", "expenseAtMs": 1}]
         with patch.object(server, "read_products", return_value=products), \
              patch.object(server, "read_orders", return_value=orders), \
-             patch.object(server, "read_expenses", return_value=expenses):
+             patch.object(server, "read_expenses", return_value=expenses), \
+             patch.object(server, "read_ambassador_commissions", return_value=[{
+                 "id": "order:delivered-accounting",
+                 "sourceType": "order",
+                 "orderId": "delivered-accounting",
+                 "ambassadorKey": "uid:amb-1",
+                 "ambassadorUid": "amb-1",
+                 "ambassadorName": "مندوبة",
+                 "status": "approved",
+                 "baseAmount": 20,
+                 "approvedAmount": 20,
+                 "history": [],
+             }]), \
+             patch.object(server, "read_ambassador_withdrawals", return_value=[]):
             summary = server.accounting_summary()
 
         self.assertEqual(summary["revenue"], 200)
@@ -1262,6 +1304,84 @@ class AdminFeatureTests(unittest.TestCase):
         self.assertEqual(summary["inventoryCostValue"], 120)
         self.assertEqual(summary["inventorySaleValue"], 300)
         self.assertEqual(summary["inventoryPotentialProfit"], 180)
+
+    def test_accounting_summary_does_not_reduce_profit_for_pending_commission(self):
+        order = server.normalize_order_item({
+            "orderId": "delivered-pending-commission",
+            "status": "delivered",
+            "ambassadorSummary": {
+                "isAmbassadorOrder": True,
+                "ambassadorUid": "amb-1",
+                "estimatedCommission": 20,
+            },
+            "payload": {
+                "customer": {"submitterUid": "amb-1", "accountRole": "ambassador"},
+                "pricing": {"grandTotal": 200},
+                "items": [{
+                    "productId": "p1",
+                    "name": "فستان",
+                    "price": 200,
+                    "purchasePrice": 80,
+                    "quantity": 1,
+                }],
+            },
+        })
+        with patch.object(server, "read_products", return_value=[{"id": "p1", "name": "فستان", "price": 200, "purchasePrice": 80, "availableStock": 0}]), \
+             patch.object(server, "read_orders", return_value=[order]), \
+             patch.object(server, "read_expenses", return_value=[]), \
+             patch.object(server, "read_ambassador_commissions", return_value=[]), \
+             patch.object(server, "read_ambassador_withdrawals", return_value=[]):
+            summary = server.accounting_summary()
+
+        self.assertEqual(summary["grossProfit"], 120)
+        self.assertEqual(summary["ambassadorCommissions"], 0)
+        self.assertEqual(summary["pendingAmbassadorCommissions"], 20)
+        self.assertEqual(summary["netProfit"], 120)
+
+    def test_canceled_commission_returns_money_to_profit(self):
+        order = server.normalize_order_item({
+            "orderId": "delivered-canceled-commission",
+            "status": "delivered",
+            "ambassadorSummary": {
+                "isAmbassadorOrder": True,
+                "ambassadorUid": "amb-9",
+                "estimatedCommission": 25,
+            },
+            "payload": {
+                "customer": {"submitterUid": "amb-9", "accountRole": "ambassador"},
+                "pricing": {"grandTotal": 200},
+                "items": [{
+                    "productId": "p1",
+                    "name": "فستان",
+                    "price": 200,
+                    "purchasePrice": 100,
+                    "quantity": 1,
+                }],
+            },
+        })
+        canceled_record = {
+            "id": "order:delivered-canceled-commission",
+            "sourceType": "order",
+            "orderId": "delivered-canceled-commission",
+            "ambassadorKey": "uid:amb-9",
+            "ambassadorUid": "amb-9",
+            "ambassadorName": "ريم",
+            "status": "canceled",
+            "baseAmount": 25,
+            "approvedAmount": 25,
+            "history": [],
+        }
+        with patch.object(server, "read_products", return_value=[{"id": "p1", "name": "فستان", "price": 200, "purchasePrice": 100, "availableStock": 0}]), \
+             patch.object(server, "read_orders", return_value=[order]), \
+             patch.object(server, "read_expenses", return_value=[]), \
+             patch.object(server, "read_ambassador_commissions", return_value=[canceled_record]), \
+             patch.object(server, "read_ambassador_withdrawals", return_value=[]):
+            summary = server.accounting_summary()
+
+        self.assertEqual(summary["grossProfit"], 100)
+        self.assertEqual(summary["approvedAmbassadorCommissions"], 0)
+        self.assertEqual(summary["ambassadorCommissions"], 0)
+        self.assertEqual(summary["netProfit"], 100)
 
     def test_ambassador_summary_survives_order_normalization(self):
         item = server.normalize_order_item({
@@ -1669,6 +1789,183 @@ class AdminFeatureTests(unittest.TestCase):
         self.assertEqual(payload["count"], 1)
         self.assertEqual(payload["items"][0]["uid"], "amb-registered")
         self.assertEqual(payload["source"], "firestore")
+
+    def test_financial_summary_separates_approved_pending_and_pipeline(self):
+        orders = [
+            server.normalize_order_item({
+                "orderId": "amb-delivered-pending",
+                "status": "delivered",
+                "ambassadorSummary": {
+                    "isAmbassadorOrder": True,
+                    "ambassadorUid": "amb-1",
+                    "ambassadorName": "سارة",
+                    "estimatedCommission": 50,
+                },
+                "payload": {
+                    "customer": {"submitterUid": "amb-1", "accountRole": "ambassador"},
+                    "items": [{"productId": "p1", "price": 100, "quantity": 1, "commissionPercent": 50}],
+                    "pricing": {"grandTotal": 100},
+                },
+            }),
+            server.normalize_order_item({
+                "orderId": "amb-delivered-approved",
+                "status": "delivered",
+                "ambassadorSummary": {
+                    "isAmbassadorOrder": True,
+                    "ambassadorUid": "amb-1",
+                    "ambassadorName": "سارة",
+                    "estimatedCommission": 30,
+                },
+                "payload": {
+                    "customer": {"submitterUid": "amb-1", "accountRole": "ambassador"},
+                    "items": [{"productId": "p2", "price": 100, "quantity": 1, "commissionPercent": 30}],
+                    "pricing": {"grandTotal": 100},
+                },
+            }),
+            server.normalize_order_item({
+                "orderId": "amb-processing",
+                "status": "processing",
+                "ambassadorSummary": {
+                    "isAmbassadorOrder": True,
+                    "ambassadorUid": "amb-1",
+                    "ambassadorName": "سارة",
+                    "estimatedCommission": 20,
+                },
+                "payload": {
+                    "customer": {"submitterUid": "amb-1", "accountRole": "ambassador"},
+                    "items": [{"productId": "p3", "price": 100, "quantity": 1, "commissionPercent": 20}],
+                    "pricing": {"grandTotal": 100},
+                },
+            }),
+        ]
+        commissions = [{
+            "id": "order:amb-delivered-approved",
+            "sourceType": "order",
+            "orderId": "amb-delivered-approved",
+            "ambassadorKey": "uid:amb-1",
+            "ambassadorUid": "amb-1",
+            "ambassadorName": "سارة",
+            "status": "approved",
+            "baseAmount": 30,
+            "approvedAmount": 25,
+            "history": [],
+        }]
+        withdrawals = [{
+            "id": "wd-1",
+            "ambassadorUid": "amb-1",
+            "amount": 10,
+            "status": "pending",
+            "createdAtMs": 1,
+            "updatedAtMs": 1,
+        }]
+        with patch.object(server, "read_orders", return_value=orders), \
+             patch.object(server, "read_ambassador_commissions", return_value=commissions), \
+             patch.object(server, "read_ambassador_withdrawals", return_value=withdrawals):
+            result = server.build_ambassador_financial_summary(
+                registered_profiles=[{"uid": "amb-1", "ambassadorName": "سارة", "status": "active"}],
+            )
+
+        self.assertEqual(result["summary"]["ambassadorCount"], 1)
+        self.assertEqual(result["summary"]["approvedCommission"], 25)
+        self.assertEqual(result["summary"]["pendingApprovalCommission"], 50)
+        self.assertEqual(result["summary"]["pipelineCommission"], 20)
+        self.assertEqual(result["summary"]["availableBalance"], 15)
+        item = result["items"][0]
+        self.assertEqual(item["reservedWithdrawals"], 10)
+        self.assertTrue(item["needsAttention"])
+
+    def test_admin_can_update_order_commission_and_persist_history(self):
+        old_token = server.API_TOKEN
+        server.API_TOKEN = "test-token"
+        commissions = []
+
+        def write_commissions(items):
+            commissions[:] = items
+
+        order = server.normalize_order_item({
+            "orderId": "amb-order-1",
+            "status": "delivered",
+            "ambassadorSummary": {
+                "isAmbassadorOrder": True,
+                "ambassadorUid": "amb-9",
+                "ambassadorName": "مريم",
+                "estimatedCommission": 40,
+            },
+            "payload": {
+                "customer": {"submitterUid": "amb-9", "accountRole": "ambassador"},
+                "items": [{"productId": "p1", "price": 100, "quantity": 1, "commissionPercent": 40}],
+                "pricing": {"grandTotal": 100},
+            },
+        })
+        try:
+            with patch.object(server, "read_orders", return_value=[order]), \
+                 patch.object(server, "read_ambassador_commissions", side_effect=lambda: commissions), \
+                 patch.object(server, "write_ambassador_commissions", side_effect=write_commissions):
+                response = server.app.test_client().put(
+                    "/admin/ambassador-commissions/order/amb-order-1",
+                    json={"status": "approved", "approvedAmount": 35, "note": "تعديل خاص"},
+                    headers={"Authorization": "Bearer test-token"},
+                )
+        finally:
+            server.API_TOKEN = old_token
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["item"]["status"], "approved")
+        self.assertEqual(payload["item"]["approvedAmount"], 35)
+        self.assertEqual(commissions[0]["status"], "approved")
+        self.assertEqual(commissions[0]["history"][-1]["action"], "approve")
+
+    def test_manual_deduction_cannot_exceed_available_balance(self):
+        old_token = server.API_TOKEN
+        server.API_TOKEN = "test-token"
+        order = server.normalize_order_item({
+            "orderId": "amb-approved-balance",
+            "status": "delivered",
+            "ambassadorSummary": {
+                "isAmbassadorOrder": True,
+                "ambassadorUid": "amb-7",
+                "ambassadorName": "ريم",
+                "estimatedCommission": 80,
+            },
+            "payload": {
+                "customer": {"submitterUid": "amb-7", "accountRole": "ambassador"},
+                "items": [{"productId": "p1", "price": 100, "quantity": 1, "commissionPercent": 80}],
+                "pricing": {"grandTotal": 100},
+            },
+        })
+        commissions = [{
+            "id": "order:amb-approved-balance",
+            "sourceType": "order",
+            "orderId": "amb-approved-balance",
+            "ambassadorKey": "uid:amb-7",
+            "ambassadorUid": "amb-7",
+            "ambassadorName": "ريم",
+            "status": "approved",
+            "baseAmount": 80,
+            "approvedAmount": 80,
+            "history": [],
+        }]
+        try:
+            with patch.object(server, "read_orders", return_value=[order]), \
+                 patch.object(server, "read_ambassador_commissions", return_value=commissions), \
+                 patch.object(server, "read_ambassador_withdrawals", return_value=[]):
+                response = server.app.test_client().post(
+                    "/admin/ambassador-commissions/manual",
+                    json={
+                        "ambassadorKey": "uid:amb-7",
+                        "ambassadorUid": "amb-7",
+                        "ambassadorName": "ريم",
+                        "amount": -100,
+                        "note": "خصم مبالغ فيه",
+                    },
+                    headers={"Authorization": "Bearer test-token"},
+                )
+        finally:
+            server.API_TOKEN = old_token
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.get_json()["error"], "لا يمكن خصم مبلغ أكبر من الرصيد المتاح")
 
     def test_admin_page_is_mobile_and_not_cached(self):
         response = server.app.test_client().get("/admin")
