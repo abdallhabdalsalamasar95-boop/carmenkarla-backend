@@ -4918,6 +4918,7 @@ def list_orders_feed_for_app():
 
 @app.get("/ambassadors/me/orders")
 def list_current_ambassador_orders():
+    _sync_sabil_for_customer_view()
     signed_user, auth_error = _firebase_user_from_request()
     if auth_error is not None:
         return auth_error
