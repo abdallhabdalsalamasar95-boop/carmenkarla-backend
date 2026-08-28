@@ -2811,7 +2811,6 @@ def sync_sabil_deleted_shipments() -> Dict[str, Any]:
             delivery = order.get("externalDelivery") if isinstance(order.get("externalDelivery"), dict) else {}
             if (
                 str(delivery.get("provider") or "") == "darb_sabeel"
-                and str(delivery.get("status") or "") == "created"
                 and str(delivery.get("shipmentId") or "").strip()
                 and str(delivery.get("syncStatus") or "") != "deleted_on_provider"
             ):
