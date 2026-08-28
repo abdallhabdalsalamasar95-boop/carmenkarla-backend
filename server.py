@@ -1854,6 +1854,14 @@ def _first_nested_value(data: Any, keys: set[str]) -> str:
     return ""
 
 
+def _sabil_courier_phone(data: Any) -> str:
+    return _first_nested_value(data, {
+        "courierphone", "courier_phone", "driverphone", "driver_phone",
+        "deliveryagentphone", "delivery_agent_phone", "riderphone", "rider_phone",
+        "deliverymanphone", "delivery_man_phone", "couriermobile", "drivermobile",
+    })
+
+
 def build_sabil_shipment_payload(
     order: Dict[str, Any],
     contact_ids: Optional[List[str]] = None,
@@ -2349,6 +2357,7 @@ def _request_sabil_shipment(order: Dict[str, Any]) -> Dict[str, Any]:
         "shipmentId": shipment_id,
         "trackingNumber": tracking_number or shipment_id,
         "referenceCode": reference,
+        "courierPhone": _sabil_courier_phone(decoded),
         "httpStatus": status_code,
         "lastError": "",
     }
@@ -2439,6 +2448,7 @@ def attach_sabil_shipment(order_id: str, shipment: Dict[str, Any]) -> Dict[str, 
             "shipmentId": shipment_id,
             "trackingNumber": str(shipment.get("trackingNumber") or shipment_id).strip(),
             "referenceCode": str(shipment.get("referenceCode") or "").strip(),
+            "courierPhone": str(shipment.get("courierPhone") or "").strip(),
             "httpStatus": max(200, as_int(shipment.get("httpStatus"), 201)),
             "lastError": "",
             "createdAtMs": as_int(previous.get("createdAtMs"), now_ms),
@@ -2490,6 +2500,7 @@ def _sabil_shipment_snapshot(shipment_id: str) -> Dict[str, Any]:
         "deleted": provider_status == "deleted",
         "providerStatus": provider_status or "unknown",
         "referenceCode": str(row.get("reference") or "").strip(),
+        "courierPhone": _sabil_courier_phone(row),
         "timeline": timeline,
     }
 
@@ -4725,7 +4736,7 @@ def public_order_tracking(order_id: str):
         key: delivery.get(key)
         for key in (
             "provider", "status", "shipmentId", "trackingNumber", "referenceCode",
-            "providerStatus", "syncStatus", "lastSyncAtMs", "timeline", "lastError",
+            "providerStatus", "syncStatus", "lastSyncAtMs", "timeline", "lastError", "courierPhone",
         )
         if delivery.get(key) not in (None, "")
     }
@@ -4769,7 +4780,7 @@ def list_current_customer_orders():
             for key in (
                 "provider", "status", "shipmentId", "trackingNumber", "referenceCode",
                 "providerStatus", "syncStatus", "lastSyncAtMs", "timeline",
-                "lastError",
+                "lastError", "courierPhone",
             )
             if delivery.get(key) not in (None, "")
         }
@@ -4892,6 +4903,9 @@ def list_current_ambassador_orders():
             "payload": payload,
             "ambassadorSummary": summary,
             "externalDelivery": item.get("externalDelivery") if isinstance(item.get("externalDelivery"), dict) else {},
+            "ambassadorPhone": str(item.get("ambassadorPhone") or summary.get("ambassadorPhone") or customer.get("submitterPhone") or "").strip(),
+            "statusReason": str(item.get("statusReason") or (item.get("externalDelivery") or {}).get("lastError") or "").strip(),
+            "statusReasonImageUrl": str(item.get("statusReasonImageUrl") or "").strip(),
         })
     out.sort(key=lambda x: as_int(x.get("createdAtMs", 0), 0), reverse=True)
     return jsonify({"ok": True, "count": len(out[:limit]), "items": out[:limit]})
