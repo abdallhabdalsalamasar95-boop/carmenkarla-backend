@@ -2509,6 +2509,9 @@ def _sabil_shipment_snapshot(shipment_id: str) -> Dict[str, Any]:
         return {"exists": False, "deleted": True, "providerStatus": "deleted"}
     provider_status = str(row.get("status") or "").strip().lower()
     timeline = []
+    status_reason = ""
+    status_reason_image_url = ""
+    reason_event_types = {"delayed", "postponed", "deferred", "cancelled", "canceled", "rejected", "refused"}
     for raw_event in row.get("timeline", []):
         if not isinstance(raw_event, dict):
             continue
@@ -2520,12 +2523,34 @@ def _sabil_shipment_snapshot(shipment_id: str) -> Dict[str, Any]:
             "descriptionEn": str(description.get("en") or raw_event.get("descriptionEn") or "").strip(),
             "timestamp": str(raw_event.get("timestamp") or raw_event.get("createdAt") or "").strip(),
         })
+        event_type = re.sub(r"[\s-]+", "_", str(raw_event.get("type") or "").strip().lower())
+        if event_type in reason_event_types:
+            event_reason = str(
+                description.get("ar")
+                or description.get("en")
+                or raw_event.get("reason")
+                or raw_event.get("note")
+                or ""
+            ).strip()
+            if event_reason:
+                status_reason = event_reason
+            attachments = raw_event.get("attachments") if isinstance(raw_event.get("attachments"), list) else []
+            for attachment in attachments:
+                if not isinstance(attachment, dict):
+                    continue
+                image_url = str(attachment.get("url") or attachment.get("imageUrl") or "").strip()
+                mime_type = str(attachment.get("mimeType") or "").lower()
+                if image_url and (mime_type.startswith("image/") or not mime_type):
+                    status_reason_image_url = image_url
+                    break
     return {
         "exists": True,
         "deleted": provider_status == "deleted",
         "providerStatus": provider_status or "unknown",
         "referenceCode": str(row.get("reference") or "").strip(),
         "courierPhone": _sabil_courier_phone(row),
+        "statusReason": status_reason,
+        "statusReasonImageUrl": status_reason_image_url,
         "timeline": timeline,
     }
 
@@ -2709,12 +2734,6 @@ def _change_order_status(
         merged["updatedAtMs"] = int(time.time() * 1000)
         merged["inventoryReserved"] = inventory_reserved
         merged["inventoryReservation"] = reservation
-        if status in {"postponed", "canceled"} and not status_reason:
-            status_reason = "تم إلغاء الطلب بناءً على طلب العميلة." if status == "canceled" else "تم تأجيل التوصيل، وسيتم تحديث الموعد عند توفره."
-        if status_reason:
-            merged["statusReason"] = status_reason[:2000]
-        if status_reason_image_url:
-            merged["statusReasonImageUrl"] = status_reason_image_url[:2000]
         if sabil_snapshot is not None:
             delivery = dict(merged.get("externalDelivery") or {})
             delivery.update({
@@ -2730,25 +2749,27 @@ def _change_order_status(
             courier_phone = str(sabil_snapshot.get("courierPhone") or "").strip()
             if courier_phone:
                 delivery["courierPhone"] = courier_phone
+            provider_reason = str(sabil_snapshot.get("statusReason") or "").strip()
+            provider_reason_image = str(sabil_snapshot.get("statusReasonImageUrl") or "").strip()
+            if provider_reason:
+                merged["statusReason"] = provider_reason[:2000]
+            elif status_reason:
+                merged["statusReason"] = status_reason[:2000]
+            elif status in {"postponed", "canceled"}:
+                merged["statusReason"] = "تم إلغاء الطلب بناءً على طلب العميلة." if status == "canceled" else "تم تأجيل التوصيل."
+            if provider_reason_image:
+                merged["statusReasonImageUrl"] = provider_reason_image[:2000]
+            elif status_reason_image_url:
+                merged["statusReasonImageUrl"] = status_reason_image_url[:2000]
             if sabil_snapshot.get("deleted"):
                 delivery["deletedOnProviderAtMs"] = merged["updatedAtMs"]
             merged["externalDelivery"] = delivery
-            if status in {"postponed", "canceled"} and not status_reason:
-                provider_reason = str(
-                    sabil_snapshot.get("reason")
-                    or sabil_snapshot.get("lastError")
-                    or sabil_snapshot.get("message")
-                    or ""
-                ).strip()
-                if provider_reason:
-                    merged["statusReason"] = provider_reason[:2000]
-                provider_reason_image = str(
-                    sabil_snapshot.get("reasonImageUrl")
-                    or sabil_snapshot.get("imageUrl")
-                    or ""
-                ).strip()
-                if provider_reason_image:
-                    merged["statusReasonImageUrl"] = provider_reason_image[:2000]
+        elif status_reason:
+            merged["statusReason"] = status_reason[:2000]
+        elif status_reason_image_url:
+            merged["statusReasonImageUrl"] = status_reason_image_url[:2000]
+        elif status in {"postponed", "canceled"}:
+            merged["statusReason"] = "تم إلغاء الطلب بناءً على طلب العميلة." if status == "canceled" else "تم تأجيل التوصيل."
         item = normalize_order_item(merged, current)
         entries[idx] = item
         write_orders(entries)
