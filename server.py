@@ -1855,11 +1855,34 @@ def _first_nested_value(data: Any, keys: set[str]) -> str:
 
 
 def _sabil_courier_phone(data: Any) -> str:
-    return _first_nested_value(data, {
+    courier_keys = {
         "courierphone", "courier_phone", "driverphone", "driver_phone",
         "deliveryagentphone", "delivery_agent_phone", "riderphone", "rider_phone",
         "deliverymanphone", "delivery_man_phone", "couriermobile", "drivermobile",
-    })
+    }
+    preferred = {"handler", "driver", "courier", "rider", "deliveryagent", "delivery_agent", "deliveryman", "delivery_man"}
+
+    def find_preferred(value: Any) -> str:
+        if isinstance(value, dict):
+            for key, nested in value.items():
+                normalized = re.sub(r"[\s-]+", "_", str(key).strip().lower())
+                compact = normalized.replace("_", "")
+                if normalized in preferred or compact in {item.replace("_", "") for item in preferred}:
+                    found = _first_nested_value(nested, courier_keys | {"phone", "mobile"})
+                    if found:
+                        return found
+            for nested in value.values():
+                found = find_preferred(nested)
+                if found:
+                    return found
+        elif isinstance(value, list):
+            for nested in value:
+                found = find_preferred(nested)
+                if found:
+                    return found
+        return ""
+
+    return find_preferred(data) or _first_nested_value(data, courier_keys)
 
 
 def build_sabil_shipment_payload(
@@ -2476,6 +2499,8 @@ def _sabil_shipment_snapshot(shipment_id: str) -> Dict[str, Any]:
     data = root.get("data") if isinstance(root.get("data"), dict) else root
     results = data.get("results") if isinstance(data, dict) else None
     rows = results if isinstance(results, list) else ([results] if isinstance(results, dict) else [])
+    if not rows and isinstance(data, dict) and str(data.get("_id") or data.get("id") or "").strip():
+        rows = [data]
     row = next(
         (item for item in rows if isinstance(item, dict) and str(item.get("_id") or item.get("id") or "").strip() == shipment_id),
         next((item for item in rows if isinstance(item, dict)), None),
@@ -2702,6 +2727,9 @@ def _change_order_status(
             reference_code = str(sabil_snapshot.get("referenceCode") or "").strip()
             if reference_code:
                 delivery["referenceCode"] = reference_code
+            courier_phone = str(sabil_snapshot.get("courierPhone") or "").strip()
+            if courier_phone:
+                delivery["courierPhone"] = courier_phone
             if sabil_snapshot.get("deleted"):
                 delivery["deletedOnProviderAtMs"] = merged["updatedAtMs"]
             merged["externalDelivery"] = delivery
