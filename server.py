@@ -1709,6 +1709,18 @@ def normalize_order_item(payload: Dict[str, Any], current: Optional[Dict[str, An
         external_delivery = cur.get("externalDelivery")
     if not isinstance(external_delivery, dict):
         external_delivery = {}
+    status_reason = str(
+        payload.get("statusReason")
+        or cur.get("statusReason")
+        or ""
+    ).strip()
+    status_reason_image_url = str(
+        payload.get("statusReasonImageUrl")
+        or payload.get("reasonImageUrl")
+        or cur.get("statusReasonImageUrl")
+        or ""
+    ).strip()
+    ambassador_summary_phone = str(ambassador_summary.get("ambassadorPhone") or "").strip()
 
     is_ambassador_order = (
         bool(ambassador_summary.get("isAmbassadorOrder"))
@@ -1748,6 +1760,15 @@ def normalize_order_item(payload: Dict[str, Any], current: Optional[Dict[str, An
         "customerPhone": str(customer.get("phone") or cur.get("customerPhone") or "").strip(),
         "customerAddress": str(customer.get("address") or cur.get("customerAddress") or "").strip(),
         "city": str(customer.get("city") or cur.get("city") or "").strip(),
+        "ambassadorPhone": str(
+            cur.get("ambassadorPhone")
+            or ambassador_summary_phone
+            or customer.get("submitterPhone")
+            or customer.get("ambassadorPhone")
+            or ""
+        ).strip(),
+        "statusReason": status_reason,
+        "statusReasonImageUrl": status_reason_image_url,
         "grandTotal": as_number(pricing.get("grandTotal", payload_map.get("total", cur.get("grandTotal", 0))), 0),
         "itemsCount": (
             sum(max(0, as_int(line.get("quantity", 0), 0)) for line in payload_map.get("items", []) if isinstance(line, dict))
@@ -2615,6 +2636,8 @@ def _change_order_status(
     status: str,
     *,
     sabil_snapshot: Optional[Dict[str, Any]] = None,
+    status_reason: str = "",
+    status_reason_image_url: str = "",
 ) -> Dict[str, Any]:
     order_id = str(order_id or "").strip()
     with _INVENTORY_LOCK:
@@ -2650,6 +2673,12 @@ def _change_order_status(
         merged["updatedAtMs"] = int(time.time() * 1000)
         merged["inventoryReserved"] = inventory_reserved
         merged["inventoryReservation"] = reservation
+        if status in {"postponed", "canceled"} and not status_reason:
+            status_reason = "تم إلغاء الطلب بناءً على طلب العميلة." if status == "canceled" else "تم تأجيل التوصيل، وسيتم تحديث الموعد عند توفره."
+        if status_reason:
+            merged["statusReason"] = status_reason[:2000]
+        if status_reason_image_url:
+            merged["statusReasonImageUrl"] = status_reason_image_url[:2000]
         if sabil_snapshot is not None:
             delivery = dict(merged.get("externalDelivery") or {})
             delivery.update({
@@ -2665,6 +2694,22 @@ def _change_order_status(
             if sabil_snapshot.get("deleted"):
                 delivery["deletedOnProviderAtMs"] = merged["updatedAtMs"]
             merged["externalDelivery"] = delivery
+            if status in {"postponed", "canceled"} and not status_reason:
+                provider_reason = str(
+                    sabil_snapshot.get("reason")
+                    or sabil_snapshot.get("lastError")
+                    or sabil_snapshot.get("message")
+                    or ""
+                ).strip()
+                if provider_reason:
+                    merged["statusReason"] = provider_reason[:2000]
+                provider_reason_image = str(
+                    sabil_snapshot.get("reasonImageUrl")
+                    or sabil_snapshot.get("imageUrl")
+                    or ""
+                ).strip()
+                if provider_reason_image:
+                    merged["statusReasonImageUrl"] = provider_reason_image[:2000]
         item = normalize_order_item(merged, current)
         entries[idx] = item
         write_orders(entries)
@@ -2706,7 +2751,12 @@ def _cancel_owned_order(order_id: str, uid: str, *, actor: str) -> Dict[str, Any
         raise ValueError("لا يمكن إلغاء الطلب بعد بدء الشحن أو اكتمال الطلب")
 
     sabil_snapshot = _cancel_sabil_shipment_for_order(order)
-    return _change_order_status(order_id, "canceled", sabil_snapshot=sabil_snapshot)
+    return _change_order_status(
+        order_id,
+        "canceled",
+        sabil_snapshot=sabil_snapshot,
+        status_reason="تم إلغاء الطلب بناءً على طلب العميلة.",
+    )
 
 
 def sync_sabil_deleted_shipments() -> Dict[str, Any]:
@@ -4675,7 +4725,7 @@ def public_order_tracking(order_id: str):
         key: delivery.get(key)
         for key in (
             "provider", "status", "shipmentId", "trackingNumber", "referenceCode",
-            "providerStatus", "syncStatus", "lastSyncAtMs", "timeline",
+            "providerStatus", "syncStatus", "lastSyncAtMs", "timeline", "lastError",
         )
         if delivery.get(key) not in (None, "")
     }
@@ -4686,6 +4736,9 @@ def public_order_tracking(order_id: str):
             "status": item["status"],
             "createdAtMs": item["createdAtMs"],
             "updatedAtMs": item["updatedAtMs"],
+            "ambassadorPhone": str(item.get("ambassadorPhone") or "").strip(),
+            "statusReason": str(item.get("statusReason") or delivery.get("lastError") or "").strip(),
+            "statusReasonImageUrl": str(item.get("statusReasonImageUrl") or "").strip(),
             "externalDelivery": safe_delivery,
         },
     })
@@ -4716,6 +4769,7 @@ def list_current_customer_orders():
             for key in (
                 "provider", "status", "shipmentId", "trackingNumber", "referenceCode",
                 "providerStatus", "syncStatus", "lastSyncAtMs", "timeline",
+                "lastError",
             )
             if delivery.get(key) not in (None, "")
         }
@@ -4728,6 +4782,9 @@ def list_current_customer_orders():
             "itemsCount": as_int(item.get("itemsCount", 0), 0),
             "trackingToken": str(item.get("trackingToken") or "").strip(),
             "externalDelivery": safe_delivery,
+            "ambassadorPhone": str(item.get("ambassadorPhone") or "").strip(),
+            "statusReason": str(item.get("statusReason") or delivery.get("lastError") or "").strip(),
+            "statusReasonImageUrl": str(item.get("statusReasonImageUrl") or "").strip(),
             "items": order_items,
             "orderChannel": "customer",
         })
@@ -5164,7 +5221,12 @@ def update_order_status(order_id: str):
         return jsonify({"ok": False, "error": f"status must be one of {sorted(allowed)}"}), 400
 
     try:
-        item = _change_order_status(order_id, status)
+        item = _change_order_status(
+            order_id,
+            status,
+            status_reason=str(payload.get("statusReason") or "").strip(),
+            status_reason_image_url=str(payload.get("statusReasonImageUrl") or "").strip(),
+        )
     except LookupError:
         return jsonify({"ok": False, "error": "Order not found"}), 404
     except RuntimeError as ex:
