@@ -2526,10 +2526,11 @@ def _sabil_shipment_snapshot(shipment_id: str) -> Dict[str, Any]:
         event_type = re.sub(r"[\s-]+", "_", str(raw_event.get("type") or "").strip().lower())
         if event_type in reason_event_types:
             event_reason = str(
-                description.get("ar")
-                or description.get("en")
+                raw_event.get("remarks")
                 or raw_event.get("reason")
                 or raw_event.get("note")
+                or description.get("ar")
+                or description.get("en")
                 or ""
             ).strip()
             if event_reason:
