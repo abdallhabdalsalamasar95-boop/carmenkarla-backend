@@ -2147,7 +2147,13 @@ def _sabil_headers() -> Dict[str, str]:
     elif _SABIL_ACCESS_TOKEN:
         expiry = _decode_jwt_expiry(_SABIL_ACCESS_TOKEN)
         if expiry and expiry <= time.time() + 60:
-            _refresh_sabil_session()
+            try:
+                _refresh_sabil_session()
+            except RuntimeError:
+                # A live portal token can remain usable while the persisted
+                # refresh session is rejected. Keep the access token for this
+                # request; the provider will return 401 if it is truly dead.
+                pass
         authorization = f"Bearer {_SABIL_ACCESS_TOKEN}"
     else:
         authorization = f"apikey {_SABIL_API_KEY}"
