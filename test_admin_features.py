@@ -702,6 +702,23 @@ class AdminFeatureTests(unittest.TestCase):
 
         self.assertEqual(cities, {"طرابلس": ["عين زارة"]})
 
+    def test_sabil_shipping_extracts_shipping_sum_not_product_or_total(self):
+        details = server._extract_sabil_shipping_details({
+            "invoices": [{
+                "currency": "lyd",
+                "_sums": {"product": {"sum": 100}, "shipping": {"sum": 15, "breakdown": {"branchToBranch": 10, "dropToDoor": 5}}, "total": {"sum": 115}},
+            }],
+        })
+        self.assertEqual(details["amount"], 15.0)
+        self.assertEqual(details["breakdown"]["branchToBranch"], 10)
+
+    def test_sabil_shipping_extracts_breakdown_sum(self):
+        details = server._extract_sabil_shipping_details({
+            "breakdown": {"branchToBranch": 10, "pickFromDoor": 0, "dropToDoor": 5},
+            "total": 999,
+        })
+        self.assertEqual(details["amount"], 15.0)
+
     def test_sabil_shipment_snapshot_distinguishes_existing_and_deleted(self):
         existing_response = {
             "status": 200,

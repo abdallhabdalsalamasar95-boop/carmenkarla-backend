@@ -1518,31 +1518,52 @@ def _fallback_shipping_cost(city: Any, area: Any = "", config: Optional[Dict[str
     return matched if matched is not None else default_cost
 
 
-def _extract_sabil_shipping_amount(data: Any) -> float:
-    candidates: List[float] = []
+def _extract_sabil_shipping_details(data: Any) -> Dict[str, Any]:
+    """Extract only provider shipping charges; never guess from product totals."""
+    def number(value: Any) -> Optional[float]:
+        parsed = as_number(value, -1)
+        return round(parsed, 2) if parsed >= 0 else None
 
-    def walk(node: Any) -> None:
+    def walk(node: Any) -> Optional[Dict[str, Any]]:
         if isinstance(node, dict):
-            for key, value in node.items():
-                lowered = str(key or "").strip().lower()
-                if lowered in {
-                    "shipping", "shippingcost", "shipping_cost", "delivery", "deliverycost",
-                    "delivery_cost", "shippingamount", "shipping_amount", "amount",
-                    "totalshipping", "total_shipping", "cost", "price",
-                }:
-                    number = as_number(value, -1)
-                    if number >= 0:
-                        candidates.append(number)
-                walk(value)
+            invoices = node.get("invoices")
+            if isinstance(invoices, list):
+                for invoice in invoices:
+                    if not isinstance(invoice, dict):
+                        continue
+                    sums = invoice.get("_sums") or invoice.get("sums")
+                    if isinstance(sums, dict):
+                        shipping = sums.get("shipping")
+                        if isinstance(shipping, dict):
+                            amount = number(shipping.get("sum") or shipping.get("amount"))
+                            if amount is not None:
+                                return {"amount": amount, "breakdown": shipping.get("breakdown") or {}, "currency": invoice.get("currency") or shipping.get("currency") or "LYD", "field": "invoices._sums.shipping"}
+            breakdown = node.get("breakdown")
+            if isinstance(breakdown, dict):
+                parts = {str(k): number(v) for k, v in breakdown.items()}
+                valid = {k: v for k, v in parts.items() if v is not None}
+                if valid:
+                    return {"amount": round(sum(valid.values()), 2), "breakdown": valid, "currency": node.get("currency") or "LYD", "field": "breakdown"}
+            for key in ("shippingCost", "shipping_cost", "deliveryCost", "delivery_cost", "shippingAmount", "shipping_amount", "totalShipping", "total_shipping"):
+                amount = number(node.get(key))
+                if amount is not None:
+                    return {"amount": amount, "breakdown": {}, "currency": node.get("currency") or "LYD", "field": key}
+            for value in node.values():
+                found = walk(value)
+                if found:
+                    return found
         elif isinstance(node, list):
-            for child in node:
-                walk(child)
+            for value in node:
+                found = walk(value)
+                if found:
+                    return found
+        return None
 
-    walk(data)
-    positives = [value for value in candidates if value > 0]
-    if positives:
-        return min(positives)
-    return 0.0
+    return walk(data) or {"amount": 0.0, "breakdown": {}, "currency": "LYD", "field": "unavailable"}
+
+
+def _extract_sabil_shipping_amount(data: Any) -> float:
+    return float(_extract_sabil_shipping_details(data).get("amount") or 0.0)
 
 
 def resolve_shipping_cost(city: Any, area: Any = "", address: Any = "") -> tuple[float, bool, str]:
@@ -1604,10 +1625,11 @@ def resolve_shipping_cost(city: Any, area: Any = "", address: Any = "") -> tuple
             "/api/local/shipments/calculate/shipping",
             quote_payload,
         )
-        amount = round(_extract_sabil_shipping_amount(decoded), 2)
+        details = _extract_sabil_shipping_details(decoded)
+        amount = round(float(details.get("amount") or 0), 2)
         if amount > 0:
             with _SABIL_SHIPPING_CACHE_LOCK:
-                _SABIL_SHIPPING_CACHE[cache_key] = {"amount": amount, "expiresAt": time.time() + 10 * 60}
+                _SABIL_SHIPPING_CACHE[cache_key] = {**details, "amount": amount, "expiresAt": time.time() + 10 * 60}
             return amount, True, "api"
     except Exception:
         pass
@@ -4705,6 +4727,8 @@ def public_sabil_shipping_cost():
     if not city:
         return jsonify({"ok": False, "error": "city is required"}), 400
     amount, provider_available, source = resolve_shipping_cost(city, area, address)
+    cache_key = "|".join(value.casefold() for value in (city, area, address))
+    cached_details = _SABIL_SHIPPING_CACHE.get(cache_key, {})
     shipping_cfg = normalize_shipping_pricing(read_marketing_config().get("shippingPricing"))
     return jsonify({
         "ok": True,
@@ -4716,7 +4740,43 @@ def public_sabil_shipping_cost():
         "mode": str(shipping_cfg.get("mode") or "darb"),
         "providerAvailable": provider_available,
         "source": source,
+        "cached": source == "cache",
+        "breakdown": cached_details.get("breakdown") if source in {"api", "cache"} else {},
+        "field": cached_details.get("field") if source in {"api", "cache"} else "fallback",
     })
+
+
+@app.get("/admin/delivery/darb-sabeel/quote-debug")
+def admin_sabil_quote_debug():
+    ok, err = require_admin()
+    if not ok:
+        return err
+    city = str(request.args.get("city") or "").strip()
+    area = str(request.args.get("area") or "").strip()
+    address = str(request.args.get("address") or "").strip()
+    if not city:
+        return jsonify({"ok": False, "error": "city is required"}), 400
+    config = sabil_config_status()
+    if not (_SABIL_ENABLED and config.get("ready") and _SABIL_CONTACT_IDS):
+        return jsonify({"ok": False, "error": "Darb Assabil is not configured"}), 503
+    payload = {
+        "isPickup": False,
+        "service": _SABIL_SERVICE_ID,
+        "contacts": [_SABIL_CONTACT_IDS[0]],
+        "paymentBy": _SABIL_PAYMENT_BY if _SABIL_PAYMENT_BY in {"sender", "receiver", "sales"} else "receiver",
+        "allowCardPayment": False,
+        "allowSplitting": True,
+        "allowedBankNotes": {"50": False},
+        "to": {"countryCode": _SABIL_COUNTRY_CODE, "city": city, **({"area": area} if area else {}), "address": address or "Tripoli"},
+        "products": [{"title": "Shipping Quote", "quantity": 1, "widthCM": 10, "heightCM": 10, "lengthCM": 10, "allowInspection": False, "allowTesting": False, "isFragile": False, "amount": 1.0, "currency": _SABIL_CURRENCY, "isChargeable": True}],
+        "tags": [], "metadata": {},
+    }
+    try:
+        status_code, decoded = _request_sabil_with_branch_fallback("/api/local/shipments/calculate/shipping", payload)
+        details = _extract_sabil_shipping_details(decoded)
+        return jsonify({"ok": True, "request": {"city": city, "area": area}, "providerResponse": {"shippingCost": details.get("amount"), "breakdown": details.get("breakdown"), "currency": details.get("currency"), "field": details.get("field"), "httpStatus": status_code}, "calculatedAmount": details.get("amount", 0), "source": "darb_sabeel"})
+    except Exception as ex:
+        return jsonify({"ok": False, "error": str(ex)[:300]}), 502
 
 
 @app.post("/orders/<order_id>/delivery/darb-sabeel")
