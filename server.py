@@ -1997,7 +1997,6 @@ def _load_sabil_session() -> None:
     stored_expiry = _decode_jwt_expiry(stored_access)
     use_stored = bool(stored_access and stored_refresh) and (
         not _SABIL_ACCESS_TOKEN
-        or not _SABIL_REFRESH_TOKEN
         or (
             stored_issued_at > environment_issued_at
             and (not stored_expiry or stored_expiry > time.time() + 60)
