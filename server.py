@@ -1938,8 +1938,18 @@ def build_sabil_shipment_payload(
         if not isinstance(raw, dict):
             continue
         quantity = max(1, as_int(raw.get("quantity"), 1))
+        title = str(raw.get("name") or "منتج AVEA").strip()
+        options = [
+            ("مقاس", raw.get("size")),
+            ("طول", raw.get("length")),
+            ("لون", raw.get("color")),
+        ]
+        for label, value in options:
+            clean_value = str(value or "").strip()
+            if clean_value:
+                title += f" • {label} {clean_value}"
         products.append({
-            "title": str(raw.get("name") or "منتج AVEA").strip(),
+            "title": title,
             "quantity": quantity,
             "widthCM": 10,
             "heightCM": 10,
@@ -4891,6 +4901,13 @@ def public_order_tracking(order_id: str):
             "status": item["status"],
             "createdAtMs": item["createdAtMs"],
             "updatedAtMs": item["updatedAtMs"],
+            "grandTotal": as_number(item.get("grandTotal"), 0),
+            "itemsCount": as_int(item.get("itemsCount"), 0),
+            "items": safe_customer_order_lines(
+                (item.get("payload") or {}).get("items", [])
+                if isinstance(item.get("payload"), dict)
+                else []
+            ),
             "ambassadorPhone": str(item.get("ambassadorPhone") or "").strip(),
             "statusReason": str(item.get("statusReason") or delivery.get("lastError") or "").strip(),
             "statusReasonImageUrl": str(item.get("statusReasonImageUrl") or "").strip(),
@@ -5047,6 +5064,7 @@ def list_current_ambassador_orders():
             "itemsCount": as_int(item.get("itemsCount", 0), 0),
             "payload": payload,
             "ambassadorSummary": summary,
+            "trackingToken": str(item.get("trackingToken") or "").strip(),
             "externalDelivery": item.get("externalDelivery") if isinstance(item.get("externalDelivery"), dict) else {},
             "ambassadorPhone": str(item.get("ambassadorPhone") or summary.get("ambassadorPhone") or customer.get("submitterPhone") or "").strip(),
             "statusReason": str(item.get("statusReason") or (item.get("externalDelivery") or {}).get("lastError") or "").strip(),
