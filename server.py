@@ -1018,6 +1018,28 @@ def read_orders() -> List[Dict[str, Any]]:
 
 def write_orders(items: List[Dict[str, Any]]) -> None:
     _write_json_file_atomic(ORDERS_FILE, items)
+    
+def ensure_order_tracking_tokens(items: List[Dict[str, Any]]) -> bool:
+    """Backfill secure tracking links for legacy orders exactly once."""
+    changed = False
+    for item in items:
+        if not isinstance(item, dict) or not str(item.get("orderId") or "").strip():
+            continue
+        if not str(item.get("trackingToken") or "").strip():
+            item["trackingToken"] = secrets.token_urlsafe(24)
+            item["updatedAtMs"] = as_int(item.get("updatedAtMs"), int(time.time() * 1000))
+            changed = True
+    if changed:
+        with _INVENTORY_LOCK:
+            current = read_orders()
+            by_id = {str(row.get("orderId") or "").strip(): row for row in items}
+            for index, row in enumerate(current):
+                order_id = str(row.get("orderId") or "").strip()
+                replacement = by_id.get(order_id)
+                if replacement and not str(row.get("trackingToken") or "").strip():
+                    current[index] = replacement
+            write_orders(current)
+    return changed
 
 
 def read_ambassador_withdrawals() -> List[Dict[str, Any]]:
@@ -2384,11 +2406,13 @@ def sabil_delivery_destinations() -> Dict[str, List[str]]:
 
     now = time.time()
     cached = _SABIL_DESTINATIONS_CACHE.get("cities")
-    if isinstance(cached, dict) and cached and float(_SABIL_DESTINATIONS_CACHE.get("expiresAt") or 0) > now:
+    cache_is_suspicious = isinstance(cached, dict) and len(cached) <= 1
+    if isinstance(cached, dict) and cached and not cache_is_suspicious and float(_SABIL_DESTINATIONS_CACHE.get("expiresAt") or 0) > now:
         return display_cities(cached)
     with _SABIL_DESTINATIONS_LOCK:
         cached = _SABIL_DESTINATIONS_CACHE.get("cities")
-        if isinstance(cached, dict) and cached and float(_SABIL_DESTINATIONS_CACHE.get("expiresAt") or 0) > time.time():
+        cache_is_suspicious = isinstance(cached, dict) and len(cached) <= 1
+        if isinstance(cached, dict) and cached and not cache_is_suspicious and float(_SABIL_DESTINATIONS_CACHE.get("expiresAt") or 0) > time.time():
             return display_cities(cached)
         try:
             collected = _fetch_sabil_branch_pages()
@@ -4662,7 +4686,9 @@ def list_orders():
     limit = max(1, min(limit, 200))
     status = str(request.args.get("status", "") or "").strip().lower()
 
-    items = [normalize_order_item(x) for x in read_orders() if isinstance(x, dict)]
+    raw_items = read_orders()
+    ensure_order_tracking_tokens(raw_items)
+    items = [normalize_order_item(x) for x in raw_items if isinstance(x, dict)]
     if status:
         items = [x for x in items if str(x.get("status", "")).strip().lower() == status]
 
@@ -4853,7 +4879,9 @@ def list_order_statuses_for_app():
     since_ms = as_int(request.args.get("sinceMs", 0), 0)
     uid = str(request.args.get("uid", "") or "").strip()
 
-    items = [normalize_order_item(x) for x in read_orders() if isinstance(x, dict)]
+    raw_items = read_orders()
+    ensure_order_tracking_tokens(raw_items)
+    items = [normalize_order_item(x) for x in raw_items if isinstance(x, dict)]
     if uid:
         items = [x for x in items if str(x.get("uid") or "").strip() == uid]
 
@@ -4878,8 +4906,10 @@ def list_order_statuses_for_app():
 def public_order_tracking(order_id: str):
     _sync_sabil_for_customer_view()
     token = str(request.args.get("token") or "").strip()
+    raw_orders = read_orders()
+    ensure_order_tracking_tokens(raw_orders)
     item = next(
-        (normalize_order_item(row) for row in read_orders() if str(row.get("orderId") or "").strip() == str(order_id).strip()),
+        (normalize_order_item(row) for row in raw_orders if str(row.get("orderId") or "").strip() == str(order_id).strip()),
         None,
     )
     expected = str((item or {}).get("trackingToken") or "").strip()
@@ -4924,8 +4954,10 @@ def list_current_customer_orders():
         return auth_error
     uid = str(signed_user.get("uid") or "").strip()
     limit = max(1, min(as_int(request.args.get("limit", 500), 500), 1000))
+    raw_orders = read_orders()
+    ensure_order_tracking_tokens(raw_orders)
     out = []
-    for raw in read_orders():
+    for raw in raw_orders:
         if not isinstance(raw, dict):
             continue
         item = normalize_order_item(raw)
@@ -4993,7 +5025,9 @@ def list_orders_feed_for_app():
     if not uid:
         return jsonify({"ok": True, "count": 0, "items": []})
 
-    items = [normalize_order_item(x) for x in read_orders() if isinstance(x, dict)]
+    raw_items = read_orders()
+    ensure_order_tracking_tokens(raw_items)
+    items = [normalize_order_item(x) for x in raw_items if isinstance(x, dict)]
 
     def belongs_to_uid(order: Dict[str, Any]) -> bool:
         direct_uid = str(order.get("uid") or "").strip()
@@ -5040,7 +5074,9 @@ def list_current_ambassador_orders():
         return jsonify({"ok": False, "error": "أكمل تسجيل بيانات المندوب أولًا"}), 403
 
     limit = max(1, min(as_int(request.args.get("limit", 500), 500), 1000))
-    items = [normalize_order_item(x) for x in read_orders() if isinstance(x, dict)]
+    raw_orders = read_orders()
+    ensure_order_tracking_tokens(raw_orders)
+    items = [normalize_order_item(x) for x in raw_orders if isinstance(x, dict)]
     out = []
     for item in items:
         payload = item.get("payload") if isinstance(item.get("payload"), dict) else {}
