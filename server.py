@@ -1570,11 +1570,10 @@ def resolve_shipping_cost(city: Any, area: Any = "", address: Any = "") -> tuple
     config = read_marketing_config()
     shipping_cfg = normalize_shipping_pricing(config.get("shippingPricing"))
     fallback = _fallback_shipping_cost(city, area, config)
-    mode = str(shipping_cfg.get("mode") or "darb").strip().lower()
     target_city = str(city or "").strip()
     target_area = str(area or "").strip()
     if not target_city:
-        return fallback, False, "manual" if mode == "manual" else "fallback"
+        return fallback, False, "fallback"
 
     sabil = sabil_config_status()
     if not (_SABIL_ENABLED and sabil.get("ready") and _SABIL_CONTACT_IDS):
