@@ -2348,7 +2348,14 @@ def sabil_delivery_destinations() -> Dict[str, List[str]]:
         cached = _SABIL_DESTINATIONS_CACHE.get("cities")
         if isinstance(cached, dict) and cached and float(_SABIL_DESTINATIONS_CACHE.get("expiresAt") or 0) > time.time():
             return display_cities(cached)
-        collected = _fetch_sabil_branch_pages()
+        try:
+            collected = _fetch_sabil_branch_pages()
+        except Exception:
+            # A stale provider response is safer than replacing known areas
+            # with the tiny fallback list during a temporary outage.
+            if isinstance(cached, dict) and cached:
+                return display_cities(cached)
+            raise
         cities = {
             city: sorted(areas, key=lambda value: (value != city, value))
             for city, areas in sorted(collected.items())

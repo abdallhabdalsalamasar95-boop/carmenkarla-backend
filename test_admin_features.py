@@ -692,6 +692,16 @@ class AdminFeatureTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()["cities"], {"بنغازي": ["البركة"]})
 
+    def test_sabil_destinations_uses_stale_cache_when_provider_is_unavailable(self):
+        with patch.object(
+            server,
+            "_SABIL_DESTINATIONS_CACHE",
+            {"expiresAt": 0, "cities": {"طرابلس": ["عين زارة"]}},
+        ), patch.object(server, "_fetch_sabil_branch_pages", side_effect=RuntimeError("provider unavailable")):
+            cities = server.sabil_delivery_destinations()
+
+        self.assertEqual(cities, {"طرابلس": ["عين زارة"]})
+
     def test_sabil_shipment_snapshot_distinguishes_existing_and_deleted(self):
         existing_response = {
             "status": 200,
