@@ -4657,6 +4657,13 @@ def admin_sync_sabil_shipments():
 
 @app.get("/delivery/darb-sabeel/destinations")
 def public_sabil_destinations():
+    now = time.time()
+    cached_before = _SABIL_DESTINATIONS_CACHE.get("cities")
+    cache_valid = (
+        isinstance(cached_before, dict)
+        and bool(cached_before)
+        and float(_SABIL_DESTINATIONS_CACHE.get("expiresAt") or 0) > now
+    )
     try:
         cities = sabil_delivery_destinations()
     except Exception as ex:
@@ -4665,12 +4672,21 @@ def public_sabil_destinations():
         return jsonify({
             "ok": True,
             "providerAvailable": False,
+            "source": "cache" if isinstance(cached_before, dict) and cached_before else "fallback",
+            "cached": bool(cached_before),
             "cities": {
                 "طرابلس": ["المدينة"],
             },
             "warning": str(ex)[:300],
         })
-    return jsonify({"ok": True, "providerAvailable": True, "cityCount": len(cities), "cities": cities})
+    return jsonify({
+        "ok": True,
+        "providerAvailable": True,
+        "cityCount": len(cities),
+        "cities": cities,
+        "source": "cache" if cache_valid else "darb_sabeel",
+        "cached": cache_valid,
+    })
 
 
 @app.get("/delivery/darb-sabeel/shipping-cost")
