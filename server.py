@@ -133,6 +133,8 @@ _SABIL_SESSION_FILE = DATA_DIR / "sabil_session.json"
 _SABIL_SESSION_LOCK = threading.Lock()
 _SABIL_DESTINATIONS_LOCK = threading.Lock()
 _SABIL_DESTINATIONS_CACHE: Dict[str, Any] = {"expiresAt": 0.0, "cities": {}}
+_SABIL_SHIPPING_CACHE: Dict[str, Dict[str, Any]] = {}
+_SABIL_SHIPPING_CACHE_LOCK = threading.Lock()
 _SABIL_SYNC_LOCK = threading.Lock()
 _SABIL_SYNC_TRIGGER_LOCK = threading.Lock()
 _SABIL_SYNC_LAST_TRIGGER = 0.0
@@ -1543,7 +1545,7 @@ def _extract_sabil_shipping_amount(data: Any) -> float:
     return 0.0
 
 
-def resolve_shipping_cost(city: Any, area: Any = "") -> tuple[float, bool, str]:
+def resolve_shipping_cost(city: Any, area: Any = "", address: Any = "") -> tuple[float, bool, str]:
     config = read_marketing_config()
     shipping_cfg = normalize_shipping_pricing(config.get("shippingPricing"))
     fallback = _fallback_shipping_cost(city, area, config)
@@ -1553,12 +1555,16 @@ def resolve_shipping_cost(city: Any, area: Any = "") -> tuple[float, bool, str]:
     if not target_city:
         return fallback, False, "manual" if mode == "manual" else "fallback"
 
-    if mode == "manual":
-        return fallback, False, "manual"
-
     sabil = sabil_config_status()
     if not (_SABIL_ENABLED and sabil.get("ready") and _SABIL_CONTACT_IDS):
         return fallback, False, "fallback"
+
+    cache_key = "|".join(str(value or "").strip().casefold() for value in (target_city, target_area, address))
+    now = time.time()
+    with _SABIL_SHIPPING_CACHE_LOCK:
+        cached_quote = _SABIL_SHIPPING_CACHE.get(cache_key)
+        if isinstance(cached_quote, dict) and float(cached_quote.get("expiresAt") or 0) > now:
+            return float(cached_quote.get("amount") or fallback), True, "cache"
 
     quote_payload = {
         "isPickup": False,
@@ -1572,7 +1578,7 @@ def resolve_shipping_cost(city: Any, area: Any = "") -> tuple[float, bool, str]:
             "countryCode": _SABIL_COUNTRY_CODE,
             "city": target_city,
             **({"area": target_area} if target_area else {}),
-            "address": "Tripoli",
+            "address": str(address or "").strip() or "Tripoli",
         },
         "products": [
             {
@@ -1600,6 +1606,8 @@ def resolve_shipping_cost(city: Any, area: Any = "") -> tuple[float, bool, str]:
         )
         amount = round(_extract_sabil_shipping_amount(decoded), 2)
         if amount > 0:
+            with _SABIL_SHIPPING_CACHE_LOCK:
+                _SABIL_SHIPPING_CACHE[cache_key] = {"amount": amount, "expiresAt": time.time() + 10 * 60}
             return amount, True, "api"
     except Exception:
         pass
@@ -4693,14 +4701,16 @@ def public_sabil_destinations():
 def public_sabil_shipping_cost():
     city = str(request.args.get("city") or "").strip()
     area = str(request.args.get("area") or "").strip()
+    address = str(request.args.get("address") or "").strip()
     if not city:
         return jsonify({"ok": False, "error": "city is required"}), 400
-    amount, provider_available, source = resolve_shipping_cost(city, area)
+    amount, provider_available, source = resolve_shipping_cost(city, area, address)
     shipping_cfg = normalize_shipping_pricing(read_marketing_config().get("shippingPricing"))
     return jsonify({
         "ok": True,
         "city": city,
         "area": area,
+        "address": address,
         "amount": round(amount, 2),
         "currency": "LYD",
         "mode": str(shipping_cfg.get("mode") or "darb"),
