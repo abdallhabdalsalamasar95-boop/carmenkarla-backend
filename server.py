@@ -1994,10 +1994,14 @@ def _load_sabil_session() -> None:
     stored_refresh = str(stored.get("refreshToken") or "").strip()
     environment_issued_at = _decode_jwt_claim_number(_SABIL_ACCESS_TOKEN, "iat")
     stored_issued_at = _decode_jwt_claim_number(stored_access, "iat")
+    stored_expiry = _decode_jwt_expiry(stored_access)
     use_stored = bool(stored_access and stored_refresh) and (
         not _SABIL_ACCESS_TOKEN
         or not _SABIL_REFRESH_TOKEN
-        or stored_issued_at > environment_issued_at
+        or (
+            stored_issued_at > environment_issued_at
+            and (not stored_expiry or stored_expiry > time.time() + 60)
+        )
     )
     if use_stored:
         _SABIL_ACCESS_TOKEN = stored_access
