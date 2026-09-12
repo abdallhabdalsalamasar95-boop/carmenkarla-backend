@@ -182,6 +182,33 @@ DEFAULT_CITY_SHIPPING_COSTS = {
     "جالو أوجلة": 50.0,
     "أخرى": 25.0,
 }
+FALLBACK_DELIVERY_DESTINATIONS = {
+    "طرابلس": ["طرابلس", "حي الأندلس", "الرياضية", "زناتة", "عين زارة", "تاجوراء"],
+    "بنغازي": ["بنغازي"],
+    "مصراتة": ["مصراتة"],
+    "الزاوية": ["الزاوية"],
+    "زليتن": ["زليتن"],
+    "الخمس": ["الخمس"],
+    "سرت": ["سرت"],
+    "سبها": ["سبها"],
+    "البيضاء": ["البيضاء"],
+    "درنة": ["درنة"],
+    "طبرق": ["طبرق"],
+    "غريان": ["غريان"],
+    "زوارة": ["زوارة"],
+    "صبراتة": ["صبراتة"],
+    "العجيلات": ["العجيلات"],
+    "ترهونة": ["ترهونة"],
+    "بني وليد": ["بني وليد"],
+    "المرج": ["المرج"],
+    "اجدابيا": ["اجدابيا"],
+    "رأس لانوف": ["رأس لانوف"],
+    "البريقة": ["البريقة"],
+    "جالو اوجلة": ["جالو اوجلة"],
+    "الجفرة": ["هون"],
+    "الكفرة": ["الكفرة"],
+    "القبة": ["القبة"],
+}
 
 _FIRESTORE_DB = None
 _FIREBASE_INIT_ERROR = ""
@@ -4743,14 +4770,14 @@ def public_sabil_destinations():
     except Exception as ex:
         # Keep checkout usable while the provider session/API is unavailable.
         # The order can still be saved and queued for a later delivery retry.
+        fallback = cached_before if isinstance(cached_before, dict) and cached_before else FALLBACK_DELIVERY_DESTINATIONS
         return jsonify({
             "ok": True,
             "providerAvailable": False,
             "source": "cache" if isinstance(cached_before, dict) and cached_before else "fallback",
             "cached": bool(cached_before),
-            "cities": {
-                "طرابلس": ["المدينة"],
-            },
+            "cityCount": len(fallback),
+            "cities": fallback,
             "warning": str(ex)[:300],
         })
     return jsonify({
@@ -4758,7 +4785,7 @@ def public_sabil_destinations():
         "providerAvailable": True,
         "cityCount": len(cities),
         "cities": cities,
-        "source": "cache" if cache_valid else "darb_sabeel",
+        "source": "cache" if cache_valid else "api",
         "cached": cache_valid,
     })
 
