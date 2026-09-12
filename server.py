@@ -4750,8 +4750,7 @@ def list_orders():
     if not ok:
         return err
 
-    if _SABIL_ENABLED:
-        sync_sabil_deleted_shipments()
+    _trigger_sabil_sync_if_due()
 
     page = max(1, as_int(request.args.get("page", 1), 1))
     limit = as_int(request.args.get("limit", 100), 100)
