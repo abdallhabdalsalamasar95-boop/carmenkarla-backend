@@ -412,14 +412,29 @@ def _firebase_user_from_request() -> tuple[Optional[Dict[str, Any]], Optional[An
         return None, (jsonify({"ok": False, "error": "انتهت جلسة الدخول، سجّلي الدخول مجددًا"}), 401)
 
 
+_USER_PROFILE_CACHE: Dict[str, tuple[float, Dict[str, Any]]] = {}
+_USER_PROFILE_CACHE_LOCK = threading.Lock()
+
+
 def _firebase_user_profile(uid: str) -> Dict[str, Any]:
+    if not uid:
+        return {}
+    now = time.time()
+    with _USER_PROFILE_CACHE_LOCK:
+        cached = _USER_PROFILE_CACHE.get(uid)
+        if cached and cached[0] > now:
+            return cached[1]
+
     db, _ = _firestore_db()
     if db is None:
         return {}
     try:
         snapshot = db.collection("users").document(uid).get()
         data = snapshot.to_dict() if getattr(snapshot, "exists", False) else {}
-        return data if isinstance(data, dict) else {}
+        result = data if isinstance(data, dict) else {}
+        with _USER_PROFILE_CACHE_LOCK:
+            _USER_PROFILE_CACHE[uid] = (now + 60.0, result)
+        return result
     except Exception:
         return {}
 
@@ -488,6 +503,8 @@ def _save_firebase_user_profile(uid: str, profile: Dict[str, Any]) -> tuple[bool
         return False, db_error or "تعذر الاتصال بقاعدة البيانات"
     try:
         db.collection("users").document(uid).set(profile, merge=True)
+        with _USER_PROFILE_CACHE_LOCK:
+            _USER_PROFILE_CACHE.pop(uid, None)
         return True, ""
     except Exception as ex:
         return False, str(ex)
@@ -3008,16 +3025,11 @@ def _trigger_sabil_sync_if_due() -> None:
 
 
 def _sync_sabil_for_customer_view() -> None:
-    """Refresh provider statuses before returning customer order data.
-
-    The periodic background sync remains enabled, but customer-facing order
-    views should not have to wait for the next interval to show Sabil's latest
-    status. A provider outage must never hide the locally saved order.
-    """
+    """Trigger background sync so order views load instantly without HTTP delays."""
     if not _SABIL_ENABLED:
         return
     try:
-        sync_sabil_deleted_shipments()
+        threading.Thread(target=sync_sabil_deleted_shipments, name="sabil-customer-sync", daemon=True).start()
     except Exception:
         pass
 
