@@ -986,7 +986,17 @@ else:
     CORS(app)
 
 
+_PRODUCTS_CATALOG_CACHE: Dict[str, tuple[float, List[Dict[str, Any]]]] = {}
+_PRODUCTS_CATALOG_CACHE_LOCK = threading.Lock()
+
+
 def read_products() -> List[Dict[str, Any]]:
+    now = time.time()
+    with _PRODUCTS_CATALOG_CACHE_LOCK:
+        cached = _PRODUCTS_CATALOG_CACHE.get("all")
+        if cached and cached[0] > now:
+            return cached[1]
+
     fs_items = _read_products_firestore()
     if fs_items is not None and len(fs_items) > 0:
         products = fs_items
@@ -995,10 +1005,15 @@ def read_products() -> List[Dict[str, Any]]:
     normalized, changed = ensure_products_have_codes(products)
     if changed:
         write_products(normalized)
+
+    with _PRODUCTS_CATALOG_CACHE_LOCK:
+        _PRODUCTS_CATALOG_CACHE["all"] = (now + 10.0, normalized)
     return normalized
 
 
 def write_products(products: List[Dict[str, Any]]) -> None:
+    with _PRODUCTS_CATALOG_CACHE_LOCK:
+        _PRODUCTS_CATALOG_CACHE.pop("all", None)
     # Always keep local file copy + backups.
     _write_products_local(products)
 
