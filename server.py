@@ -2010,7 +2010,15 @@ def build_sabil_shipment_payload(
             "currency": _SABIL_CURRENCY,
             "isChargeable": True,
         })
-    note = str(payload.get("note") or customer.get("note") or "").strip()
+    customer_name = str(customer.get("name") or order.get("customerName") or "").strip()
+    customer_phone = str(customer.get("phone") or order.get("customerPhone") or "").strip()
+    note_parts = []
+    if customer_name or customer_phone:
+        note_parts.append(f"الزبون: {customer_name} ({customer_phone})".strip())
+    raw_note = str(payload.get("note") or customer.get("note") or "").strip()
+    if raw_note:
+        note_parts.append(raw_note)
+    note = " • ".join(note_parts)
     return {
         "isPickup": False,
         "service": _SABIL_SERVICE_ID,
@@ -2302,31 +2310,35 @@ def _matching_sabil_contact_id(data: Any, phone: str) -> str:
 
 
 def _sabil_contact_for_order(order: Dict[str, Any]) -> str:
-    if _SABIL_CONTACT_IDS:
-        return _SABIL_CONTACT_IDS[0]
     payload = order.get("payload") if isinstance(order.get("payload"), dict) else {}
     customer = payload.get("customer") if isinstance(payload.get("customer"), dict) else {}
     name = str(customer.get("name") or order.get("customerName") or "").strip()
     phone = str(customer.get("phone") or order.get("customerPhone") or "").strip()
-    if not name or not phone:
-        raise RuntimeError("اسم العميل ورقم الهاتف مطلوبان لإنشاء جهة اتصال درب السبيل")
-    contact_phone = _sabil_contact_phone(phone)
+    if name and phone:
+        try:
+            contact_phone = _sabil_contact_phone(phone)
+            with _SABIL_CONTACT_LOCK:
+                try:
+                    _, contacts = _request_sabil_api(f"{_SABIL_CONTACTS_PATH.rstrip('/')}/")
+                    existing_id = _matching_sabil_contact_id(contacts, phone)
+                    if existing_id:
+                        return existing_id
+                except Exception:
+                    pass
 
-    with _SABIL_CONTACT_LOCK:
-        _, contacts = _request_sabil_api(f"{_SABIL_CONTACTS_PATH.rstrip('/')}/")
-        existing_id = _matching_sabil_contact_id(contacts, phone)
-        if existing_id:
-            return existing_id
-
-        _, created = _request_sabil_api(
-            _SABIL_CONTACTS_PATH,
-            method="POST",
-            payload={"name": name, "phone": contact_phone},
-        )
-        contact_id = _first_nested_value(created, {"_id", "id", "contactid", "contact_id"})
-        if not contact_id:
-            raise RuntimeError("لم يُرجع درب السبيل معرف جهة الاتصال الجديدة")
-        return contact_id
+                _, created = _request_sabil_api(
+                    _SABIL_CONTACTS_PATH,
+                    method="POST",
+                    payload={"name": name, "phone": contact_phone},
+                )
+                contact_id = _first_nested_value(created, {"_id", "id", "contactid", "contact_id"})
+                if contact_id:
+                    return contact_id
+        except Exception:
+            pass
+    if _SABIL_CONTACT_IDS:
+        return _SABIL_CONTACT_IDS[0]
+    raise RuntimeError("اسم العميل ورقم الهاتف مطلوبان لإنشاء جهة اتصال درب السبيل")
 
 
 def _request_sabil_with_branch_fallback(
