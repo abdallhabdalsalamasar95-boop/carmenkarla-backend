@@ -2,6 +2,7 @@ import base64
 import io
 import json
 import tempfile
+import time
 import unittest
 import urllib.request
 from pathlib import Path
@@ -1003,6 +1004,105 @@ class AdminFeatureTests(unittest.TestCase):
         self.assertEqual([item["orderId"] for item in orders], ["active-return"])
 
     def test_customer_can_cancel_own_shared_link_order(self):
+        order = server.normalize_order_item({
+            **self._order_payload(order_id="shared-link-cancel"),
+            "uid": "customer-a",
+            "payload": {
+                "customer": {
+                    "name": "زبونة الرابط",
+                    "submitterUid": "amb-1",
+                    "accountRole": "ambassador",
+                    "placedAsAmbassador": True,
+                    "submittedViaShareLink": True,
+                },
+                "items": [],
+                "pricing": {"grandTotal": 100},
+            },
+        })
+        orders = [order]
+        with patch.object(server, "_firebase_user_from_request", return_value=({"uid": "customer-a"}, None)), \
+             patch.object(server, "read_orders", return_value=orders), \
+             patch.object(server, "write_orders", side_effect=lambda value: orders.__setitem__(slice(None), value)), \
+             patch.object(server, "read_products", return_value=[]), \
+             patch.object(server, "_notify_user_on_order_status_change"):
+            response = server.app.test_client().post("/customers/me/orders/shared-link-cancel/cancel")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["item"]["status"], "canceled")
+
+    def test_admin_dashboard_summary_flags_pending_and_returning_orders(self):
+        now_ms = int(time.time() * 1000)
+        raw_orders = [
+            {
+                "orderId": "needs-accept",
+                "status": "pending",
+                "createdAtMs": now_ms,
+                "updatedAtMs": now_ms,
+                "payload": {"customer": {}, "items": [], "pricing": {"grandTotal": 120}},
+            },
+            {
+                "orderId": "stuck-processing",
+                "status": "processing",
+                "createdAtMs": now_ms - (50 * 60 * 60 * 1000),
+                "updatedAtMs": now_ms - (50 * 60 * 60 * 1000),
+                "payload": {"customer": {}, "items": [], "pricing": {"grandTotal": 80}},
+            },
+            {
+                "orderId": "returning-order",
+                "status": "returning",
+                "createdAtMs": now_ms,
+                "updatedAtMs": now_ms,
+                "payload": {"customer": {}, "items": [], "pricing": {"grandTotal": 60}},
+            },
+            {
+                "orderId": "delivered-order",
+                "status": "delivered",
+                "createdAtMs": now_ms,
+                "updatedAtMs": now_ms,
+                "payload": {"customer": {}, "items": [], "pricing": {"grandTotal": 200}},
+            },
+        ]
+        orders = [server.normalize_order_item(item) for item in raw_orders]
+        products = [
+            {"id": "p1", "name": "فستان", "availableStock": 2, "lowStockThreshold": 3, "price": 100},
+        ]
+
+        old_token = server.API_TOKEN
+        server.API_TOKEN = "test-token"
+        try:
+            with patch.object(server, "read_orders", return_value=orders), \
+                 patch.object(server, "read_products", return_value=products):
+                response = server.app.test_client().get(
+                    "/admin/dashboard/summary",
+                    headers={"Authorization": "Bearer test-token"},
+                )
+        finally:
+            server.API_TOKEN = old_token
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["counts"]["pending"], 1)
+        self.assertEqual(data["counts"]["returning"], 1)
+        self.assertEqual(len(data["needsAcceptance"]), 1)
+        self.assertEqual(len(data["overdue"]), 1)
+        self.assertEqual(data["overdue"][0]["orderId"], "stuck-processing")
+        self.assertEqual(len(data["returning"]), 1)
+        self.assertEqual(data["deliveredSalesTotal"], 200)
+        self.assertEqual(len(data["lowStock"]), 1)
+        levels = {alert["level"] for alert in data["alerts"]}
+        self.assertIn("urgent", levels)
+        self.assertIn("follow_up", levels)
+
+    def test_admin_dashboard_summary_requires_admin_token(self):
+        old_token = server.API_TOKEN
+        server.API_TOKEN = "test-token"
+        try:
+            response = server.app.test_client().get("/admin/dashboard/summary")
+        finally:
+            server.API_TOKEN = old_token
+
+        self.assertEqual(response.status_code, 401)
         order = server.normalize_order_item({
             **self._order_payload(order_id="shared-link-cancel"),
             "uid": "customer-a",

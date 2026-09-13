@@ -5406,6 +5406,122 @@ def get_admin_accounting_summary():
     return jsonify({"ok": True, "summary": accounting_summary(from_ms, to_ms)})
 
 
+# Orders idle in the same non-terminal status past this window are flagged as overdue.
+_OVERDUE_STATUS_MS = 48 * 60 * 60 * 1000
+_LOW_STOCK_THRESHOLD_DEFAULT = 3
+
+
+@app.get("/admin/dashboard/summary")
+def get_admin_dashboard_summary():
+    """Rule-based operational summary: counts, urgent tasks, and alerts.
+
+    Read-only and deterministic (no external AI call, no writes), matching
+    the "مساعد Carmen Karla" safety rules: it only reads and analyzes
+    existing data, never mutates orders, stock, or commissions.
+    """
+    ok, err = require_admin()
+    if not ok:
+        return err
+
+    now_ms = int(time.time() * 1000)
+    raw_orders = read_orders()
+    orders = [normalize_order_item(row) for row in raw_orders if isinstance(row, dict)]
+
+    counts = {
+        "pending": 0, "processing": 0, "shipped": 0, "postponed": 0,
+        "delivered": 0, "canceled": 0, "returning": 0, "returned": 0,
+    }
+    needs_acceptance: List[Dict[str, Any]] = []
+    overdue: List[Dict[str, Any]] = []
+    returning_orders: List[Dict[str, Any]] = []
+    delivered_total = 0.0
+    ambassador_commission_delivered = 0.0
+
+    for order in orders:
+        status = str(order.get("status") or "pending").strip().lower()
+        if status in counts:
+            counts[status] += 1
+        updated_at = as_int(order.get("updatedAtMs"), as_int(order.get("createdAtMs"), now_ms))
+        age_ms = now_ms - updated_at
+
+        if status == "pending":
+            needs_acceptance.append({
+                "orderId": order.get("orderId"),
+                "createdAtMs": order.get("createdAtMs"),
+                "grandTotal": order.get("grandTotal"),
+            })
+        if status in {"pending", "processing", "shipped"} and age_ms >= _OVERDUE_STATUS_MS:
+            overdue.append({
+                "orderId": order.get("orderId"),
+                "status": status,
+                "stuckForHours": round(age_ms / (60 * 60 * 1000), 1),
+            })
+        if status == "returning":
+            returning_orders.append({
+                "orderId": order.get("orderId"),
+                "statusReason": order.get("statusReason"),
+            })
+        if status == "delivered":
+            delivered_total += max(0.0, as_number(order.get("grandTotal"), 0))
+            summary = order.get("ambassadorSummary") if isinstance(order.get("ambassadorSummary"), dict) else {}
+            if bool(summary.get("isAmbassadorOrder")):
+                ambassador_commission_delivered += _ambassador_order_commission(order)
+
+    products = read_products()
+    low_stock: List[Dict[str, Any]] = []
+    inventory_value = 0.0
+    for product in products:
+        threshold = max(0, as_int(product.get("lowStockThreshold"), _LOW_STOCK_THRESHOLD_DEFAULT))
+        size_quantities = product.get("sizeQuantities") if isinstance(product.get("sizeQuantities"), dict) else {}
+        sale_price = max(0.0, as_number(product.get("price"), 0))
+        if size_quantities:
+            for size, qty in size_quantities.items():
+                quantity = max(0, as_int(qty, 0))
+                inventory_value += quantity * sale_price
+                if 0 < quantity <= threshold:
+                    low_stock.append({
+                        "productId": product.get("id"),
+                        "name": product.get("name"),
+                        "size": size,
+                        "remaining": quantity,
+                    })
+        else:
+            quantity = max(0, as_int(product.get("availableStock", product.get("stockQuantity", 0)), 0))
+            inventory_value += quantity * sale_price
+            if 0 < quantity <= threshold:
+                low_stock.append({
+                    "productId": product.get("id"),
+                    "name": product.get("name"),
+                    "size": "",
+                    "remaining": quantity,
+                })
+
+    alerts: List[Dict[str, str]] = []
+    if len(needs_acceptance) > 0:
+        alerts.append({"level": "urgent", "message": f"{len(needs_acceptance)} طلب بانتظار القبول."})
+    if len(overdue) > 0:
+        alerts.append({"level": "important", "message": f"{len(overdue)} طلب لم يتحرك منذ أكثر من 48 ساعة."})
+    if len(returning_orders) > 0:
+        alerts.append({"level": "follow_up", "message": f"{len(returning_orders)} طلب قيد الإرجاع، هذه القطع غير متاحة للبيع حتى تأكيد الاستلام."})
+    if len(low_stock) > 0:
+        alerts.append({"level": "important", "message": f"{len(low_stock)} صنف/مقاس أوشك على النفاد."})
+
+    return jsonify({
+        "ok": True,
+        "generatedAtMs": now_ms,
+        "counts": counts,
+        "totalOrders": len(orders),
+        "deliveredSalesTotal": round(delivered_total, 2),
+        "ambassadorCommissionDelivered": round(ambassador_commission_delivered, 2),
+        "inventoryValue": round(inventory_value, 2),
+        "needsAcceptance": needs_acceptance[:20],
+        "overdue": overdue[:20],
+        "returning": returning_orders[:20],
+        "lowStock": low_stock[:20],
+        "alerts": alerts,
+    })
+
+
 @app.get("/admin/expenses")
 def list_admin_expenses():
     ok, err = require_admin()
