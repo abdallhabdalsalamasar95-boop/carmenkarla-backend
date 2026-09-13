@@ -2557,6 +2557,8 @@ def _request_sabil_shipment(order: Dict[str, Any]) -> Dict[str, Any]:
     shipment_id = _first_nested_value(decoded, {"_id", "id", "shipmentid", "shipment_id"})
     tracking_number = _first_nested_value(decoded, {"trackingnumber", "tracking_number", "tracking", "code", "number"})
     reference = _first_nested_value(decoded, {"reference", "referencecode", "reference_code"})
+    if not str(tracking_number or reference or "").strip():
+        raise RuntimeError("لم يُرجع درب السبيل رقم تتبع للشحنة. راجعي بيانات التوصيل وحاولي مجددًا.")
     return {
         "provider": "darb_sabeel",
         "status": "created",
@@ -4636,6 +4638,22 @@ def create_order_from_app():
                     updated["updatedAtMs"] = int(time.time() * 1000)
                     entries[idx] = updated
                     write_orders(entries)
+        tracking_number = str(delivery.get("trackingNumber") or delivery.get("referenceCode") or "").strip()
+        if str(delivery.get("status") or "") != "created" or not tracking_number:
+            # The customer must not receive a successful order without a provider tracking number.
+            with _INVENTORY_LOCK:
+                entries = read_orders()
+                idx = next((i for i, row in enumerate(entries) if str(row.get("orderId") or "").strip() == order_id), -1)
+                if idx >= 0:
+                    rejected = normalize_order_item(entries.pop(idx))
+                    restore_order_inventory(products, rejected.get("inventoryReservation") or [])
+                    write_products(products)
+                    write_orders(entries)
+            return jsonify({
+                "ok": False,
+                "error": "تعذر قبول الطلب لأن درب السبيل لم يُصدر رقم تتبع. تحققي من المدينة والمنطقة والعنوان ثم حاولي مجددًا.",
+                "code": "missing_darb_sabeel_tracking",
+            }), 400
     return jsonify({
         "ok": True,
         "created": created,

@@ -1256,7 +1256,7 @@ class AdminFeatureTests(unittest.TestCase):
              patch.object(server, "write_products", side_effect=write_products), \
              patch.object(server, "read_orders", side_effect=read_orders), \
              patch.object(server, "write_orders", side_effect=write_orders), \
-             patch.object(server, "dispatch_order_to_sabil", return_value={"status": "created"}) as dispatch, \
+             patch.object(server, "dispatch_order_to_sabil", return_value={"status": "created", "trackingNumber": "DS-123"}) as dispatch, \
              patch.object(server, "_firebase_user_from_request", return_value=({"uid": "amb-1"}, None)), \
              patch.object(server, "_firebase_user_profile", return_value={"accountRole": "ambassador", "ambassadorName": "سارة"}):
             client = server.app.test_client()
@@ -1285,6 +1285,24 @@ class AdminFeatureTests(unittest.TestCase):
         )
         self.assertEqual(len(orders), 2)
         self.assertEqual(products[0]["sizeQuantities"]["M"], 1)
+
+    def test_order_is_rejected_and_stock_restored_when_sabil_returns_no_tracking(self):
+        products, orders, read_products, write_products, read_orders, write_orders = self._inventory_api_state(
+            {"M": 2},
+        )
+        payload = self._order_payload(order_id="no-sabil-tracking", quantity=1)
+        with patch.object(server, "_SABIL_ENABLED", True), \
+             patch.object(server, "read_products", side_effect=read_products), \
+             patch.object(server, "write_products", side_effect=write_products), \
+             patch.object(server, "read_orders", side_effect=read_orders), \
+             patch.object(server, "write_orders", side_effect=write_orders), \
+             patch.object(server, "dispatch_order_to_sabil", return_value={"status": "failed", "lastError": "missing tracking"}):
+            response = server.app.test_client().post("/orders", json=payload)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json()["code"], "missing_darb_sabeel_tracking")
+        self.assertEqual(orders, [])
+        self.assertEqual(products[0]["sizeQuantities"]["M"], 2)
 
     def test_sabil_contact_is_created_for_new_customer(self):
         order = server.normalize_order_item({
