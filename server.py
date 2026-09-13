@@ -5283,6 +5283,20 @@ def list_current_ambassador_orders():
             owner_uid = str(item.get("uid") or "").strip()
         if owner_uid != uid:
             continue
+        reason_images = []
+        for src in (item, payload):
+            if not isinstance(src, dict):
+                continue
+            values = src.get("statusReasonImageUrls")
+            if isinstance(values, list):
+                for value in values:
+                    image_url = str(value or "").strip()
+                    if image_url and image_url not in reason_images:
+                        reason_images.append(image_url)
+            for image_url in str(src.get("statusReasonImageUrl") or "").replace("\r", "\n").replace(",", "\n").split("\n"):
+                image_url = image_url.strip()
+                if image_url and image_url not in reason_images:
+                    reason_images.append(image_url)
         out.append({
             "orderId": str(item.get("orderId") or "").strip(),
             "status": str(item.get("status") or "pending").strip().lower(),
@@ -5299,8 +5313,9 @@ def list_current_ambassador_orders():
             "trackingToken": str(item.get("trackingToken") or "").strip(),
             "externalDelivery": item.get("externalDelivery") if isinstance(item.get("externalDelivery"), dict) else {},
             "ambassadorPhone": str(item.get("ambassadorPhone") or summary.get("ambassadorPhone") or customer.get("submitterPhone") or "").strip(),
-            "statusReason": str(item.get("statusReason") or (item.get("externalDelivery") or {}).get("lastError") or "").strip(),
-            "statusReasonImageUrl": str(item.get("statusReasonImageUrl") or "").strip(),
+            "statusReason": str(item.get("statusReason") or "").strip(),
+            "statusReasonImageUrl": reason_images[0] if reason_images else "",
+            "statusReasonImageUrls": reason_images,
         })
     out.sort(key=lambda x: as_int(x.get("createdAtMs", 0), 0), reverse=True)
     return jsonify({"ok": True, "count": len(out[:limit]), "items": out[:limit]})
