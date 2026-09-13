@@ -415,6 +415,32 @@ def _firebase_user_from_request() -> tuple[Optional[Dict[str, Any]], Optional[An
 _USER_PROFILE_CACHE: Dict[str, tuple[float, Dict[str, Any]]] = {}
 _USER_PROFILE_CACHE_LOCK = threading.Lock()
 
+_CANCELED_ORDER_RETENTION_MS = 5 * 60 * 1000
+
+
+def purge_expired_canceled_orders(now_ms: Optional[int] = None) -> int:
+    """Remove only finalized customer cancellations after the retention window.
+
+    Returning/returned orders are deliberately retained for audit and warehouse
+    visibility. The operation is idempotent and safe to call from read endpoints.
+    """
+    current_time = int(time.time() * 1000 if now_ms is None else now_ms)
+    with _INVENTORY_LOCK:
+        entries = read_orders()
+        kept: List[Dict[str, Any]] = []
+        removed = 0
+        for raw in entries:
+            item = normalize_order_item(raw) if isinstance(raw, dict) else {}
+            status = str(item.get("status") or "").strip().lower()
+            canceled_at = as_int(item.get("canceledAtMs"), 0)
+            if status == "canceled" and canceled_at > 0 and current_time - canceled_at >= _CANCELED_ORDER_RETENTION_MS:
+                removed += 1
+                continue
+            kept.append(raw)
+        if removed:
+            write_orders(kept)
+        return removed
+
 
 def _firebase_user_profile(uid: str) -> Dict[str, Any]:
     if not uid:
@@ -1797,6 +1823,11 @@ def normalize_order_item(payload: Dict[str, Any], current: Optional[Dict[str, An
 
     order_id = str(payload.get("orderId") or cur.get("orderId") or f"o_{now_ms}_{uuid.uuid4().hex[:8]}").strip()
     status = str(payload.get("status") or cur.get("status") or "pending").strip().lower()
+    normalized_status = re.sub(r"[\s_-]+", "_", status)
+    if normalized_status in {"canceled_by_courier", "cancelled_by_courier", "courier_canceled", "courier_cancelled", "delivery_cancelled", "delivery_canceled"}:
+        status = "returning"
+    if normalized_status in {"return_in_progress", "return_requested"}:
+        status = "returning"
     if status not in {"pending", "processing", "shipped", "postponed", "delivered", "canceled", "returning", "returned"}:
         status = "pending"
 
@@ -1892,6 +1923,8 @@ def normalize_order_item(payload: Dict[str, Any], current: Optional[Dict[str, An
             if isinstance(payload.get("inventoryReservation"), list)
             else cur.get("inventoryReservation", [])
         ),
+        "canceledAtMs": as_int(payload.get("canceledAtMs", cur.get("canceledAtMs", 0)), 0),
+        "inventoryRestoredAtMs": as_int(payload.get("inventoryRestoredAtMs", cur.get("inventoryRestoredAtMs", 0)), 0),
         "externalDelivery": dict(external_delivery),
         "trackingToken": str(payload.get("trackingToken") or cur.get("trackingToken") or "").strip(),
     }
@@ -2836,6 +2869,8 @@ def _local_status_for_sabil(provider_status: str) -> str:
         return "delivered"
     if normalized in {"returning", "return_in_progress"}:
         return "returning"
+    if normalized in {"canceled_by_courier", "cancelled_by_courier", "courier_canceled", "courier_cancelled", "delivery_canceled", "delivery_cancelled"}:
+        return "returning"
     if normalized in {"returned", "return_completed"}:
         return "returned"
     if normalized in {"canceled", "cancelled", "deleted", "ملغي", "ملغية", "ملغى", "ملغاة"}:
@@ -2885,6 +2920,12 @@ def _change_order_status(
         merged["updatedAtMs"] = int(time.time() * 1000)
         merged["inventoryReserved"] = inventory_reserved
         merged["inventoryReservation"] = reservation
+        if status == "canceled" and previous_status != "canceled":
+            merged["canceledAtMs"] = merged["updatedAtMs"]
+        elif status != "canceled":
+            merged["canceledAtMs"] = 0
+        if previous_status not in terminal_inventory_statuses and status in terminal_inventory_statuses:
+            merged["inventoryRestoredAtMs"] = merged["updatedAtMs"]
         if sabil_snapshot is not None:
             delivery = dict(merged.get("externalDelivery") or {})
             delivery.update({
@@ -4991,10 +5032,28 @@ def public_order_tracking(order_id: str):
         key: delivery.get(key)
         for key in (
             "provider", "status", "shipmentId", "trackingNumber", "referenceCode",
-            "providerStatus", "syncStatus", "lastSyncAtMs", "timeline", "lastError", "courierPhone",
+            "providerStatus", "syncStatus", "lastSyncAtMs", "timeline", "lastError",
+            "courierPhone", "courierName",
         )
         if delivery.get(key) not in (None, "")
     }
+    raw_images = []
+    for src in (item, (item.get("payload") if isinstance(item.get("payload"), dict) else {})):
+        if not isinstance(src, dict):
+            continue
+        list_val = src.get("statusReasonImageUrls")
+        if isinstance(list_val, list):
+            for u in list_val:
+                s = str(u or "").strip()
+                if s and s not in raw_images:
+                    raw_images.append(s)
+        single_val = str(src.get("statusReasonImageUrl") or "").strip()
+        if single_val:
+            for part in single_val.replace("\r", "\n").replace(",", "\n").split("\n"):
+                p = part.strip()
+                if p and p not in raw_images:
+                    raw_images.append(p)
+
     return jsonify({
         "ok": True,
         "item": {
@@ -5004,6 +5063,9 @@ def public_order_tracking(order_id: str):
             "updatedAtMs": item["updatedAtMs"],
             "grandTotal": as_number(item.get("grandTotal"), 0),
             "itemsCount": as_int(item.get("itemsCount"), 0),
+            "shippingCost": as_number(item.get("shippingCost") or item.get("deliveryCost") or (item.get("payload") or {}).get("shippingCost"), 0),
+            "customerCity": str(item.get("customerCity") or item.get("city") or (item.get("payload") or {}).get("city") or "").strip(),
+            "customerArea": str(item.get("customerArea") or item.get("area") or (item.get("payload") or {}).get("area") or "").strip(),
             "items": safe_customer_order_lines(
                 (item.get("payload") or {}).get("items", [])
                 if isinstance(item.get("payload"), dict)
@@ -5011,7 +5073,8 @@ def public_order_tracking(order_id: str):
             ),
             "ambassadorPhone": str(item.get("ambassadorPhone") or "").strip(),
             "statusReason": str(item.get("statusReason") or delivery.get("lastError") or "").strip(),
-            "statusReasonImageUrl": str(item.get("statusReasonImageUrl") or "").strip(),
+            "statusReasonImageUrl": raw_images[0] if raw_images else str(item.get("statusReasonImageUrl") or "").strip(),
+            "statusReasonImageUrls": raw_images,
             "externalDelivery": safe_delivery,
         },
     })
@@ -5019,6 +5082,7 @@ def public_order_tracking(order_id: str):
 
 @app.get("/customers/me/orders")
 def list_current_customer_orders():
+    purge_expired_canceled_orders()
     _sync_sabil_for_customer_view()
     signed_user, auth_error = _firebase_user_from_request()
     if auth_error is not None:
@@ -5088,8 +5152,50 @@ def cancel_current_customer_order(order_id: str):
     return jsonify({"ok": True, "item": item})
 
 
+@app.put("/customers/me/profile")
+def save_current_customer_profile():
+    signed_user, auth_error = _firebase_user_from_request()
+    if auth_error is not None:
+        return auth_error
+    uid = str(signed_user.get("uid") or "").strip()
+    payload = request.get_json(silent=True) or {}
+    name = str(payload.get("name") or "").strip()
+    phone = re.sub(r"[^0-9+]", "", str(payload.get("phone") or "").strip())
+    city = str(payload.get("city") or "").strip()
+    area = str(payload.get("area") or "").strip()
+    address = str(payload.get("address") or "").strip()
+    if len(name) < 2:
+        return jsonify({"ok": False, "error": "أدخلي الاسم الكامل"}), 400
+    if not re.fullmatch(r"\+?[0-9]{8,15}", phone):
+        return jsonify({"ok": False, "error": "رقم الهاتف غير صحيح"}), 400
+    if len(city) < 2:
+        return jsonify({"ok": False, "error": "اختاري المدينة"}), 400
+    if len(address) < 4:
+        return jsonify({"ok": False, "error": "أدخلي العنوان بالتفصيل"}), 400
+
+    now = int(time.time() * 1000)
+    existing = _firebase_user_profile(uid)
+    profile = {
+        "uid": uid,
+        "accountRole": str(existing.get("accountRole") or "customer").strip().lower(),
+        "name": name,
+        "phone": phone,
+        "city": city,
+        "area": area,
+        "address": address,
+        "email": str(signed_user.get("email") or existing.get("email") or "").strip(),
+        "createdAt": as_int(existing.get("createdAt"), now),
+        "updatedAt": now,
+    }
+    saved, save_error = _save_firebase_user_profile(uid, profile)
+    if not saved:
+        return jsonify({"ok": False, "error": "تعذر حفظ بيانات الحساب", "details": save_error}), 503
+    return jsonify({"ok": True, "profile": profile})
+
+
 @app.get("/orders/feed")
 def list_orders_feed_for_app():
+    purge_expired_canceled_orders()
     limit = as_int(request.args.get("limit", 200), 200)
     limit = max(1, min(limit, 1000))
     uid = str(request.args.get("uid", "") or "").strip()
@@ -5135,6 +5241,7 @@ def list_orders_feed_for_app():
 
 @app.get("/ambassadors/me/orders")
 def list_current_ambassador_orders():
+    purge_expired_canceled_orders()
     _sync_sabil_for_customer_view()
     signed_user, auth_error = _firebase_user_from_request()
     if auth_error is not None:

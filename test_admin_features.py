@@ -192,6 +192,22 @@ class AdminFeatureTests(unittest.TestCase):
         self.assertEqual(support["whatsappNumber"], "")
         self.assertFalse(support["enabled"])
 
+    def test_courier_cancellation_is_treated_as_returning_state(self):
+        self.assertEqual(server._local_status_for_sabil("cancelled_by_courier"), "returning")
+        self.assertEqual(server._local_status_for_sabil("courier_canceled"), "returning")
+
+        normalized = server.normalize_order_item({
+            "orderId": "courier-cancel",
+            "status": "canceled_by_courier",
+            "payload": {
+                "customer": {"name": "زبونة"},
+                "items": [{"name": "فستان", "quantity": 1}],
+                "pricing": {"grandTotal": 100},
+            },
+        })
+
+        self.assertEqual(normalized["status"], "returning")
+
     def test_read_products_falls_back_to_local_file_when_firestore_is_empty(self):
         local_products = [{"id": "local-1", "name": "فستان محلي", "isHidden": 0}]
         with patch.object(server, "_read_products_firestore", return_value=[]), \
@@ -963,6 +979,28 @@ class AdminFeatureTests(unittest.TestCase):
         self.assertFalse(orders[0]["inventoryReserved"])
         self.assertEqual(products[0]["sizeQuantities"]["M"], 2)
         notify.assert_called_once()
+
+    def test_expired_canceled_orders_are_purged_but_returning_orders_are_kept(self):
+        now = 10_000_000
+        orders = [
+            server.normalize_order_item({
+                "orderId": "expired-cancel",
+                "status": "canceled",
+                "canceledAtMs": now - (5 * 60 * 1000),
+                "payload": {"customer": {}, "items": []},
+            }),
+            server.normalize_order_item({
+                "orderId": "active-return",
+                "status": "returning",
+                "payload": {"customer": {}, "items": []},
+            }),
+        ]
+        with patch.object(server, "read_orders", return_value=orders), \
+             patch.object(server, "write_orders", side_effect=lambda value: orders.__setitem__(slice(None), value)):
+            removed = server.purge_expired_canceled_orders(now)
+
+        self.assertEqual(removed, 1)
+        self.assertEqual([item["orderId"] for item in orders], ["active-return"])
 
     def test_customer_can_cancel_own_shared_link_order(self):
         order = server.normalize_order_item({
