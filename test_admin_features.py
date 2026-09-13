@@ -1103,6 +1103,8 @@ class AdminFeatureTests(unittest.TestCase):
             server.API_TOKEN = old_token
 
         self.assertEqual(response.status_code, 401)
+
+    def test_customer_can_cancel_own_shared_link_order(self):
         order = server.normalize_order_item({
             **self._order_payload(order_id="shared-link-cancel"),
             "uid": "customer-a",
