@@ -1104,6 +1104,45 @@ class AdminFeatureTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 401)
 
+    def test_admin_ambassador_finance_summary_returns_orders_and_balances(self):
+        old_token = server.API_TOKEN
+        server.API_TOKEN = "test-token"
+        order = server.normalize_order_item({
+            "orderId": "amb-finance-1",
+            "status": "delivered",
+            "createdAtMs": 100,
+            "payload": {
+                "customer": {"submitterUid": "amb-1", "placedAsAmbassador": True},
+                "items": [{"productId": "dress-1", "quantity": 2, "price": 50}],
+                "pricing": {"grandTotal": 100},
+            },
+        })
+        profiles = [{
+            "uid": "amb-1",
+            "ambassadorName": "سارة",
+            "ambassadorPhone": "0912345678",
+            "ambassadorAddress": "طرابلس",
+            "status": "active",
+        }]
+        try:
+            with patch.object(server, "_firebase_ambassador_profiles", return_value=(profiles, "")), \
+                 patch.object(server, "read_orders", return_value=[order]), \
+                 patch.object(server, "read_ambassador_withdrawals", return_value=[]):
+                response = server.app.test_client().get(
+                    "/admin/ambassadors/summary",
+                    headers={"Authorization": "Bearer test-token"},
+                )
+        finally:
+            server.API_TOKEN = old_token
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["items"][0]["name"], "سارة")
+        self.assertEqual(data["items"][0]["deliveredOrders"], 1)
+        self.assertEqual(data["summary"]["ordersCount"], 1)
+
     def test_customer_can_cancel_own_shared_link_order(self):
         order = server.normalize_order_item({
             **self._order_payload(order_id="shared-link-cancel"),
