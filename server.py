@@ -1925,6 +1925,19 @@ def normalize_order_item(payload: Dict[str, Any], current: Optional[Dict[str, An
         ),
         "canceledAtMs": as_int(payload.get("canceledAtMs", cur.get("canceledAtMs", 0)), 0),
         "inventoryRestoredAtMs": as_int(payload.get("inventoryRestoredAtMs", cur.get("inventoryRestoredAtMs", 0)), 0),
+        "physicalWarehouseStatus": str(
+            payload.get("physicalWarehouseStatus")
+            or cur.get("physicalWarehouseStatus")
+            or ("returning_not_in_warehouse" if status == "returning" else "")
+        ).strip(),
+        "physicalWarehouseMessage": str(
+            payload.get("physicalWarehouseMessage")
+            or cur.get("physicalWarehouseMessage")
+            or (
+                "الشحنة راجعة وليست في المخزن فعليًا حتى الآن. تمت إعادة كميتها إلى مخزون البيع حسب سياسة المتجر."
+                if status == "returning" else ""
+            )
+        ).strip(),
         "externalDelivery": dict(external_delivery),
         "trackingToken": str(payload.get("trackingToken") or cur.get("trackingToken") or "").strip(),
     }
@@ -2897,15 +2910,18 @@ def _change_order_status(
         current = entries[idx]
         previous_status = str(current.get("status") or "pending").strip().lower()
         status = str(status or "").strip().lower()
-        # A delivered parcel is physically with the customer. Canceling it must
-        # start a return first; stock is restored only after receipt is confirmed.
+        # A delivered parcel is physically with the customer. Canceling it starts
+        # a return; store policy makes that quantity sellable immediately while
+        # preserving a separate physical-warehouse warning on the original order.
         if status == "canceled" and previous_status in {"delivered", "returning"}:
             status = "returning"
         products = read_products()
         inventory_reserved = bool(current.get("inventoryReserved", False))
         reservation = current.get("inventoryReservation") if isinstance(current.get("inventoryReservation"), list) else []
 
-        terminal_inventory_statuses = {"canceled", "returned"}
+        # Store policy: canceled and returning parcels release sellable stock
+        # immediately. "returned" remains terminal but must not restore again.
+        terminal_inventory_statuses = {"canceled", "returning", "returned"}
         if status in terminal_inventory_statuses and previous_status not in terminal_inventory_statuses and inventory_reserved:
             restore_order_inventory(products, reservation)
             inventory_reserved = False
@@ -2928,6 +2944,15 @@ def _change_order_status(
             merged["canceledAtMs"] = 0
         if previous_status not in terminal_inventory_statuses and status in terminal_inventory_statuses:
             merged["inventoryRestoredAtMs"] = merged["updatedAtMs"]
+        if status == "returning":
+            merged["physicalWarehouseStatus"] = "returning_not_in_warehouse"
+            merged["physicalWarehouseMessage"] = (
+                "الشحنة راجعة وليست في المخزن فعليًا حتى الآن. "
+                "تمت إعادة كميتها إلى مخزون البيع حسب سياسة المتجر."
+            )
+        elif status != "returning":
+            merged["physicalWarehouseStatus"] = ""
+            merged["physicalWarehouseMessage"] = ""
         if sabil_snapshot is not None:
             delivery = dict(merged.get("externalDelivery") or {})
             delivery.update({
@@ -5640,182 +5665,6 @@ def list_admin_ambassadors():
         "source": "firestore" if not profiles_error else "unavailable",
         "warning": profiles_error,
     })
-
-
-def _admin_ambassador_finance_profiles(from_ms: int = 0, to_ms: int = 0) -> tuple[List[Dict[str, Any]], str]:
-    """Build the read-only finance view consumed by the native admin app."""
-    source_profiles, warning = _firebase_ambassador_profiles()
-    profiles: Dict[str, Dict[str, Any]] = {}
-
-    def ensure(key: str, order: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        clean_key = str(key or "").strip()
-        row = profiles.setdefault(clean_key, {
-            "key": clean_key,
-            "uid": clean_key,
-            "name": "مندوبة غير محددة",
-            "email": "",
-            "phone": "",
-            "address": "",
-            "status": "active",
-            "joinedAtMs": 0,
-            "lastOrderMs": 0,
-            "ordersCount": 0,
-            "deliveredOrders": 0,
-            "openOrders": 0,
-            "canceledOrders": 0,
-            "pieces": 0,
-            "sales": 0.0,
-            "pipelineCommission": 0.0,
-            "pendingApprovalCommission": 0.0,
-            "approvedCommission": 0.0,
-            "canceledCommission": 0.0,
-            "manualAdjustments": 0.0,
-            "approvedAdjustments": 0.0,
-            "pendingAdjustments": 0.0,
-            "reservedWithdrawals": 0.0,
-            "pendingWithdrawalsTotal": 0.0,
-            "approvedWithdrawalsTotal": 0.0,
-            "paidWithdrawalsTotal": 0.0,
-            "rejectedWithdrawalsTotal": 0.0,
-            "availableBalance": 0.0,
-            "needsAttention": False,
-            "orders": [],
-            "records": [],
-            "history": [],
-        })
-        if order:
-            summary = order.get("ambassadorSummary") if isinstance(order.get("ambassadorSummary"), dict) else {}
-            row["name"] = str(summary.get("ambassadorName") or row["name"]).strip()
-            row["email"] = str(summary.get("ambassadorEmail") or row["email"]).strip()
-            row["phone"] = str(summary.get("ambassadorPhone") or row["phone"]).strip()
-        return row
-
-    for profile in source_profiles:
-        uid = str(profile.get("uid") or "").strip()
-        if not uid:
-            continue
-        row = ensure(uid)
-        row.update({
-            "name": str(profile.get("ambassadorName") or row["name"]).strip(),
-            "email": str(profile.get("email") or row["email"]).strip(),
-            "phone": str(profile.get("ambassadorPhone") or row["phone"]).strip(),
-            "address": str(profile.get("ambassadorAddress") or row["address"]).strip(),
-            "status": str(profile.get("status") or row["status"]).strip().lower(),
-            "joinedAtMs": as_int(profile.get("joinedAt"), row["joinedAtMs"]),
-        })
-
-    for raw in read_orders():
-        if not isinstance(raw, dict):
-            continue
-        order = normalize_order_item(raw)
-        uid = _ambassador_order_owner_uid(order)
-        if not uid:
-            continue
-        created = as_int(order.get("createdAtMs"), 0)
-        if from_ms and created < from_ms:
-            continue
-        if to_ms and created > to_ms:
-            continue
-        row = ensure(uid, order)
-        status = str(order.get("status") or "pending").strip().lower()
-        amount = max(0.0, as_number(order.get("grandTotal"), 0))
-        commission = _ambassador_order_commission(order)
-        row["ordersCount"] += 1
-        row["lastOrderMs"] = max(as_int(row["lastOrderMs"], 0), created)
-        payload = order.get("payload") if isinstance(order.get("payload"), dict) else {}
-        lines = payload.get("items") if isinstance(payload.get("items"), list) else []
-        row["pieces"] += sum(max(0, as_int(line.get("quantity"), 0)) for line in lines if isinstance(line, dict))
-        row["orders"].append(order)
-        if status == "delivered":
-            row["deliveredOrders"] += 1
-            row["sales"] += amount
-            row["approvedCommission"] += commission
-        elif status in {"pending", "processing", "shipped", "postponed"}:
-            row["openOrders"] += 1
-            row["pipelineCommission"] += commission
-        else:
-            row["canceledOrders"] += 1
-            row["canceledCommission"] += commission
-            row["needsAttention"] = row["needsAttention"] or status in {"returning", "returned"}
-
-    for withdrawal in read_ambassador_withdrawals():
-        if not isinstance(withdrawal, dict):
-            continue
-        uid = str(withdrawal.get("ambassadorUid") or "").strip()
-        if not uid:
-            continue
-        row = ensure(uid)
-        amount = max(0.0, as_number(withdrawal.get("amount"), 0))
-        status = str(withdrawal.get("status") or "pending").strip().lower()
-        if status == "pending":
-            row["pendingWithdrawalsTotal"] += amount
-            row["reservedWithdrawals"] += amount
-        elif status == "approved":
-            row["approvedWithdrawalsTotal"] += amount
-            row["reservedWithdrawals"] += amount
-        elif status == "paid":
-            row["paidWithdrawalsTotal"] += amount
-            row["reservedWithdrawals"] += amount
-        elif status == "rejected":
-            row["rejectedWithdrawalsTotal"] += amount
-
-    result = []
-    for row in profiles.values():
-        for field in (
-            "sales", "pipelineCommission", "pendingApprovalCommission", "approvedCommission",
-            "canceledCommission", "manualAdjustments", "approvedAdjustments", "pendingAdjustments",
-            "reservedWithdrawals", "pendingWithdrawalsTotal", "approvedWithdrawalsTotal",
-            "paidWithdrawalsTotal", "rejectedWithdrawalsTotal",
-        ):
-            row[field] = round(as_number(row[field], 0), 2)
-        row["availableBalance"] = round(max(0.0, row["approvedCommission"] + row["approvedAdjustments"] - row["reservedWithdrawals"]), 2)
-        row["orders"].sort(key=lambda item: as_int(item.get("createdAtMs"), 0), reverse=True)
-        result.append(row)
-    result.sort(key=lambda item: (as_int(item.get("lastOrderMs"), 0), item["approvedCommission"]), reverse=True)
-    return result, warning
-
-
-@app.get("/admin/ambassadors/summary")
-def get_admin_ambassador_finance_summary():
-    ok, err = require_admin()
-    if not ok:
-        return err
-    from_ms = max(0, as_int(request.args.get("fromMs", 0), 0))
-    to_ms = max(0, as_int(request.args.get("toMs", 0), 0))
-    items, warning = _admin_ambassador_finance_profiles(from_ms, to_ms)
-    summary = {
-        "ambassadorCount": len(items),
-        "ordersCount": sum(as_int(item.get("ordersCount"), 0) for item in items),
-        "sales": round(sum(as_number(item.get("sales"), 0) for item in items), 2),
-        "pipelineCommission": round(sum(as_number(item.get("pipelineCommission"), 0) for item in items), 2),
-        "pendingApprovalCommission": 0.0,
-        "approvedCommission": round(sum(as_number(item.get("approvedCommission"), 0) for item in items), 2),
-        "canceledCommission": round(sum(as_number(item.get("canceledCommission"), 0) for item in items), 2),
-        "manualAdjustments": 0.0,
-        "availableBalance": round(sum(as_number(item.get("availableBalance"), 0) for item in items), 2),
-        "reservedWithdrawals": round(sum(as_number(item.get("reservedWithdrawals"), 0) for item in items), 2),
-        "pendingWithdrawalsTotal": round(sum(as_number(item.get("pendingWithdrawalsTotal"), 0) for item in items), 2),
-        "approvedWithdrawalsTotal": round(sum(as_number(item.get("approvedWithdrawalsTotal"), 0) for item in items), 2),
-        "paidWithdrawalsTotal": round(sum(as_number(item.get("paidWithdrawalsTotal"), 0) for item in items), 2),
-        "deliveredOrders": sum(as_int(item.get("deliveredOrders"), 0) for item in items),
-        "openOrders": sum(as_int(item.get("openOrders"), 0) for item in items),
-    }
-    return jsonify({"ok": True, "count": len(items), "items": items, "summary": summary, "source": "orders", "warning": warning})
-
-
-@app.get("/admin/ambassadors/detail")
-def get_admin_ambassador_finance_detail():
-    ok, err = require_admin()
-    if not ok:
-        return err
-    key = str(request.args.get("key") or "").strip()
-    if not key:
-        return jsonify({"ok": False, "error": "معرّف المندوبة مطلوب"}), 400
-    items, warning = _admin_ambassador_finance_profiles()
-    item = next((row for row in items if str(row.get("key") or "") == key or str(row.get("uid") or "") == key), None)
-    if item is None:
-        return jsonify({"ok": False, "error": "المندوبة غير موجودة"}), 404
-    return jsonify({"ok": True, "item": item, "source": "orders", "warning": warning})
 
 
 @app.get("/admin/customers")

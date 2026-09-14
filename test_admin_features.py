@@ -808,7 +808,7 @@ class AdminFeatureTests(unittest.TestCase):
         self.assertTrue(orders[0]["inventoryReserved"])
         self.assertEqual(products[0]["sizeQuantities"]["M"], 1)
 
-    def test_sabil_returning_does_not_restore_until_returned(self):
+    def test_sabil_returning_restores_stock_once_and_marks_physical_return(self):
         products, orders, read_products, write_products, read_orders, write_orders = self._inventory_api_state()
         with patch.object(server, "_SABIL_ENABLED", False), \
              patch.object(server, "read_products", side_effect=read_products), \
@@ -823,8 +823,10 @@ class AdminFeatureTests(unittest.TestCase):
             server._change_order_status("provider-return", "returning", sabil_snapshot={
                 "providerStatus": "returning", "deleted": False, "timeline": [],
             })
-            self.assertTrue(orders[0]["inventoryReserved"])
-            self.assertEqual(products[0]["sizeQuantities"]["M"], 1)
+            self.assertFalse(orders[0]["inventoryReserved"])
+            self.assertEqual(products[0]["sizeQuantities"]["M"], 2)
+            self.assertEqual(orders[0]["physicalWarehouseStatus"], "returning_not_in_warehouse")
+            self.assertIn("ليست في المخزن", orders[0]["physicalWarehouseMessage"])
 
             server._change_order_status("provider-return", "returned", sabil_snapshot={
                 "providerStatus": "returned", "deleted": False, "timeline": [],
@@ -835,7 +837,32 @@ class AdminFeatureTests(unittest.TestCase):
         self.assertFalse(orders[0]["inventoryReserved"])
         self.assertEqual(products[0]["sizeQuantities"]["M"], 2)
 
-    def test_cancel_after_delivery_starts_return_without_restoring_stock(self):
+    def test_admin_orders_exposes_returning_not_in_warehouse_warning(self):
+        order = server.normalize_order_item({
+            **self._order_payload(order_id="returning-admin-warning"),
+            "status": "returning",
+            "inventoryRestoredAtMs": 123,
+        })
+        old_token = server.API_TOKEN
+        server.API_TOKEN = "test-token"
+        try:
+            with patch.object(server, "read_orders", return_value=[order]), \
+                 patch.object(server, "ensure_order_tracking_tokens", return_value=False), \
+                 patch.object(server, "_trigger_sabil_sync_if_due"):
+                response = server.app.test_client().get(
+                    "/orders",
+                    headers={"Authorization": "Bearer test-token"},
+                )
+        finally:
+            server.API_TOKEN = old_token
+
+        self.assertEqual(response.status_code, 200)
+        item = response.get_json()["items"][0]
+        self.assertEqual(item["physicalWarehouseStatus"], "returning_not_in_warehouse")
+        self.assertIn("ليست في المخزن", item["physicalWarehouseMessage"])
+        self.assertEqual(item["inventoryRestoredAtMs"], 123)
+
+    def test_cancel_after_delivery_starts_return_and_restores_stock_immediately(self):
         products, orders, read_products, write_products, read_orders, write_orders = self._inventory_api_state()
         with patch.object(server, "_SABIL_ENABLED", False), \
              patch.object(server, "read_products", side_effect=read_products), \
@@ -853,8 +880,9 @@ class AdminFeatureTests(unittest.TestCase):
             updated = server._change_order_status("delivered-cancel", "canceled")
 
             self.assertEqual(updated["status"], "returning")
-            self.assertTrue(updated["inventoryReserved"])
-            self.assertEqual(products[0]["sizeQuantities"]["M"], 1)
+            self.assertFalse(updated["inventoryReserved"])
+            self.assertEqual(products[0]["sizeQuantities"]["M"], 2)
+            self.assertEqual(updated["physicalWarehouseStatus"], "returning_not_in_warehouse")
 
             received = server._change_order_status("delivered-cancel", "returned")
             self.assertEqual(received["status"], "returned")
@@ -1103,45 +1131,6 @@ class AdminFeatureTests(unittest.TestCase):
             server.API_TOKEN = old_token
 
         self.assertEqual(response.status_code, 401)
-
-    def test_admin_ambassador_finance_summary_returns_orders_and_balances(self):
-        old_token = server.API_TOKEN
-        server.API_TOKEN = "test-token"
-        order = server.normalize_order_item({
-            "orderId": "amb-finance-1",
-            "status": "delivered",
-            "createdAtMs": 100,
-            "payload": {
-                "customer": {"submitterUid": "amb-1", "placedAsAmbassador": True},
-                "items": [{"productId": "dress-1", "quantity": 2, "price": 50}],
-                "pricing": {"grandTotal": 100},
-            },
-        })
-        profiles = [{
-            "uid": "amb-1",
-            "ambassadorName": "سارة",
-            "ambassadorPhone": "0912345678",
-            "ambassadorAddress": "طرابلس",
-            "status": "active",
-        }]
-        try:
-            with patch.object(server, "_firebase_ambassador_profiles", return_value=(profiles, "")), \
-                 patch.object(server, "read_orders", return_value=[order]), \
-                 patch.object(server, "read_ambassador_withdrawals", return_value=[]):
-                response = server.app.test_client().get(
-                    "/admin/ambassadors/summary",
-                    headers={"Authorization": "Bearer test-token"},
-                )
-        finally:
-            server.API_TOKEN = old_token
-
-        self.assertEqual(response.status_code, 200)
-        data = response.get_json()
-        self.assertTrue(data["ok"])
-        self.assertEqual(data["count"], 1)
-        self.assertEqual(data["items"][0]["name"], "سارة")
-        self.assertEqual(data["items"][0]["deliveredOrders"], 1)
-        self.assertEqual(data["summary"]["ordersCount"], 1)
 
     def test_customer_can_cancel_own_shared_link_order(self):
         order = server.normalize_order_item({
