@@ -5667,6 +5667,146 @@ def list_admin_ambassadors():
     })
 
 
+def _admin_ambassador_finance_profiles(from_ms: int = 0, to_ms: int = 0) -> tuple[List[Dict[str, Any]], str]:
+    """Build the read-only ambassador finance model used by the admin clients."""
+    source_profiles, warning = _firebase_ambassador_profiles()
+    profiles: Dict[str, Dict[str, Any]] = {}
+
+    def ensure(uid: str, order: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        key = str(uid or "").strip()
+        row = profiles.setdefault(key, {
+            "key": key,
+            "uid": key,
+            "name": "مندوبة غير محددة",
+            "email": "",
+            "phone": "",
+            "address": "",
+            "status": "active",
+            "joinedAtMs": 0,
+            "lastOrderMs": 0,
+            "ordersCount": 0,
+            "deliveredOrders": 0,
+            "openOrders": 0,
+            "canceledOrders": 0,
+            "pieces": 0,
+            "sales": 0.0,
+            "pipelineCommission": 0.0,
+            "approvedCommission": 0.0,
+            "canceledCommission": 0.0,
+            "reservedWithdrawals": 0.0,
+            "availableBalance": 0.0,
+            "orders": [],
+        })
+        if order is not None:
+            summary = order.get("ambassadorSummary") if isinstance(order.get("ambassadorSummary"), dict) else {}
+            row["name"] = str(summary.get("ambassadorName") or row["name"]).strip()
+            row["email"] = str(summary.get("ambassadorEmail") or row["email"]).strip()
+            row["phone"] = str(summary.get("ambassadorPhone") or row["phone"]).strip()
+        return row
+
+    for profile in source_profiles:
+        uid = str(profile.get("uid") or "").strip()
+        if not uid:
+            continue
+        row = ensure(uid)
+        row.update({
+            "name": str(profile.get("ambassadorName") or row["name"]).strip(),
+            "email": str(profile.get("email") or row["email"]).strip(),
+            "phone": str(profile.get("ambassadorPhone") or row["phone"]).strip(),
+            "address": str(profile.get("ambassadorAddress") or row["address"]).strip(),
+            "status": str(profile.get("status") or row["status"]).strip().lower(),
+            "joinedAtMs": as_int(profile.get("joinedAt"), row["joinedAtMs"]),
+        })
+
+    for raw in read_orders():
+        if not isinstance(raw, dict):
+            continue
+        order = normalize_order_item(raw)
+        uid = _ambassador_order_owner_uid(order)
+        if not uid:
+            continue
+        created_at = as_int(order.get("createdAtMs"), 0)
+        if from_ms and created_at < from_ms:
+            continue
+        if to_ms and created_at > to_ms:
+            continue
+        row = ensure(uid, order)
+        status = str(order.get("status") or "pending").strip().lower()
+        amount = max(0.0, as_number(order.get("grandTotal"), 0))
+        commission = _ambassador_order_commission(order)
+        row["ordersCount"] += 1
+        row["lastOrderMs"] = max(as_int(row["lastOrderMs"], 0), created_at)
+        payload = order.get("payload") if isinstance(order.get("payload"), dict) else {}
+        lines = payload.get("items") if isinstance(payload.get("items"), list) else []
+        row["pieces"] += sum(max(0, as_int(line.get("quantity"), 0)) for line in lines if isinstance(line, dict))
+        row["orders"].append(order)
+        if status == "delivered":
+            row["deliveredOrders"] += 1
+            row["sales"] += amount
+            row["approvedCommission"] += commission
+        elif status in {"pending", "processing", "shipped", "postponed"}:
+            row["openOrders"] += 1
+            row["pipelineCommission"] += commission
+        else:
+            row["canceledOrders"] += 1
+            row["canceledCommission"] += commission
+
+    for withdrawal in read_ambassador_withdrawals():
+        uid = str(withdrawal.get("ambassadorUid") or "").strip() if isinstance(withdrawal, dict) else ""
+        if not uid:
+            continue
+        status = str(withdrawal.get("status") or "pending").strip().lower()
+        if status not in {"pending", "approved", "paid"}:
+            continue
+        ensure(uid)["reservedWithdrawals"] += max(0.0, as_number(withdrawal.get("amount"), 0))
+
+    items = []
+    for row in profiles.values():
+        for key in ("sales", "pipelineCommission", "approvedCommission", "canceledCommission", "reservedWithdrawals"):
+            row[key] = round(as_number(row[key], 0), 2)
+        row["availableBalance"] = round(max(0.0, row["approvedCommission"] - row["reservedWithdrawals"]), 2)
+        row["orders"].sort(key=lambda order: as_int(order.get("createdAtMs"), 0), reverse=True)
+        items.append(row)
+    items.sort(key=lambda row: (as_int(row["lastOrderMs"], 0), as_number(row["approvedCommission"], 0)), reverse=True)
+    return items, warning
+
+
+@app.get("/admin/ambassadors/summary")
+def get_admin_ambassador_finance_summary():
+    ok, err = require_admin()
+    if not ok:
+        return err
+    from_ms = max(0, as_int(request.args.get("fromMs", 0), 0))
+    to_ms = max(0, as_int(request.args.get("toMs", 0), 0))
+    items, warning = _admin_ambassador_finance_profiles(from_ms, to_ms)
+    summary = {
+        "ambassadorCount": len(items),
+        "ordersCount": sum(as_int(item["ordersCount"], 0) for item in items),
+        "sales": round(sum(as_number(item["sales"], 0) for item in items), 2),
+        "pipelineCommission": round(sum(as_number(item["pipelineCommission"], 0) for item in items), 2),
+        "approvedCommission": round(sum(as_number(item["approvedCommission"], 0) for item in items), 2),
+        "availableBalance": round(sum(as_number(item["availableBalance"], 0) for item in items), 2),
+        "deliveredOrders": sum(as_int(item["deliveredOrders"], 0) for item in items),
+        "openOrders": sum(as_int(item["openOrders"], 0) for item in items),
+    }
+    return jsonify({"ok": True, "count": len(items), "items": items, "summary": summary, "source": "orders", "warning": warning})
+
+
+@app.get("/admin/ambassadors/detail")
+def get_admin_ambassador_finance_detail():
+    ok, err = require_admin()
+    if not ok:
+        return err
+    key = str(request.args.get("key") or "").strip()
+    if not key:
+        return jsonify({"ok": False, "error": "معرّف المندوبة مطلوب"}), 400
+    items, warning = _admin_ambassador_finance_profiles()
+    item = next((row for row in items if str(row["key"]) == key or str(row["uid"]) == key), None)
+    if item is None:
+        return jsonify({"ok": False, "error": "المندوبة غير موجودة"}), 404
+    return jsonify({"ok": True, "item": item, "source": "orders", "warning": warning})
+
+
 @app.get("/admin/customers")
 def list_admin_customers():
     """Customer directory rebuilt from orders, keyed by phone number."""

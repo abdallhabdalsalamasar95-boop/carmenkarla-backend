@@ -862,6 +862,40 @@ class AdminFeatureTests(unittest.TestCase):
         self.assertIn("ليست في المخزن", item["physicalWarehouseMessage"])
         self.assertEqual(item["inventoryRestoredAtMs"], 123)
 
+    def test_admin_ambassador_summary_and_detail_routes_are_available(self):
+        order = server.normalize_order_item({
+            **self._order_payload(order_id="ambassador-summary-order"),
+            "status": "delivered",
+            "ambassadorSummary": {
+                "isAmbassadorOrder": True,
+                "ambassadorUid": "ambassador-1",
+                "ambassadorName": "سارة",
+                "estimatedCommission": 7,
+            },
+        })
+        old_token = server.API_TOKEN
+        server.API_TOKEN = "test-token"
+        try:
+            with patch.object(server, "read_orders", return_value=[order]), \
+                 patch.object(server, "read_ambassador_withdrawals", return_value=[]), \
+                 patch.object(server, "_firebase_ambassador_profiles", return_value=([], "")):
+                client = server.app.test_client()
+                summary = client.get(
+                    "/admin/ambassadors/summary",
+                    headers={"Authorization": "Bearer test-token"},
+                )
+                detail = client.get(
+                    "/admin/ambassadors/detail?key=ambassador-1",
+                    headers={"Authorization": "Bearer test-token"},
+                )
+        finally:
+            server.API_TOKEN = old_token
+
+        self.assertEqual(summary.status_code, 200)
+        self.assertEqual(summary.get_json()["summary"]["ambassadorCount"], 1)
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.get_json()["item"]["name"], "سارة")
+
     def test_cancel_after_delivery_starts_return_and_restores_stock_immediately(self):
         products, orders, read_products, write_products, read_orders, write_orders = self._inventory_api_state()
         with patch.object(server, "_SABIL_ENABLED", False), \
