@@ -1168,6 +1168,23 @@
               <label class="toggle"><span>إظهار البانر الأوسط</span><span class="switch"><input id="websiteSectionBannerEnabled" type="checkbox" checked /><span class="slider"></span></span></label>
             </div>
             <div class="card" style="margin-top:12px">
+              <h3>تسعير التوصيل حسب المدينة</h3>
+              <p class="minimal-note" style="margin-bottom:10px">اختاري وضع التسعير: من درب السبيل أو يدوي من اللوحة. في الوضع اليدوي اكتبي كل سطر بصيغة <strong>المدينة:السعر</strong>.</p>
+              <div class="split-2">
+                <div class="field"><label>وضع التسعير</label><select id="shippingMode"><option value="darb">درب السبيل (مع fallback من الجدول)</option><option value="manual">يدوي بالكامل من الجدول</option></select></div>
+                <div class="field"><label>سعر افتراضي لباقي المدن (د.ل)</label><input id="shippingDefaultCost" type="number" min="0" step="0.1" value="25" /></div>
+                <div class="field form-full"><label>أسعار المدن (كل سطر: المدينة:السعر)</label><textarea id="shippingCityRates" placeholder="طرابلس:10&#10;بنغازي:15&#10;مصراتة:12"></textarea></div>
+                <div class="field"><label>اسم المدينة</label><input id="shippingCityName" type="text" placeholder="مثال: الزنتان" /></div>
+                <div class="field"><label>السعر (د.ل)</label><input id="shippingCityCost" type="number" min="0" step="0.1" placeholder="مثال: 14" /></div>
+                <div class="field form-full">
+                  <div class="quick-row">
+                    <button type="button" class="btn btn-soft" onclick="addShippingRateLine()">+ إضافة مدينة</button>
+                    <button type="button" class="btn btn-soft" onclick="fillDefaultShippingRates()">تعبئة المدن الافتراضية</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="card" style="margin-top:12px">
               <div class="panel-head"><div><h3>تصنيفات الصفحة الرئيسية</h3><p>تحكمي في الأقسام التي تظهر للزبونة وروابط تصفية المنتجات.</p></div><button class="btn btn-soft" onclick="addWebsiteCategory()">+ إضافة تصنيف</button></div>
               <div class="list" id="websiteCategoriesList"></div>
             </div>
@@ -1377,10 +1394,27 @@
     let currentAmbassadorModel = null;
     let dashboardSummary = null;
     const userProfiles = new Map();
+    const DEFAULT_SHIPPING_CITY_RATES = [
+      { city: 'طرابلس', cost: 10 },
+      { city: 'بنغازي', cost: 15 },
+      { city: 'مصراتة', cost: 12 },
+      { city: 'سبها', cost: 20 },
+      { city: 'الزاوية', cost: 12 },
+      { city: 'سرت', cost: 18 },
+      { city: 'درنة', cost: 18 },
+      { city: 'طبرق', cost: 20 },
+      { city: 'جالو اوجلة', cost: 50 },
+      { city: 'جالو أوجلة', cost: 50 },
+    ];
     let marketingConfig = {
       commission: {
         defaultPercent: 7,
         perProductEnabled: true,
+      },
+      shippingPricing: {
+        mode: 'darb',
+        defaultCost: 25,
+        cityRates: [],
       },
       coupons: [],
       offers: { title: '', subtitle: '', ctaLabel: '', items: [] },
@@ -1428,6 +1462,74 @@
     function normalizePlain(v) { return String(v || '').trim(); }
     function normalizeSize(v) { return String(v || '').trim().toUpperCase(); }
     function joinList(items) { return items.join(','); }
+
+    function shippingRatesToText(rows) {
+      if (!Array.isArray(rows)) return '';
+      return rows
+        .filter(row => row && typeof row === 'object')
+        .map(row => {
+          const city = String(row.city || '').trim();
+          const cost = Number(row.cost || 0);
+          if (!city || !Number.isFinite(cost)) return '';
+          return `${city}:${Math.max(0, cost)}`;
+        })
+        .filter(Boolean)
+        .join('\n');
+    }
+
+    function parseShippingRatesText(raw) {
+      const lines = String(raw || '').split(/[\n\r]+/).map(v => v.trim()).filter(Boolean);
+      const seen = new Set();
+      const out = [];
+      for (const line of lines) {
+        const idx = line.indexOf(':');
+        if (idx <= 0) continue;
+        const city = line.slice(0, idx).trim();
+        const cost = Number(line.slice(idx + 1).trim());
+        if (!city || !Number.isFinite(cost) || seen.has(city)) continue;
+        seen.add(city);
+        out.push({ city, cost: Math.max(0, cost) });
+      }
+      return out;
+    }
+
+    function addShippingRateLine() {
+      const cityInput = document.getElementById('shippingCityName');
+      const costInput = document.getElementById('shippingCityCost');
+      const textArea = document.getElementById('shippingCityRates');
+      if (!cityInput || !costInput || !textArea) return;
+      const city = String(cityInput.value || '').trim();
+      const cost = Number(costInput.value || '');
+      if (!city) {
+        toast('اكتبي اسم المدينة أولاً', 'error');
+        return;
+      }
+      if (!Number.isFinite(cost) || cost < 0) {
+        toast('اكتبي سعرًا صحيحًا للمدينة', 'error');
+        return;
+      }
+
+      const rows = parseShippingRatesText(textArea.value);
+      const next = rows.filter(row => String(row.city || '').trim() !== city);
+      next.push({ city, cost: Math.max(0, cost) });
+      textArea.value = shippingRatesToText(next);
+      cityInput.value = '';
+      costInput.value = '';
+      toast(`تمت إضافة/تحديث مدينة ${city}`, 'success');
+    }
+
+    function fillDefaultShippingRates() {
+      const textArea = document.getElementById('shippingCityRates');
+      if (!textArea) return;
+      const existing = parseShippingRatesText(textArea.value);
+      const map = new Map(existing.map(row => [String(row.city || '').trim(), Number(row.cost || 0)]));
+      for (const row of DEFAULT_SHIPPING_CITY_RATES) {
+        if (!map.has(row.city)) map.set(row.city, row.cost);
+      }
+      const merged = [...map.entries()].map(([city, cost]) => ({ city, cost }));
+      textArea.value = shippingRatesToText(merged);
+      toast('تمت تعبئة المدن الافتراضية', 'success');
+    }
 
     function parseQuantityMap(raw, normalize = normalizePlain) {
       const out = {};
@@ -1588,6 +1690,10 @@
       document.getElementById('websiteSectionBannerSpacing').value = ['tight', 'normal', 'wide'].includes(sectionBanner.spacing) ? sectionBanner.spacing : 'tight';
       document.getElementById('websiteSectionBannerEnabled').checked = sectionBanner.enabled !== false;
       updateWebsiteSectionBannerPreview(sectionBanner.imageUrl || '');
+      const shippingPricing = marketingConfig.shippingPricing || {};
+      document.getElementById('shippingMode').value = ['darb', 'manual'].includes(String(shippingPricing.mode || 'darb')) ? shippingPricing.mode : 'darb';
+      document.getElementById('shippingDefaultCost').value = Number(shippingPricing.defaultCost ?? 25);
+      document.getElementById('shippingCityRates').value = shippingRatesToText(shippingPricing.cityRates || []);
       renderWebsiteCategories(websiteHome.categories || []);
       renderCampaignEditor('couponList', marketingConfig.coupons || [], 'coupon');
       renderCampaignEditor('offersItemsList', offers.items || [], 'offer');
@@ -1652,6 +1758,11 @@
           spacing: document.getElementById('websiteSectionBannerSpacing').value,
         };
         marketingConfig.websiteHome.categories = readWebsiteCategoriesFromDom();
+        marketingConfig.shippingPricing = {
+          mode: document.getElementById('shippingMode').value === 'manual' ? 'manual' : 'darb',
+          defaultCost: Math.max(0, Number(document.getElementById('shippingDefaultCost').value || 25)),
+          cityRates: parseShippingRatesText(document.getElementById('shippingCityRates').value),
+        };
         const data = await api('PUT', '/marketing/config', marketingConfig);
         if (!data.ok) throw new Error(data.error || 'فشل حفظ الحملات');
         marketingConfig = data.config || marketingConfig;
@@ -2987,6 +3098,9 @@
         const status = String(o.status || 'pending').toLowerCase();
         const total = Number(o.grandTotal || 0);
         const createdAt = fmtTime(o.createdAtMs);
+        const returningWarning = status === 'returning'
+          ? `<div class="minimal-note" style="margin-top:5px;color:#a63c2f">↩ راجعة وليست في المخزن فعليًا — تمت إعادة الكمية لمخزون البيع.</div>`
+          : '';
         const options = ['pending', 'processing', 'shipped', 'delivered', 'canceled']
           .map(s => `<option value="${s}" ${s === status ? 'selected' : ''}>${statusLabel(s)}</option>`)
           .join('');
@@ -2998,7 +3112,7 @@
             <td>${escHtml(o.customerPhone || '—')}</td>
             <td>${Number.isFinite(total) ? total.toFixed(2) : '0.00'} ل.د</td>
             <td>${Number(o.itemsCount || 0)}</td>
-            <td><span class="badge ${statusBadgeClass(status)}">${escHtml(statusLabel(status))}</span></td>
+            <td><span class="badge ${statusBadgeClass(status)}">${escHtml(statusLabel(status))}</span>${returningWarning}</td>
             <td>${escHtml(createdAt)}</td>
             <td>
               <div class="quick-row" style="min-width:200px">
@@ -3017,6 +3131,9 @@
           const status = String(o.status || 'pending').toLowerCase();
           const total = Number(o.grandTotal || 0);
           const createdAt = fmtTime(o.createdAtMs);
+          const returningWarning = status === 'returning'
+            ? '<div class="minimal-note" style="margin-top:8px;color:#a63c2f">↩ الشحنة راجعة وليست في المخزن فعليًا. تمت إعادة الكمية لمخزون البيع.</div>'
+            : '';
           const options = ['pending', 'processing', 'shipped', 'delivered', 'canceled']
             .map(s => `<option value="${s}" ${s === status ? 'selected' : ''}>${statusLabel(s)}</option>`)
             .join('');
@@ -3032,6 +3149,7 @@
                 <div>الحالة: <span class="badge ${statusBadgeClass(status)}">${escHtml(statusLabel(status))}</span></div>
                 <div>التاريخ: ${escHtml(createdAt)}</div>
               </div>
+              ${returningWarning}
               <div class="mobile-actions">
                 <select id="ordStatusMobile_${escHtml(id)}">${options}</select>
                 <button class="btn btn-soft" onclick="updateOrderStatus('${escHtml(id)}', 'mobile')">حفظ الحالة</button>
